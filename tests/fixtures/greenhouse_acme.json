@@ -1,0 +1,275 @@
+{
+  "jobs": [
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=8172487",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 3537052,
+      "location": {
+        "name": "Dublin"
+      },
+      "metadata": null,
+      "id": 8172487,
+      "updated_at": "2026-09-12T13:25:25-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Abuse Investigator",
+      "company_name": "Stripe",
+      "first_published": "2026-09-03T13:30:34-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;&lt;strong&gt;Who we are &lt;/strong&gt;&lt;/h2&gt;\n&lt;h3&gt;&lt;strong&gt;About Stripe&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies - from the world’s largest enterprises to the most ambitious startups - use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone&#39;s reach while doing the most important work of your career.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;About the team&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Abuse Operations is the front-line incident response and remediation function handling active product abuse and fraud impacting Stripe and its merchants. This multi-disciplinary group, spanning Incident Managers, Investigators, Forward Deployed Security Engineers, and Data Scientists, neutralizes active attacks, gathers requirements for operational tooling, and leads incidents. The team&amp;nbsp; works directly with impacted merchants to resolve technical incidents and policy abuse rapidly. Operating primarily across Eastern, Pacific and Western European time zones, these team members regularly coordinate with global stakeholders across the world.&lt;/p&gt;\n&lt;h2&gt;&lt;strong&gt;What you’ll do&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;You&#39;ll play a critical role in safeguarding our financial ecosystem by investigating high-risk accounts and identifying complex patterns of fraud during incidents. You will lead incident response for product abuse and fraud events, conducting deep-dive analyses to identify root causes. By collaborating cross-functionally, you will drive improvements that enhance our fraud detection and prevention strategies at scale. Your expertise will be essential in automating response processes through agentic approaches, allowing us to safeguard merchants and neutralize threats with speed and precision.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Investigate, mitigate, and remediate urgent fraud incidents (e.g., ATO, card testing), utilizing FT3-mapped detection and signals enrichment to reduce uncertainty and accelerate response.&lt;/li&gt;\n&lt;li&gt;As part of incidents, analyze high-risk accounts to identify fraudulent merchants, card testing, account takeovers, and other fraud vectors, classifying them using FT3 (Fraud Taxonomy 3.0) to standardize threat intelligence.&lt;/li&gt;\n&lt;li&gt;Lead incident root cause analyses to identify gaps in current systems and strategies, leveraging the FT3 framework, data-driven model to drive enhancements and process improvements for emerging fraud risks.&lt;/li&gt;\n&lt;li&gt;Streamline incident response capabilities, ensuring the tooling and processes are clear, accurate and efficient&lt;/li&gt;\n&lt;li&gt;Work cross-functionally with security, fraud and data science teams to build agentic solutions for responding to abuse incidents at scale&lt;/li&gt;\n&lt;li&gt;Effectively communicate cross-functionally with legal and policy teams to assess and mitigate risks, while demonstrating strong problem-solving under pressure.&lt;/li&gt;\n&lt;li&gt;Collaborate effectively with teammates, leading projects, mentoring others, and developing and championing quality standards within the team&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;&lt;strong&gt;Who you are&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;&lt;span style=&quot;font-weight: 400;&quot;&gt;We&#39;re looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.&lt;/span&gt;&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Minimum requirements&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;5+ years of experience conducting incident response in security, product abuse or trust domains&lt;/li&gt;\n&lt;li&gt;5+ years experience analyzing large data sets to solve problems and/or building models with a behavioral approach to fraud detection&lt;/li&gt;\n&lt;li&gt;B.S. or M.S. Computer Science or related field, or equivalent experience&lt;/li&gt;\n&lt;li&gt;Expert knowledge of Python and SQL, and familiarity with other programming languages&lt;/li&gt;\n&lt;li&gt;Existing experience with log analysis (e.g. first or third party applications, system / data access, event logs), network security, digital forensics, and incident response investigations&lt;/li&gt;\n&lt;li&gt;Ability to communicate results clearly and focus on impact&lt;/li&gt;\n&lt;li&gt;Ability to think creatively and holistically about reducing risk in a complex environment&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Preferred qualifications&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;An adversarial mindset, understanding the goals, behaviors, and TTPs of threat actors.&lt;/li&gt;\n&lt;li&gt;Experience with engineering, data processing and analysis tools (e.g. Databricks, Trino, etc.)&lt;/li&gt;\n&lt;li&gt;Familiarity with common open-source frameworks for big data processing and/or data science (PySpark, Pandas, Sci-kit Learn, etc.)&lt;/li&gt;\n&lt;li&gt;Experience with tactical threat intelligence and/or hunting for sophisticated threat actors in an enterprise environment&lt;/li&gt;\n&lt;li&gt;Ability to proactively challenge the status quo by leveraging data and taking a user-centric approach to address complex product integrity challenges&lt;/li&gt;\n&lt;/ul&gt;",
+      "departments": [
+        {
+          "id": 81946,
+          "name": "8611 Security Analytics",
+          "child_ids": [],
+          "parent_id": 78876
+        }
+      ],
+      "offices": [
+        {
+          "id": 87011,
+          "name": "Ireland Locations",
+          "location": null,
+          "child_ids": [
+            80459,
+            80460
+          ],
+          "parent_id": 17446
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/8172487/ai_opt_out"
+    },
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=7217048",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 2866462,
+      "location": {
+        "name": "N/A"
+      },
+      "metadata": null,
+      "id": 7217048,
+      "updated_at": "2026-09-10T13:11:58-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Backend Engineer, Billing/Tax",
+      "company_name": "Stripe",
+      "first_published": "2025-09-02T18:26:14-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;Who we are&lt;/h2&gt;\n&lt;h3&gt;About Stripe&lt;/h3&gt;\n&lt;p&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies—from the world’s largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone’s reach while doing the most important work of your career.&lt;/p&gt;\n&lt;h3&gt;About the team&lt;/h3&gt;\n&lt;p&gt;The Revenue and Financial Automation (RFA) team at Stripe is building a modern, revenue-focused, financial management platform for fast growing, digital native companies.&amp;nbsp;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;&lt;strong&gt;Billing:&lt;/strong&gt; Hundreds of thousands of businesses of all sizes and types use Stripe Billing to collect revenue for recurring and one-time payments across a variety of different pricing models—from selling SaaS subscriptions, to orchestrating multi-stage contracts, delivering Usage-Based Billing, and providing recovery and retention tools to prevent customer churn.&lt;/li&gt;\n&lt;li&gt;&lt;strong&gt;Tax:&lt;/strong&gt; You know how everyone loves taxes? And it&#39;s such a simple, stable, and well-understood area? We handle all the sales-related taxes (across Checkout &amp;amp; Billing) and make it super easy to register, auto-collect the right amount of tax, and access the reports you need to file returns globally&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;em&gt;Note: exact team matching for one of the pods will begin during final stages. Please note we may also consider you for different orgs based on your experience, location, etc. More information on our team matching process can be found&amp;nbsp;&lt;a href=&quot;https://docs.google.com/document/d/1zvJkO2c7GzukHG-_oqc5wbOLajpuh5FjbmZPcZPU1o0/edit?tab=t.0#heading=h.ahb3b6nrktv1&quot;&gt;here&lt;/a&gt;.&amp;nbsp;&lt;/em&gt;&lt;/p&gt;\n&lt;h2&gt;What you’ll do&lt;/h2&gt;\n&lt;p&gt;As an engineer on the team, you’ll be responsible for shaping and building a suite of products that let our users model and operate their business more efficiently. You will work on projects that span technologies, systems, and processes where you will design, build, test, and ship great code every day. In this cross functional role, you will collaborate with experts in infrastructure, security, design, and operations to build mission critical internal and external features that power Stripe users around the world.&amp;nbsp;&lt;/p&gt;\n&lt;h3&gt;Responsibilities&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Design the next generation of Stripe products, to meet the high growth needs of our company and customers for years to come.&lt;/li&gt;\n&lt;li&gt;Deliver value through a strong collaborative and users-first approach with stakeholders and customers.&lt;/li&gt;\n&lt;li&gt;Mentor engineers to help them grow&lt;/li&gt;\n&lt;li&gt;Debug and solve critical production issues across services and multiple levels of the stack&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;Who you are&lt;/h2&gt;\n&lt;p&gt;We’re looking for someone who meets the minimum requirements to be considered for the role. If you meet these requirements, you are encouraged to apply. The preferred qualifications are a bonus, not a requirement.&lt;/p&gt;\n&lt;h3&gt;Minimum requirements&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;2-12+ years of experience in backend software development&lt;/li&gt;\n&lt;li&gt;Ability to write high quality code (in programming languages like Go, Java, C/C++, etc.)&lt;/li&gt;\n&lt;li&gt;Hands-on experience contributing to or building large scale distributed systems&lt;/li&gt;\n&lt;li&gt;Strong collaboration skills, can work across workstreams within your team and contribute to your peers’ success&lt;/li&gt;\n&lt;li&gt;Have the ability to thrive on a high level of autonomy, responsibility, and think of yourself as entrepreneurial&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h3&gt;&lt;strong&gt;Preferred Qualifications&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Familiarity with event-driven architectures&lt;/li&gt;\n&lt;li&gt;Experience with subscription management, usage-based billing, or financial reporting systems&lt;/li&gt;\n&lt;li&gt;Interest in financial infrastructure and how businesses manage their revenue operations&lt;/li&gt;\n&lt;li&gt;Direct leadership and mentorship experience&lt;/li&gt;\n&lt;/ul&gt;",
+      "departments": [
+        {
+          "id": 66154,
+          "name": "8412 Billing Products",
+          "child_ids": [],
+          "parent_id": 88204
+        }
+      ],
+      "offices": [
+        {
+          "id": 87006,
+          "name": "Canada Locations",
+          "location": null,
+          "child_ids": [
+            93355,
+            212396,
+            243441,
+            264677,
+            83765,
+            83863,
+            80164,
+            80439,
+            83762,
+            83763,
+            83766,
+            83764
+          ],
+          "parent_id": 673
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/7217048/ai_opt_out"
+    },
+    {
+      "absolute_url": "https://stripe.com/jobs/search?gh_jid=8190048",
+      "data_compliance": [
+        {
+          "type": "gdpr",
+          "requires_consent": false,
+          "requires_processing_consent": false,
+          "requires_retention_consent": false,
+          "retention_period": null,
+          "demographic_data_consent_applies": false
+        }
+      ],
+      "education": "education_required",
+      "internal_job_id": 3544091,
+      "location": {
+        "name": "US-Remote"
+      },
+      "metadata": null,
+      "id": 8190048,
+      "updated_at": "2026-09-14T15:33:33-04:00",
+      "requisition_id": "See Opening ID",
+      "title": "Account Executive, Product Sales - Tax",
+      "company_name": "Stripe",
+      "first_published": "2026-09-11T17:16:20-04:00",
+      "language": "en",
+      "application_deadline": null,
+      "content": "&lt;h2&gt;&lt;strong&gt;Who we are&lt;/strong&gt;&lt;/h2&gt;\n&lt;h3&gt;&lt;strong&gt;About Stripe&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Stripe is a financial infrastructure platform for businesses. Millions of companies—from the world&#39;s largest enterprises to the most ambitious startups—use Stripe to accept payments, grow their revenue, and accelerate new business opportunities. Our mission is to increase the GDP of the internet, and we have a staggering amount of work ahead. That means you have an unprecedented opportunity to put the global economy within everyone&#39;s reach while doing the most important work of your career.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;About the team&lt;/strong&gt;&lt;/h3&gt;\n&lt;p&gt;Product Sales is a team of functional and technical specialists who both lead and advise on deals for the most strategically important products in the Stripe portfolio. Revenue suite Product Sales is tasked with pursuing a $100B market opportunity for back-office finance automation across billing, tax, revenue reporting, and data.&lt;/p&gt;\n&lt;h2&gt;&lt;strong&gt;What you’ll do&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;As a Tax Account Executive at Stripe, you&#39;ll use your sales and product expertise to help drive growth through both existing and new-to-Stripe customers. You&#39;ll collaborate with the core sales, marketing, product marketing, and product teams to develop deep product and industry knowledge and drive strategic deals. You&#39;ll lead in-depth product discussions with existing and prospective customers and build and execute against our go-to-market strategy.&lt;/p&gt;\n&lt;h3&gt;&lt;strong&gt;Responsibilities&lt;/strong&gt;&lt;/h3&gt;\n&lt;ul&gt;\n&lt;li&gt;Drive revenue and retain users to achieve and over perform on target and KPIs&lt;/li&gt;\n&lt;li&gt;Lead discussions with our largest existing and prospective customers&lt;/li&gt;\n&lt;li&gt;Contribute to the development of go-to-market playbooks alongside product, marketing, sales, and technical services stakeholders&lt;/li&gt;\n&lt;li&gt;Understand and articulate the value propositions of Stripe Tax to key stakeholders, including technical teams, financial departments, partners and C-suite executives.&lt;/li&gt;\n&lt;li&gt;Develop a deep understanding of global indirect tax requirements of potential customers.&lt;/li&gt;\n&lt;li&gt;Build and maintain relationships with clients, guiding them through the sales process and helping ensure a successful implementation of Stripe Tax.&lt;/li&gt;\n&lt;li&gt;Collaborate closely with the product, engineering, marketing, and customer success teams to ensure client satisfaction and long-term growth.&lt;/li&gt;\n&lt;li&gt;Stay up-to-date on industry trends in data, analytics, and reporting to identify new opportunities and keep Stripe ahead of the curve.&lt;/li&gt;\n&lt;li&gt;Identify and pursue expansion opportunities with existing Stripe Tax users to drive adoption of additional compliance tools.&lt;/li&gt;\n&lt;li&gt;Lead renewal conversations with existing Stripe Tax users, leveraging a deep understanding of their evolving business needs.&lt;/li&gt;\n&lt;li&gt;Ensure users are able to quickly go live by proactively addressing any outstanding questions from the sales process.&lt;/li&gt;\n&lt;/ul&gt;\n&lt;h2&gt;&lt;strong&gt;Who you are&lt;/strong&gt;&lt;/h2&gt;\n&lt;p&gt;You are an adept salesperson, capable of engaging in business-level and technical conversations at multiple levels of the organization, including C-Level roles. You are used to building value in competitive situations and enjoy working on products that require deep product understanding, combined with technical knowledge. You’re comfortable working with clients as you are with internal stakeholders (including executives). You’re excited to become an expert and to share your knowledge. You’re an organized self-starter, an excellent communicator who is highly analytical and has a track record for improving the processes and organizations around you.&lt;/p&gt;\n&lt;p&gt;&lt;strong&gt;Minimum requirements&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;8+ years of sales or prospecting experience at a technology company and a track record of top performance&lt;/li&gt;\n&lt;li&gt;Owning a direct sales quota, with direct sales experience closing new business and/or expansion of existing users&lt;/li&gt;\n&lt;li&gt;A proven ability to build strong collaborative working relationships with business partners&lt;/li&gt;\n&lt;li&gt;A proven ability to be a self-starter capable of driving business results without significant supervision&lt;/li&gt;\n&lt;li&gt;An enthusiastic “roll up your sleeves” mentality&lt;/li&gt;\n&lt;li&gt;Excellent verbal and written communication skills&lt;/li&gt;\n&lt;li&gt;Strong presentation skills, particularly for in-person meetings with multiple stakeholders&lt;/li&gt;\n&lt;li&gt;Proven ability to lead complex negotiations involving bespoke commercial agreements&lt;/li&gt;\n&lt;li&gt;Ability to understand complex technical requirements and craft solutions across multiple stakeholders&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;strong&gt;Preferred qualifications&lt;/strong&gt;&lt;/p&gt;\n&lt;ul&gt;\n&lt;li&gt;3+ years of experience specifically selling financial services or similar software&amp;nbsp;&lt;/li&gt;\n&lt;li&gt;Experience in selling Tax solutions&lt;/li&gt;\n&lt;li&gt;Proven ability to sell complex software solutions&lt;/li&gt;\n&lt;/ul&gt;\n&lt;p&gt;&lt;strong&gt;In-office Expectations&lt;/strong&gt;&lt;/p&gt;\n&lt;p&gt;Office-assigned Stripes in most of our locations are currently expected to spend at least 50% of the time in a given month in their local office or with users. This expectation may vary depending on role, team and location. For example, Stripes in Stripe Delivery Center roles in Mexico City, Mexico, Bengaluru, India, and Dublin, Ireland work 100% from the office. Also, some teams have greater in-office attendance requirements, to appropriately support our users and workflows, which the hiring manager will discuss. This approach helps strike a balance between bringing people together for in-person collaboration and learning from each other, while supporting flexibility when possible.&lt;/p&gt;",
+      "departments": [
+        {
+          "id": 86074,
+          "name": "1641 Product Sales - RFA ex Billing",
+          "child_ids": [],
+          "parent_id": 85336
+        }
+      ],
+      "offices": [
+        {
+          "id": 65234,
+          "name": "US",
+          "location": null,
+          "child_ids": [
+            89623,
+            249942,
+            249943,
+            230657,
+            61413,
+            80440,
+            344486,
+            83778,
+            61414,
+            83767,
+            83768,
+            83776,
+            83769,
+            83770,
+            83771,
+            83772,
+            83773,
+            83774,
+            89624,
+            83789,
+            83775,
+            83777,
+            83779,
+            83780,
+            83820,
+            83781,
+            83782,
+            83783,
+            83784,
+            83785,
+            83786,
+            83787,
+            83821,
+            83788,
+            83790,
+            83791,
+            83792,
+            83793,
+            83794,
+            83854,
+            83861,
+            83795,
+            83796,
+            83797,
+            83831,
+            83798,
+            83799,
+            83856,
+            83800,
+            83801,
+            83819,
+            83802,
+            83850,
+            83803,
+            83804,
+            83805,
+            83806,
+            83807,
+            83808,
+            83809,
+            83810,
+            83811,
+            83812,
+            83813,
+            83815,
+            83817,
+            83822,
+            83824,
+            83846,
+            83825,
+            83829,
+            83830,
+            65238,
+            83834,
+            83849,
+            83859,
+            83835,
+            83836,
+            83837,
+            83839,
+            83840,
+            83841,
+            83842,
+            83843,
+            83844,
+            83847,
+            83848,
+            83851,
+            83852,
+            83853,
+            83855,
+            83857,
+            83858,
+            83860,
+            83862,
+            83814,
+            83818,
+            83823,
+            83826,
+            83827,
+            83828,
+            83832,
+            83833,
+            83816,
+            85342,
+            83838,
+            83845,
+            223073,
+            265365,
+            16654
+          ],
+          "parent_id": 673
+        }
+      ],
+      "ai_disclaimer": null,
+      "include_ai_disclaimer": false,
+      "ai_opt_out_request_url": "http://app.greenhouse.io/ai_opt_out_request/job_post/8190048/ai_opt_out"
+    }
+  ]
+}
