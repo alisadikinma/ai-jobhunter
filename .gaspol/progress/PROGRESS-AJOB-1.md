@@ -20,6 +20,7 @@
 - 2026-09-19 — `fetch` wajib streaming ke berkas: satu board Greenhouse 5,1 MB. Diputuskan Claude setelah mengukur, bukan memperkirakan.
 - 2026-09-19 — Master CV disusun dari banyak sumber lewat 4 langkah (ingest/extract/reconcile/render) dengan asal-usul per butir. Urutan kuasa: identity card > catatan pribadi lain > project > LinkedIn PDF > situs pribadi > situs produk. Diputuskan Ali.
 - 2026-09-19 — `_normalize_url` DIPERBAIKI: buang hanya parameter pelacak (`utm_*`, `ref`, `gclid`, dst.), pertahankan parameter identitas, urutkan sisanya. Diputuskan Claude setelah mengukur. Versi pertama membuang seluruh query dan meruntuhkan 667 lowongan Stripe jadi 1 kunci — rencana asli ("dua URL beda hanya di query = sama") yang keliru, bukan kesalahan implementer.
+- 2026-09-19 — Kosakata tingkat precedence DISATUKAN jadi lima: local-primary, local, project, linkedin-pdf, site. `product-site` dihapus (tidak punya field; urutan situs diatur lewat urutan `sites`). Tingkat tak dikenal sekarang `PrecedenceError`, bukan nol entri diam-diam — satu salah ketik tidak boleh membuang satu kelas sumber sementara CV terlihat lengkap. Diputuskan Claude; cacat asalnya di spec, ditemukan implementer Fase B.
 - 2026-09-19 — Catatan project dipakai lewat DAFTAR PUTIH di config, bukan penyaringan. Diputuskan Ali. Alasan terukur: cuma 9 dari 76 berkas punya penanda `sensitivity:`, jadi mode "semua kecuali internal" akan meloloskan 67 berkas tak bertanda yang memuat harga dan status negosiasi klien.
 
 ## Checklist
@@ -40,25 +41,25 @@
 - [x] URL dedupe keeps identifying params: 667 real Stripe postings → 667 keys; 148 Ashby → 148
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase B: config + profile paths
-- [ ] Write failing test for `config.load` reading `.jobhunter/config.toml`. Expected error: `ModuleNotFoundError: No module named 'config'`
-- [ ] Run tests, confirm it fails for that reason
-- [ ] Implement `scripts/config.py` with `tomllib` and explicit budget defaults
-- [ ] Add tests for missing file, malformed TOML, unknown key, min_salary_usd absent vs 0, relative path resolution
-- [ ] Implement `resolve_profile_sources(cfg)` — ordered (tier, path) list; project dirs ALLOW-LISTED, root never scanned
-- [ ] Add allow-list tests: dir on disk but not allowed is never returned; allowed-but-missing raises; `..` or absolute path rejected; empty allowed returns none; exact match, no globs
-- [ ] Write `templates/config.toml`
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(config): TOML config loader with explicit budget defaults"
+### [x] Phase B: config + profile paths
+- [x] Write failing test for `config.load` reading `.jobhunter/config.toml`. RED seen: `ModuleNotFoundError: No module named 'config'`
+- [x] Run tests, confirm it fails for that reason
+- [x] Implement `scripts/config.py` with `tomllib` and explicit budget defaults
+- [x] Add tests for missing file, malformed TOML, unknown key, min_salary_usd absent vs 0, relative path resolution
+- [x] Implement `resolve_profile_sources(cfg)` — ordered (tier, path) list; project dirs ALLOW-LISTED, root never scanned
+- [x] Add allow-list tests: dir on disk but not allowed is never returned; allowed-but-missing raises; `..` or absolute path rejected; empty allowed returns none; exact match, no globs
+- [x] Write `templates/config.toml` (verbatim from spec §4, diffed to confirm)
+- [x] Run tests, confirm all pass — 36 tests (14 Phase A + 22 Phase B), OK
+- [x] Commit: "feat(config): TOML config loader with explicit budget defaults" — `9dbd9b8`
 
 **Verification:**
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t . -v` passes
-- [ ] `min_salary_usd = 0` and an absent key both resolve to "unset", not to a zero floor
-- [ ] A missing config raises an error naming the skill that creates it
-- [ ] A project directory present on disk but absent from `allowed` is never returned
-- [ ] An `allowed` entry containing `..` or an absolute path is rejected
-- [ ] No placeholder/TODO comments in new code
+- [x] `python3 -m compileall -q scripts tests` passes — exit 0
+- [x] `python3 -m unittest discover -s tests -t . -v` passes — 36 tests, OK
+- [x] `min_salary_usd = 0` and an absent key both resolve to "unset", not to a zero floor — both normalise to Python `None`, the only unambiguous sentinel (see `scripts/config.py` module docstring)
+- [x] A missing config raises an error naming the skill that creates it — `ConfigMissingError` message contains `/ai-jobhunter:profile`
+- [x] A project directory present on disk but absent from `allowed` is never returned — tested directly, plus a "root never scanned" test with 4 real directories on disk and only 1 allow-listed
+- [x] An `allowed` entry containing `..` or an absolute path is rejected — `ProjectSourceError`, also covers bare path separators
+- [x] No placeholder/TODO comments in new code — verified by grep
 
 ### [ ] Phase C: ATS fetchers (Greenhouse, Lever, Ashby)
 - [ ] Write failing test for `ats.normalize_greenhouse(fixture)`. Expected error: `ModuleNotFoundError: No module named 'ats'`
@@ -153,7 +154,7 @@
 | Phase | Status | Commit |
 |---|---|---|
 | A — local queue | DONE | `f910b60` + fix |
-| B — config | TODO | — |
+| B — config | DONE | `9dbd9b8` |
 | C — ATS fetchers | TODO | — |
 | D — keyword coverage | TODO | — |
 | E — promote | TODO | — |
@@ -171,3 +172,5 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 ## Log
 - 2026-09-19 plan ditulis — NEXT: Phase A
 - 2026-09-19 Phase A done — `python3 -m unittest discover -s tests -t .` 14 lulus / 0 gagal; dedupe diuji lawan data asli Greenhouse (667→667) dan Ashby (148→148) — NEXT: Phase B
+- 2026-09-19 Phase B done — `python3 -m unittest discover -s tests -t .` 37 lulus / 0 gagal; daftar putih diuji terpisah: folder rahasia tidak pernah dikembalikan, `..` / jalur absolut / `sub/dir` ditolak, `min_salary_usd = 0` jadi `None` — NEXT: Phase C
+- 2026-09-19 Phase B done — `python3 -m unittest discover -s tests -t .` 36 lulus / 0 gagal (14 Phase A + 22 Phase B); `min_salary_usd` absen dan `0` sama-sama jadi `None` di `scripts/config.py`, satu-satunya sentinel yang tidak ambigu; allow-list proyek diuji termasuk kasus root berisi 4 folder nyata tapi cuma 1 yang di-allow-list — NEXT: Phase C

@@ -150,14 +150,36 @@ class TestResolveProfileSourcesOrdering(unittest.TestCase):
             tiers = [tier for tier, _ in sources]
             self.assertEqual(tiers, ["local-primary", "local", "linkedin-pdf", "site"])
 
-    def test_tier_with_no_data_field_contributes_no_entries(self):
+    def test_unknown_precedence_tier_raises(self):
+        """A tier naming no config field must fail loudly, not resolve to nothing.
+
+        Resolving it to zero entries means one typo drops a whole class of
+        source while the compiled profile still looks complete.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "config.toml")
             _write(
                 path,
                 '[profile_sources]\n'
                 'sites = ["https://example.com/"]\n'
-                'precedence = ["site", "product-site"]\n',
+                'precedence = ["site", "prodcut-site"]\n',
+            )
+            cfg = config.load(path)
+            with self.assertRaises(config.PrecedenceError) as ctx:
+                config.resolve_profile_sources(cfg)
+            self.assertIn("prodcut-site", str(ctx.exception))
+            self.assertIn("Known tiers:", str(ctx.exception))
+
+    def test_known_tier_with_nothing_configured_contributes_no_entries(self):
+        """A known tier whose field is empty is legitimate and stays silent."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(
+                path,
+                '[profile_sources]\n'
+                'local = []\n'
+                'sites = ["https://example.com/"]\n'
+                'precedence = ["local", "site"]\n',
             )
             cfg = config.load(path)
             sources = config.resolve_profile_sources(cfg)

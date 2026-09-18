@@ -3,7 +3,7 @@
 sites        = ["https://example.com/", "https://example-product.com/"]
 linkedin_pdf = "./linkedin-profile.pdf"  # user exports this manually
 local        = ["/path/to/notes/identity/"]  # markdown the candidate owns
-precedence   = ["local-primary", "local", "project", "linkedin-pdf", "site", "product-site"]
+precedence   = ["local-primary", "local", "project", "linkedin-pdf", "site"]
 primary      = "/path/to/notes/identity/profile-card.md"  # wins inside its own tier
 
 # Current-work evidence. ALLOW-LIST ONLY: a directory listed here is read; anything

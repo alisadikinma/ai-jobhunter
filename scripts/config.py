@@ -59,6 +59,10 @@ class ProjectSourceError(ConfigError):
     or something that does not exist on disk."""
 
 
+class PrecedenceError(ConfigError):
+    """A `profile_sources.precedence` entry names no known tier."""
+
+
 def _is_url(value):
     return "://" in value
 
@@ -224,10 +228,15 @@ def resolve_profile_sources(cfg):
     `"project"` reads directly from a `profile_sources` field (see
     `_TIER_FIELD_MAP`); `"project"` is resolved by `_resolve_project_sources`,
     which allow-lists directory names instead of scanning
-    `profile_sources.projects.root`. A tier name with no corresponding data
-    (e.g. `"product-site"`, which this config shape has no dedicated field
-    for) simply contributes no entries — it is not an error, since an empty
-    tier is a legitimate "nothing configured for this yet" state.
+    `profile_sources.projects.root`.
+
+    An unknown tier name raises `PrecedenceError`. Resolving it to zero
+    entries instead would mean a single typo silently drops a whole class of
+    source from the profile, and the compiled CV would look complete while
+    missing everything that tier held — the same fail-open shape the project
+    allow-list exists to prevent. A tier that is known but has nothing
+    configured contributes no entries, which is a different and legitimate
+    state.
     """
     ps = cfg["profile_sources"]
     precedence = ps.get("precedence") or []
@@ -239,7 +248,11 @@ def resolve_profile_sources(cfg):
             continue
         mapping = _TIER_FIELD_MAP.get(tier)
         if mapping is None:
-            continue
+            known = ", ".join(sorted(list(_TIER_FIELD_MAP) + ["project"]))
+            raise PrecedenceError(
+                f"Unknown precedence tier {tier!r} in profile_sources.precedence. "
+                f"Known tiers: {known}."
+            )
         kind, field = mapping
         if kind == "single":
             value = ps.get(field)

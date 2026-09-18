@@ -65,7 +65,7 @@ standard library ships `tomllib` and no YAML parser, and this plugin takes no de
 sites        = ["https://example.com/", "https://example-product.com/"]
 linkedin_pdf = "./linkedin-profile.pdf"  # user exports this manually
 local        = ["/path/to/notes/identity/"]  # markdown the candidate owns
-precedence   = ["local-primary", "local", "project", "linkedin-pdf", "site", "product-site"]
+precedence   = ["local-primary", "local", "project", "linkedin-pdf", "site"]
 primary      = "/path/to/notes/identity/profile-card.md"  # wins inside its own tier
 
 # Current-work evidence. ALLOW-LIST ONLY: a directory listed here is read; anything
@@ -126,11 +126,26 @@ them by concatenation produces a CV whose numbers contradict each other. The fou
 
 **Precedence order** (configurable; this is the default, most-owned first):
 
-`sources.precedence = ["vault-identity-card", "vault-other", "linkedin-pdf", "personal-site", "product-site"]`
+`profile_sources.precedence = ["local-primary", "local", "project", "linkedin-pdf", "site"]`
 
-A source's tier is declared in config, so the order is data, not code. The rationale:
-files the candidate owns and maintains outrank marketing copy, which rounds numbers, and a
-product site describes a product rather than a person.
+| Tier | Config field | What it is |
+|---|---|---|
+| `local-primary` | `primary` | the one file the candidate nominates as their identity card |
+| `local` | `local` | other markdown the candidate owns |
+| `project` | `projects.allowed` | allow-listed current-work notes |
+| `linkedin-pdf` | `linkedin_pdf` | the exported profile, as third parties read it |
+| `site` | `sites` | public pages, in the order the user lists them |
+
+There are exactly five tiers and each names one config field. A precedence entry naming no
+field is a **hard error**, not a silent no-op: a typo that quietly drops a whole class of
+source is the same fail-open shape the project allow-list exists to prevent.
+
+Personal and product pages share the `site` tier. Splitting them would need a sixth tier
+whose only job is to rank two entries of one list, and the user can already rank them by
+ordering `sites`.
+
+The rationale for the order: files the candidate owns and maintains outrank marketing copy,
+which rounds numbers.
 
 **Current-work sources are allow-listed, never filtered.** A candidate's project notes are
 the strongest evidence of what they are building now, and also the most likely place to hold
