@@ -20,6 +20,7 @@
 - 2026-09-19 — `fetch` wajib streaming ke berkas: satu board Greenhouse 5,1 MB. Diputuskan Claude setelah mengukur, bukan memperkirakan.
 - 2026-09-19 — Master CV disusun dari banyak sumber lewat 4 langkah (ingest/extract/reconcile/render) dengan asal-usul per butir. Urutan kuasa: identity card > catatan pribadi lain > project > LinkedIn PDF > situs pribadi > situs produk. Diputuskan Ali.
 - 2026-09-19 — `_normalize_url` DIPERBAIKI: buang hanya parameter pelacak (`utm_*`, `ref`, `gclid`, dst.), pertahankan parameter identitas, urutkan sisanya. Diputuskan Claude setelah mengukur. Versi pertama membuang seluruh query dan meruntuhkan 667 lowongan Stripe jadi 1 kunci — rencana asli ("dua URL beda hanya di query = sama") yang keliru, bukan kesalahan implementer.
+- 2026-09-19 — Ketidakcocokan tanda hubung (`end-to-end` lawan `end to end`) SENGAJA dilaporkan sebagai missing, bukan covered. Diputuskan Claude. Salah-lapor "belum tertutup" cuma bikin manusia melirik; salah-lapor "sudah tertutup" bikin dia melewatkan celah nyata sebelum mengirim lamaran.
 - 2026-09-19 — Simpulan `workplaceType` Greenhouse DIPERBAIKI: baca hanya dari kata yang menyatakan pengaturan kerja; nama tempat saja berarti field absen. Diputuskan Claude setelah mengukur board asli — 560 dari 667 lokasi cuma nama tempat dan NOL menyebut hybrid/onsite, tapi aturan lama melabeli 329 sebagai `Onsite`. Sebaliknya koma tidak lagi memveto kata yang sudah dinyatakan: `Remote` naik 31 → 107.
 - 2026-09-19 — Kosakata tingkat precedence DISATUKAN jadi lima: local-primary, local, project, linkedin-pdf, site. `product-site` dihapus (tidak punya field; urutan situs diatur lewat urutan `sites`). Tingkat tak dikenal sekarang `PrecedenceError`, bukan nol entri diam-diam — satu salah ketik tidak boleh membuang satu kelas sumber sementara CV terlihat lengkap. Diputuskan Claude; cacat asalnya di spec, ditemukan implementer Fase B.
 - 2026-09-19 — Catatan project dipakai lewat DAFTAR PUTIH di config, bukan penyaringan. Diputuskan Ali. Alasan terukur: cuma 9 dari 76 berkas punya penanda `sensitivity:`, jadi mode "semua kecuali internal" akan meloloskan 67 berkas tak bertanda yang memuat harga dan status negosiasi klien.
@@ -80,7 +81,7 @@
 - [ ] An Ashby row with `isListed: false` is dropped
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase D: keyword coverage report
+### [x] Phase D: keyword coverage report
 - [ ] Write failing test for `keywords.coverage(jd_text, cv_text)`. Expected error: `ModuleNotFoundError: No module named 'keywords'`
 - [ ] Run tests, confirm it fails for that reason
 - [ ] Implement extraction, stopword removal and comparison
@@ -157,7 +158,7 @@
 | A — local queue | DONE | `f910b60` + fix |
 | B — config | DONE | `9dbd9b8` |
 | C — ATS fetchers | DONE | `5998380` + fix |
-| D — keyword coverage | TODO | — |
+| D — keyword coverage | DONE | `8e2033d` |
 | E — promote | TODO | — |
 | F — skills + manifest | TODO | — |
 | G — evals | TODO | — |
@@ -175,5 +176,7 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 - 2026-09-19 Phase A done — `python3 -m unittest discover -s tests -t .` 14 lulus / 0 gagal; dedupe diuji lawan data asli Greenhouse (667→667) dan Ashby (148→148) — NEXT: Phase B
 - 2026-09-19 Phase B done — `python3 -m unittest discover -s tests -t .` 37 lulus / 0 gagal; daftar putih diuji terpisah: folder rahasia tidak pernah dikembalikan, `..` / jalur absolut / `sub/dir` ditolak, `min_salary_usd = 0` jadi `None` — NEXT: Phase C
 - 2026-09-19 Phase C done — `python3 -m unittest discover -s tests -t .` 67 lulus / 0 gagal; tiga board asli dinormalisasi utuh (Greenhouse 667, Lever 11, Ashby 148), nol tes menyentuh jaringan — NEXT: Phase D
+- 2026-09-19 Phase D done — `python3 -m unittest discover -s tests -t .` 85 lulus / 0 gagal; diuji mandiri: java/javascript tidak saling mencemari dua arah, non-ASCII aman, judul tidak mengklaim skor ATS — NEXT: Phase E
+- 2026-09-19 Phase D done — `python3 -m unittest discover -s tests -t .` 85 lulus / 0 gagal; diuji mandiri: java/javascript tidak saling mencemari dua arah, non-ASCII aman, judul tidak mengklaim skor ATS — NEXT: Phase E
 - 2026-09-19 Phase C done — `python3 -m unittest discover -s tests -t .` 67 lulus / 0 gagal; tiga board asli dinormalisasi utuh (Greenhouse 667, Lever 11, Ashby 148), nol tes menyentuh jaringan — NEXT: Phase D
 - 2026-09-19 Phase B done — `python3 -m unittest discover -s tests -t .` 36 lulus / 0 gagal (14 Phase A + 22 Phase B); `min_salary_usd` absen dan `0` sama-sama jadi `None` di `scripts/config.py`, satu-satunya sentinel yang tidak ambigu; allow-list proyek diuji termasuk kasus root berisi 4 folder nyata tapi cuma 1 yang di-allow-list — NEXT: Phase C
