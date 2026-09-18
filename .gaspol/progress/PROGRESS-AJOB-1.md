@@ -19,24 +19,26 @@
 - 2026-09-19 — ATS endpoints diverifikasi hidup (Greenhouse/stripe 667 lowongan, Lever/leverdemo 11, Ashby/ramp 148). Nol pendaftaran, nol kunci API. Diputuskan Ali + Claude; endpoint dan peta field masuk ke plan Fase C.
 - 2026-09-19 — `fetch` wajib streaming ke berkas: satu board Greenhouse 5,1 MB. Diputuskan Claude setelah mengukur, bukan memperkirakan.
 - 2026-09-19 — Master CV disusun dari banyak sumber lewat 4 langkah (ingest/extract/reconcile/render) dengan asal-usul per butir. Urutan kuasa: identity card > catatan pribadi lain > project > LinkedIn PDF > situs pribadi > situs produk. Diputuskan Ali.
+- 2026-09-19 — `_normalize_url` DIPERBAIKI: buang hanya parameter pelacak (`utm_*`, `ref`, `gclid`, dst.), pertahankan parameter identitas, urutkan sisanya. Diputuskan Claude setelah mengukur. Versi pertama membuang seluruh query dan meruntuhkan 667 lowongan Stripe jadi 1 kunci — rencana asli ("dua URL beda hanya di query = sama") yang keliru, bukan kesalahan implementer.
 - 2026-09-19 — Catatan project dipakai lewat DAFTAR PUTIH di config, bukan penyaringan. Diputuskan Ali. Alasan terukur: cuma 9 dari 76 berkas punya penanda `sensitivity:`, jadi mode "semua kecuali internal" akan meloloskan 67 berkas tak bertanda yang memuat harga dan status negosiasi klien.
 
 ## Checklist
 
-### [ ] Phase A: local queue — append, dedupe, read
-- [ ] Write failing test for `jobq.append_rows` writing one JSONL line per row to a temp queue path. Expected error: `ModuleNotFoundError: No module named 'jobq'`
-- [ ] Run `python3 -m unittest discover -s tests -t . -v`, confirm it fails for that reason
-- [ ] Implement `scripts/jobq.py` with `load`, `append_rows`, `row_key`, `iter_unscored`
-- [ ] Add tests for empty file, missing file, no jobUrl, URL query-string difference, duplicate, malformed line, 1000 rows, trailing whitespace
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(queue): local JSONL work queue with URL-and-identity dedupe"
+### [x] Phase A: local queue — append, dedupe, read
+- [x] Write failing test for `jobq.append_rows` writing one JSONL line per row to a temp queue path. RED seen: `ModuleNotFoundError: No module named 'jobq'`
+- [x] Run `python3 -m unittest discover -s tests -t . -v`, confirm it fails for that reason
+- [x] Implement `scripts/jobq.py` with `load`, `append_rows`, `row_key`, `iter_unscored`
+- [x] Add tests for empty file, missing file, no jobUrl, URL query-string difference, duplicate, malformed line, 1000 rows, trailing whitespace
+- [x] Run tests, confirm all pass — 14 tests, OK
+- [x] Commit: "feat(queue): local JSONL work queue with URL-and-identity dedupe" — `f910b60`, fix in follow-up commit
 
 **Verification:**
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t . -v` passes
-- [ ] A malformed line is counted and skipped, and does not abort the read
-- [ ] Re-appending an identical row writes nothing and reports one skipped duplicate
-- [ ] No placeholder/TODO comments in new code
+- [x] `python3 -m compileall -q scripts tests` passes — exit 0
+- [x] `python3 -m unittest discover -s tests -t . -v` passes — 14 tests, OK
+- [x] A malformed line is counted and skipped, and does not abort the read
+- [x] Re-appending an identical row writes nothing and reports one skipped duplicate
+- [x] URL dedupe keeps identifying params: 667 real Stripe postings → 667 keys; 148 Ashby → 148
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase B: config + profile paths
 - [ ] Write failing test for `config.load` reading `.jobhunter/config.toml`. Expected error: `ModuleNotFoundError: No module named 'config'`
@@ -150,7 +152,7 @@
 
 | Phase | Status | Commit |
 |---|---|---|
-| A — local queue | TODO | — |
+| A — local queue | DONE | `f910b60` + fix |
 | B — config | TODO | — |
 | C — ATS fetchers | TODO | — |
 | D — keyword coverage | TODO | — |
@@ -168,3 +170,4 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 
 ## Log
 - 2026-09-19 plan ditulis — NEXT: Phase A
+- 2026-09-19 Phase A done — `python3 -m unittest discover -s tests -t .` 14 lulus / 0 gagal; dedupe diuji lawan data asli Greenhouse (667→667) dan Ashby (148→148) — NEXT: Phase B

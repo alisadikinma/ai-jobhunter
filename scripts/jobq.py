@@ -20,13 +20,47 @@ def _collapse(text):
     return _WHITESPACE_RE.sub(" ", text.lower()).strip()
 
 
+# Query parameters that describe how someone arrived at a posting, never which
+# posting it is. Only these are dropped. Stripping the whole query string is
+# wrong and was measured to be catastrophic: Greenhouse publishes every job on
+# one path and puts the job id in the query (`/jobs/search?gh_jid=8172487`), so
+# dropping the query collapsed all 667 Stripe postings into a single key.
+_TRACKING_PARAMS = frozenset({
+    "fbclid",
+    "gclid",
+    "mc_cid",
+    "mc_eid",
+    "msclkid",
+    "ref",
+    "referrer",
+    "source",
+    "src",
+    "trk",
+    "trackingid",
+    "utm_campaign",
+    "utm_content",
+    "utm_medium",
+    "utm_source",
+    "utm_term",
+})
+
+
 def _normalize_url(url):
-    """Strip query string and fragment so differing query params still dedupe."""
+    """Drop tracking parameters and the fragment; keep every identifying param.
+
+    Remaining parameters are sorted so that the same posting linked with its
+    parameters in a different order still yields one key.
+    """
     parts = urllib.parse.urlsplit(url)
-    normalized = urllib.parse.urlunsplit(
-        (parts.scheme, parts.netloc, parts.path, "", "")
+    kept = [
+        (name, value)
+        for name, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if name.lower() not in _TRACKING_PARAMS
+    ]
+    query = urllib.parse.urlencode(sorted(kept))
+    return urllib.parse.urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, query, "")
     )
-    return normalized
 
 
 def row_key(row):
@@ -35,7 +69,7 @@ def row_key(row):
     sha256 of the normalized `jobUrl` when present, else sha256 of
     `company|jobTitle|location`. Either basis is lower-cased with whitespace
     collapsed before hashing, so cosmetic differences (case, extra spaces,
-    a trailing query string on the URL) never produce distinct keys.
+    tracking parameters, parameter order) never produce distinct keys.
     """
     job_url = row.get("jobUrl")
     if job_url:

@@ -57,6 +57,29 @@ class TestAppendRows(unittest.TestCase):
         self.assertEqual(jobq.row_key(row_a), jobq.row_key(row_b))
         self.assertEqual(jobq.row_key(row_a), jobq.row_key(row_c))
 
+    def test_identifying_query_param_keeps_postings_distinct(self):
+        """Greenhouse puts the job id in the query, so it must never be stripped.
+
+        Regression: dropping the whole query string collapsed all 667 postings
+        on one measured Stripe board into a single key.
+        """
+        row_a = {"jobUrl": "https://stripe.com/jobs/search?gh_jid=8172487"}
+        row_b = {"jobUrl": "https://stripe.com/jobs/search?gh_jid=8172510"}
+        self.assertNotEqual(jobq.row_key(row_a), jobq.row_key(row_b))
+
+    def test_identifying_param_survives_alongside_tracking_param(self):
+        row_a = {"jobUrl": "https://stripe.com/jobs/search?gh_jid=8172487"}
+        row_b = {
+            "jobUrl": "https://stripe.com/jobs/search"
+            "?gh_jid=8172487&utm_source=linkedin&ref=newsletter"
+        }
+        self.assertEqual(jobq.row_key(row_a), jobq.row_key(row_b))
+
+    def test_query_param_order_does_not_change_key(self):
+        row_a = {"jobUrl": "https://jobs.example.com/p?a=1&b=2"}
+        row_b = {"jobUrl": "https://jobs.example.com/p?b=2&a=1"}
+        self.assertEqual(jobq.row_key(row_a), jobq.row_key(row_b))
+
     def test_duplicate_appended_twice_is_skipped(self):
         row = {"jobUrl": "https://boards.example.com/jobs/456"}
         with tempfile.TemporaryDirectory() as tmp:
