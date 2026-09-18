@@ -1,0 +1,25 @@
+[profile_sources]
+# Every entry is a runtime path or URL. Nothing here is bundled with the plugin.
+sites        = ["https://example.com/", "https://example-product.com/"]
+linkedin_pdf = "./linkedin-profile.pdf"  # user exports this manually
+local        = ["/path/to/notes/identity/"]  # markdown the candidate owns
+precedence   = ["local-primary", "local", "project", "linkedin-pdf", "site", "product-site"]
+primary      = "/path/to/notes/identity/profile-card.md"  # wins inside its own tier
+
+# Current-work evidence. ALLOW-LIST ONLY: a directory listed here is read; anything
+# not listed is never opened. There is no "read everything except…" mode.
+[profile_sources.projects]
+root    = "/path/to/notes/projects/"
+allowed = ["project-a", "project-b"]   # exact directory names, no globs
+
+[targets]
+geo = ["US-remote", "global-remote"]
+min_salary_usd = 0                      # 0 means unset, not "pays zero"
+companies = []                          # ATS slugs for direct polling
+
+[budgets]
+firecrawl_credits_per_run = 150         # hard cap; the run aborts at the ceiling
+jobsync_requests_per_run = 50           # stays under the 60/hour MCP limit
+
+[tracking]
+jobsync_mcp = "required"
