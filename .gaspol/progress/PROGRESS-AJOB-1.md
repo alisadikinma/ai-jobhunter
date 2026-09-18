@@ -114,7 +114,7 @@
 - [ ] Batches never exceed 10 items
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase F: the six skills and the plugin manifest
+### [x] Phase F: the six skills and the plugin manifest
 - [ ] Write failing test asserting `.claude-plugin/plugin.json` parses and every `skills/*/SKILL.md` declares name and description. Expected error: `FileNotFoundError: .claude-plugin/plugin.json`
 - [ ] Run tests, confirm it fails for that reason
 - [ ] Write `.claude-plugin/plugin.json`
@@ -161,7 +161,7 @@
 | C — ATS fetchers | DONE | `5998380` + fix |
 | D — keyword coverage | DONE | `8e2033d` |
 | E — promote | DONE | `92dce2a` |
-| F — skills + manifest | TODO | — |
+| F — skills + manifest | DONE | `12ac066` |
 | G — evals | TODO | — |
 
 ## Utang terbuka
@@ -179,6 +179,7 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 - 2026-09-19 Phase C done — `python3 -m unittest discover -s tests -t .` 67 lulus / 0 gagal; tiga board asli dinormalisasi utuh (Greenhouse 667, Lever 11, Ashby 148), nol tes menyentuh jaringan — NEXT: Phase D
 - 2026-09-19 Phase D done — `python3 -m unittest discover -s tests -t .` 85 lulus / 0 gagal; diuji mandiri: java/javascript tidak saling mencemari dua arah, non-ASCII aman, judul tidak mengklaim skor ATS — NEXT: Phase E
 - 2026-09-19 Phase E done — `python3 -m unittest discover -s tests -t .` 136 lulus / 0 gagal; diuji mandiri lawan baris Ashby asli: upsert menyala, nol field di luar kontrak, baris SCORES sah, tag visa+variant selamat dari potongan, 100 baris @ jatah 60 → (30, 70, 60) — NEXT: Phase F
+- 2026-09-19 Phase F done — `python3 -m unittest discover -s tests -t .` 145 lulus / 0 gagal; `grep -rniE "alisadikin|indusia|obsidian|Drive-D" skills/` nol hasil; 23 referensi fungsi di SKILL.md semuanya menunjuk fungsi yang ada — NEXT: Phase G
 - 2026-09-19 Phase D done — `python3 -m unittest discover -s tests -t .` 85 lulus / 0 gagal; diuji mandiri: java/javascript tidak saling mencemari dua arah, non-ASCII aman, judul tidak mengklaim skor ATS — NEXT: Phase E
 - 2026-09-19 Phase C done — `python3 -m unittest discover -s tests -t .` 67 lulus / 0 gagal; tiga board asli dinormalisasi utuh (Greenhouse 667, Lever 11, Ashby 148), nol tes menyentuh jaringan — NEXT: Phase D
 - 2026-09-19 Phase B done — `python3 -m unittest discover -s tests -t .` 36 lulus / 0 gagal (14 Phase A + 22 Phase B); `min_salary_usd` absen dan `0` sama-sama jadi `None` di `scripts/config.py`, satu-satunya sentinel yang tidak ambigu; allow-list proyek diuji termasuk kasus root berisi 4 folder nyata tapi cuma 1 yang di-allow-list — NEXT: Phase C
