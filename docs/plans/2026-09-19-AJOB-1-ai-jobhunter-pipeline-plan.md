@@ -140,6 +140,20 @@ an ATS score. Using them would contradict that decision.
 | 50–64 | `partial` |
 | 0–49 | `weak` |
 
+## Scored-row field contract (pinned 2026-09-19)
+
+After `/ai-jobhunter:score` runs, a queue row carries these fields in addition to the ones
+`normalize_*` produced. `promote.py` reads exactly these names; `score`'s SKILL.md must write
+exactly these names.
+
+| Field | Type | Notes |
+|---|---|---|
+| `fit_score` | int 0-100 | absent or `None` means unscored, and `promote` refuses the row |
+| `score_reasons` | dict | one entry per rubric dimension; the salary entry is **absent** when the posting states no salary, never `0` |
+| `work_authorization` | `"open"` / `"unclear"` / `"closed"` | `closed` rows are refused for promotion |
+| `suggested_variant` | str | a key from the user's `variants.toml` |
+| `skills` | ordered list of str | drives the skill tags; only the first 8 survive the tag cap |
+
 ## Phases
 
 ### Phase A: local queue — append, dedupe, read
