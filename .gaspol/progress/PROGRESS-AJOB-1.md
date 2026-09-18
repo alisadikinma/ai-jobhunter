@@ -8,8 +8,8 @@
 
 | Gate | Result |
 |---|---|
-| Git clean | N/A — not a git repository yet; `git init` is Phase A's first act or a user decision |
-| Baseline suite | N/A — no code exists yet |
+| Git clean | PASS — repo initialised 2026-09-19, baseline `2b5ae37` (spec + plan + ledger committed) |
+| Baseline suite | N/A — no code and no tests exist yet; Phase A's failing test is the first run |
 | detect-stack | zero lines (no stack markers; project was empty). Plan-declared: static `python3 -m compileall -q scripts tests`, unit `python3 -m unittest discover -s tests -t . -v` |
 | Python | 3.14.7 present; pytest NOT installed, ruff NOT installed — stdlib `unittest` used deliberately |
 | jobsync | running at http://localhost:3737, `/api/mcp` returns 401 without a token (correct); MCP token NOT yet generated |
