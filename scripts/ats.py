@@ -158,33 +158,37 @@ def _clean_description(raw):
     return text
 
 
-# A Greenhouse location string counts as "ambiguous" the moment it could
-# name more than one place or condition (a list of offices, an "or"/"and"
-# between alternatives). An absent optional field is accepted by jobsync; a
-# wrong guess is not correctable later, so any of these markers means
-# `workplaceType` is left out rather than inferred.
-_AMBIGUOUS_SEPARATORS = (",", ";", "/")
-_AMBIGUOUS_WORDS = frozenset({"or", "and"})
+# Greenhouse never states a work arrangement. Its only signal is the free-text
+# `location.name`, so the arrangement is read ONLY from words that actually
+# state one. A bare place name states where an office is, not whether the role
+# is performed there: measured on a live 667-job board, 560 locations were a
+# place name alone and not one said "hybrid" or "onsite". Treating those as
+# Onsite invented an arrangement for 329 postings.
+#
+# An absent optional field is accepted by jobsync; a wrong value is not
+# correctable later. So: no arrangement word means no field.
+_WORKPLACE_WORD_PATTERNS = (
+    ("Hybrid", re.compile(r"\bhybrid\b")),
+    ("Remote", re.compile(r"\bremote\b")),
+    ("Onsite", re.compile(r"\bon-?site\b|\bin-?office\b")),
+)
 _UNSET_LOCATION_TEXT = frozenset({"n/a", "na"})
 
 
 def _infer_greenhouse_workplace_type(location_name):
-    """Infer Remote/Hybrid/Onsite from Greenhouse's free-text location, or
-    return `None` when the text is empty, unset, or names more than one
-    possible place.
+    """Return Remote/Hybrid/Onsite only when the location text says so.
+
+    Returns `None` for empty or unset text and for any text that names a place
+    without naming an arrangement. Hybrid wins over Remote when both appear,
+    because "hybrid" is the narrower statement of the two.
     """
     lowered = location_name.strip().lower()
     if not lowered or lowered in _UNSET_LOCATION_TEXT:
         return None
-    if any(sep in lowered for sep in _AMBIGUOUS_SEPARATORS):
-        return None
-    if _AMBIGUOUS_WORDS & set(re.split(r"\s+", lowered)):
-        return None
-    if "remote" in lowered:
-        return "Remote"
-    if "hybrid" in lowered:
-        return "Hybrid"
-    return "Onsite"
+    for value, pattern in _WORKPLACE_WORD_PATTERNS:
+        if pattern.search(lowered):
+            return value
+    return None
 
 
 def normalize_greenhouse(path):

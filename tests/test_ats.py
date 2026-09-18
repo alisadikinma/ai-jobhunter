@@ -57,8 +57,9 @@ class TestNormalizeGreenhouse(unittest.TestCase):
         self.assertEqual(row["source"], "Greenhouse")
         self.assertEqual(row["jobUrl"], "https://stripe.com/jobs/search?gh_jid=8172487")
         self.assertEqual(row["location"], "Dublin")
-        # "Dublin" is a single, unambiguous city with no remote/hybrid marker.
-        self.assertEqual(row["workplaceType"], "Onsite")
+        # A place name states where an office is, not how the role is worked.
+        # Greenhouse never states an arrangement, so the field stays absent.
+        self.assertNotIn("workplaceType", row)
         self.assertGreaterEqual(len(row["jobDescription"]), 10)
         self.assertNotIn("<", row["jobDescription"])
         self.assertNotIn("&lt;", row["jobDescription"])
@@ -145,7 +146,7 @@ class TestNormalizeGreenhouse(unittest.TestCase):
         self.assertEqual(row["location"], "N/A")
         self.assertNotIn("workplaceType", row)
 
-    def test_ambiguous_multi_option_location_leaves_field_absent(self):
+    def test_multi_option_location_still_reads_its_arrangement_word(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = _write_json(
                 tmp,
@@ -164,7 +165,58 @@ class TestNormalizeGreenhouse(unittest.TestCase):
             )
             rows = ats.normalize_greenhouse(path)
             self.assertEqual(rows[0]["location"], "NYC or Remote")
-            self.assertNotIn("workplaceType", rows[0])
+            # The text names an arrangement, so it is read, comma or not.
+            # An earlier rule vetoed any location containing a separator and
+            # so discarded 76 of the 107 genuinely remote postings on a live
+            # 667-job board.
+            self.assertEqual(rows[0]["workplaceType"], "Remote")
+
+    def test_bare_place_name_leaves_workplace_type_absent(self):
+        """No arrangement word means no field — never an invented Onsite.
+
+        Measured on a live 667-job Greenhouse board: 560 locations were a
+        place name alone, and not one of them said "hybrid" or "onsite".
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_json(
+                tmp,
+                "places.json",
+                {
+                    "jobs": [
+                        {
+                            "title": "Engineer",
+                            "company_name": "Acme",
+                            "absolute_url": "https://acme.example/jobs/9",
+                            "content": "A real job description with enough length.",
+                            "location": {"name": name},
+                        }
+                        for name in ("Dublin", "New York", "Singapore", "Dublin or Berlin")
+                    ]
+                },
+            )
+            for row in ats.normalize_greenhouse(path):
+                self.assertNotIn("workplaceType", row, row["location"])
+
+    def test_onsite_is_read_only_when_the_text_says_so(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_json(
+                tmp,
+                "onsite.json",
+                {
+                    "jobs": [
+                        {
+                            "title": "Technician",
+                            "company_name": "Acme",
+                            "absolute_url": "https://acme.example/jobs/10",
+                            "content": "A real job description with enough length.",
+                            "location": {"name": "Austin, TX (on-site)"},
+                        }
+                    ]
+                },
+            )
+            self.assertEqual(
+                ats.normalize_greenhouse(path)[0]["workplaceType"], "Onsite"
+            )
 
     def test_unambiguous_remote_location_infers_remote(self):
         rows = ats.normalize_greenhouse(GREENHOUSE_FIXTURE)

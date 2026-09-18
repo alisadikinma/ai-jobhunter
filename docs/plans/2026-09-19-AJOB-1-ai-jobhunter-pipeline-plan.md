@@ -266,9 +266,14 @@ Two consequences for the implementation:
 1. **Payloads are large** (5 MB for one Greenhouse board). `fetch` must stream to a file and
    `normalize_*` must read it from disk. Never load a whole board into conversation context.
 2. **Only Ashby and Lever state `workplaceType` directly.** Greenhouse gives free-text
-   `location.name` only, so `normalize_greenhouse` must infer `Remote`/`Hybrid`/`Onsite` from
-   that string and leave the field **absent** when it cannot — an absent optional field is
-   accepted by jobsync, a wrong guess is not correctable later.
+   `location.name` only. `normalize_greenhouse` reads the arrangement **solely from words
+   that state one** — `remote`, `hybrid`, `on-site`/`onsite`, `in-office` — and leaves the
+   field absent otherwise. A bare place name says where an office is, not how the role is
+   worked: measured on the live 667-job Stripe board, 560 locations were a place name alone
+   and **none** said "hybrid" or "onsite". Reading those as `Onsite` invented an arrangement
+   for 329 postings. Conversely, a separator must not veto a stated word — "NYC or Remote"
+   is remote. After the word-only rule: 107 `Remote`, 560 absent, zero invented values.
+   Hybrid wins over Remote when both appear, being the narrower statement.
    Ashby also carries `isListed`: rows where it is false are not public and must be dropped.
 
 ### Phase D: keyword coverage report
