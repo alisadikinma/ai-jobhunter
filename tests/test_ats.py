@@ -473,5 +473,44 @@ class TestFetch(unittest.TestCase):
             mock_urlopen.assert_not_called()
 
 
+class TestOneBadPostingDoesNotDiscardTheBoard(unittest.TestCase):
+    """A list comprehension threw away 666 good rows because posting 400 was
+    missing a key. One anomaly in somebody else's data is not a schema change.
+    """
+
+    def _payload(self, good, bad):
+        jobs = [
+            {
+                "title": f"Engineer {i}",
+                "company_name": "Acme",
+                "absolute_url": f"https://acme.example/jobs/{i}",
+                "content": "A real job description with enough length.",
+                "location": {"name": "Remote"},
+            }
+            for i in range(good)
+        ]
+        jobs.extend({"title": "Broken"} for _ in range(bad))
+        return {"jobs": jobs}
+
+    def test_one_bad_posting_is_skipped_and_the_rest_survive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_json(tmp, "board.json", self._payload(good=5, bad=1))
+            rows = ats.normalize_greenhouse(path)
+            self.assertEqual(len(rows), 5)
+
+    def test_every_posting_failing_still_raises_and_names_the_key(self):
+        """All-bad IS a schema change, and the message must say which field."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_json(tmp, "board.json", self._payload(good=0, bad=3))
+            with self.assertRaises(ats.MissingFieldError) as ctx:
+                ats.normalize_greenhouse(path)
+            self.assertIn("company_name", str(ctx.exception))
+
+    def test_an_empty_board_is_not_treated_as_a_schema_change(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = _write_json(tmp, "board.json", {"jobs": []})
+            self.assertEqual(ats.normalize_greenhouse(path), [])
+
+
 if __name__ == "__main__":
     unittest.main()

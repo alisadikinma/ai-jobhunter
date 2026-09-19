@@ -129,3 +129,31 @@ later treats this prose as the classification signal, not a keyword list.
 Before finishing, this skill prints: how many sources it read and from where,
 how many claims it extracted, how many conflicts it could not resolve, how
 many bullets it rendered, and how many Firecrawl credits it spent.
+
+## How to run the scripts
+
+Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
+is set by Claude Code to this plugin's installed directory — never hardcode a
+path, and never import the modules directly.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
+```
+
+Run it with `--help`, or a subcommand with `--help`, to see the options. Every
+subcommand prints JSON on stdout. A refusal prints
+`{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
+it, do not retry it blindly.
+
+### Commands this skill uses
+
+```bash
+# Load the config and see exactly which sources will be read, in precedence order
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" config-show \
+  --config .jobhunter/config.toml
+```
+
+A `ProjectSourceError` here means the allow-list rejected something — an entry
+that resolves to the projects root, a symlink leading outside it, or a missing
+`projects.root`. Report it; do not work around it.
+

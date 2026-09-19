@@ -72,9 +72,20 @@ _STOPWORDS = frozenset(
     }
 )
 
-_WORD = r"[^\W_]+"
+# `[^\W_]+` alone drops the symbols that ARE the name: "C++" and "C#" both
+# collapse to the token "c", and a CV mentioning a grade of "C" then marks
+# both as covered — the exact false "covered" this module exists to prevent.
+# `.NET` collapses to "net" the same way. A trailing run of + or # and an
+# internal dot are therefore part of the token.
+_WORD = r"[^\W_]+(?:\.[^\W_]+)*[+#]*"
 _TOKEN_RE = re.compile(rf"{_WORD}(?:-{_WORD})*")
 _MAX_PHRASE_LEN = 3
+
+# A real job description yields hundreds of terms, most of them three-word
+# fragments nobody reads. Measured on one real Greenhouse posting: 686
+# missing terms across 699 lines of markdown. A report that long is not read
+# at all, so the ranked head is the whole value.
+DEFAULT_TOP_N = 40
 
 
 class KeywordsError(Exception):
@@ -129,19 +140,25 @@ def _empty_report(reason):
     return {
         "covered": [],
         "missing": [],
+        "covered_total": 0,
+        "missing_total": 0,
         "extracted_count": 0,
         "survived_count": 0,
         "reason": reason,
     }
 
 
-def coverage(jd_text, cv_text):
+def coverage(jd_text, cv_text, top_n=DEFAULT_TOP_N):
     """Compare `jd_text` against `cv_text` and report keyword overlap.
 
     Returns a dict:
       - `covered`: JD terms that also appear in the CV, ranked by JD
-        frequency (highest first), each term listed once.
-      - `missing`: JD terms that do not appear in the CV, same ranking.
+        frequency (highest first), each term listed once, truncated to
+        `top_n`.
+      - `missing`: JD terms that do not appear in the CV, same ranking and
+        same truncation.
+      - `covered_total` / `missing_total`: the counts before truncation, so
+        a truncated report still reports the real size.
       - `extracted_count`: total tokens the tokenizer found in the JD.
       - `survived_count`: how many of those tokens were not stopwords.
       - `reason`: `None` for a normal report; a human-readable string when
@@ -165,13 +182,28 @@ def coverage(jd_text, cv_text):
     covered = [term for term, _count in ranked if term in cv_terms]
     missing = [term for term, _count in ranked if term not in cv_terms]
 
+    limit = None if top_n is None or top_n <= 0 else top_n
     return {
-        "covered": covered,
-        "missing": missing,
+        "covered": covered[:limit] if limit else covered,
+        "missing": missing[:limit] if limit else missing,
+        "covered_total": len(covered),
+        "missing_total": len(missing),
         "extracted_count": extracted_count,
         "survived_count": survived_count,
         "reason": None,
     }
+
+
+def _section_heading(label, report, key):
+    """Heading that says when the list is a ranked head, not the whole set.
+
+    A truncated list that claims to be complete is worse than a long one.
+    """
+    shown = len(report[key])
+    total = report.get(f"{key}_total", shown)
+    if total > shown:
+        return f"## {label} ({shown} of {total}, highest job-description frequency first)"
+    return f"## {label} ({shown})"
 
 
 def render(report):
@@ -202,7 +234,7 @@ def render(report):
     )
     lines.append("")
 
-    lines.append(f"## Covered ({len(report['covered'])})")
+    lines.append(_section_heading("Covered", report, "covered"))
     lines.append("")
     if report["covered"]:
         lines.extend(f"- {term}" for term in report["covered"])
@@ -210,7 +242,7 @@ def render(report):
         lines.append("- (none)")
     lines.append("")
 
-    lines.append(f"## Missing ({len(report['missing'])})")
+    lines.append(_section_heading("Missing", report, "missing"))
     lines.append("")
     if report["missing"]:
         lines.extend(f"- {term}" for term in report["missing"])

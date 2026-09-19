@@ -161,8 +161,6 @@ class TestIterUnscored(unittest.TestCase):
         self.assertEqual({r["company"] for r in unscored}, {"Beta", "Gamma"})
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestUpdateRows(unittest.TestCase):
@@ -242,3 +240,35 @@ class TestUpdateRows(unittest.TestCase):
             jobq.update_rows(path, {})
             self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o644)
 
+
+class TestMalformedLinesSurviveAnUpdate(unittest.TestCase):
+    """An interrupted append leaves a half-written tail. Rewriting only the
+    rows that parsed would delete that posting silently.
+    """
+
+    def test_a_malformed_line_is_preserved_verbatim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "jobs.jsonl")
+            jobq.append_rows(path, [{"company": "A", "jobTitle": "X", "jobUrl": "https://a/1"}])
+            with open(path, "a", encoding="utf-8") as f:
+                f.write('{"company":"B","jobTit\n')
+            key = jobq.row_key({"jobUrl": "https://a/1"})
+            jobq.update_rows(path, {key: {"fit_score": 90}})
+            text = open(path, encoding="utf-8").read()
+            self.assertIn('{"company":"B","jobTit', text)
+            self.assertIn('"fit_score": 90', text)
+            self.assertEqual(text.count("\n"), 2)
+
+
+class TestIterUnpromoted(unittest.TestCase):
+    """Without this the `promoted` flag is written and never read, so every
+    run re-upserts rows already in jobsync at two requests each.
+    """
+
+    def test_only_unpromoted_rows_are_yielded(self):
+        rows = [{"id": 1}, {"id": 2, "promoted": True}, {"id": 3, "promoted": False}]
+        self.assertEqual([r["id"] for r in jobq.iter_unpromoted(rows)], [1, 3])
+
+
+if __name__ == "__main__":
+    unittest.main()

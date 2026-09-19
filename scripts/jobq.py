@@ -162,11 +162,47 @@ def _count_malformed_lines(path):
     return count
 
 
+def iter_unpromoted(rows):
+    """Yield rows not yet marked promoted.
+
+    Without this the `promoted` flag `update_rows` writes is never read, and
+    every promote run re-upserts rows already in jobsync — two requests each,
+    against a ceiling of sixty an hour, so the budget is spent on old rows
+    before a new one is ever sent.
+    """
+    for row in rows:
+        if not row.get("promoted"):
+            yield row
+
+
 def iter_unscored(rows):
     """Yield rows that have no `fit_score` set yet."""
     for row in rows:
         if row.get("fit_score") is None:
             yield row
+
+
+def _load_entries(path):
+    """Every non-blank line, parsed where possible and kept verbatim always.
+
+    `{"text": <original line>, "row": <dict or None>}`. The `text` of a row
+    that is updated is replaced; every other line, parseable or not, is
+    written back exactly as it was read.
+    """
+    if not os.path.exists(path):
+        return []
+
+    entries = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            text = line.rstrip("\n")
+            if not text.strip():
+                continue
+            try:
+                entries.append({"text": text, "row": json.loads(text)})
+            except json.JSONDecodeError:
+                entries.append({"text": text, "row": None})
+    return entries
 
 
 def update_rows(path, updates, key=row_key):
@@ -179,6 +215,9 @@ def update_rows(path, updates, key=row_key):
     second request re-promoting it. `append_rows` cannot do either — it would
     see the changed row as a duplicate by `row_key` and drop it.
 
+    A line the parser cannot read is preserved byte for byte rather than
+    dropped, so an interrupted append never costs a posting.
+
     Returns `(updated, unmatched)`. An update whose key matches no row on disk
     is reported rather than silently dropped: a key that matches nothing means
     the caller and the queue disagree about identity, which is worth knowing.
@@ -187,14 +226,22 @@ def update_rows(path, updates, key=row_key):
     over the original — so an interrupted run leaves the old queue intact
     rather than a half-written one.
     """
-    rows = load(path)
+    # Read the file as LINES, not as parsed rows. `load` skips a line it
+    # cannot parse, and writing back only what parsed would delete it — an
+    # interrupted `append_rows` leaves exactly such a half-written tail, so
+    # the next score run would silently lose that posting. A line this
+    # function cannot understand is passed through untouched.
+    entries = _load_entries(path)
     remaining = dict(updates)
 
     updated = 0
-    for row in rows:
-        fields = remaining.pop(key(row), None)
+    for entry in entries:
+        if entry["row"] is None:
+            continue
+        fields = remaining.pop(key(entry["row"]), None)
         if fields is not None:
-            row.update(fields)
+            entry["row"].update(fields)
+            entry["text"] = json.dumps(entry["row"])
             updated += 1
 
     directory = os.path.dirname(path) or "."
@@ -209,8 +256,8 @@ def update_rows(path, updates, key=row_key):
     fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            for row in rows:
-                f.write(json.dumps(row))
+            for entry in entries:
+                f.write(entry["text"])
                 f.write("\n")
         if existing_mode is not None:
             os.chmod(tmp_path, existing_mode)

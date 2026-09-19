@@ -67,6 +67,10 @@ class BudgetTypeError(ConfigError):
     """A budget value is not a non-negative whole number."""
 
 
+class SalaryTypeError(ConfigError):
+    """`targets.min_salary_usd` is not a non-negative whole number."""
+
+
 def _is_url(value):
     return "://" in value
 
@@ -94,9 +98,43 @@ def _normalize_min_salary(raw_targets, provenance):
         return None
     value = raw_targets["min_salary_usd"]
     provenance["targets.min_salary_usd"] = "file"
+    # Same reasoning as the budgets: a quoted number in TOML is a string and
+    # would compare wrongly against a real salary rather than failing.
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise SalaryTypeError(
+            f"targets.min_salary_usd must be a whole number, got {value!r} "
+            f"({type(value).__name__})."
+        )
+    if value < 0:
+        raise SalaryTypeError(
+            f"targets.min_salary_usd must not be negative, got {value!r}."
+        )
     if value == 0:
         return None
     return value
+
+
+_KNOWN_TARGET_KEYS = frozenset({"geo", "companies", "min_salary_usd"})
+_KNOWN_PROFILE_SOURCE_KEYS = frozenset(
+    {"sites", "linkedin_pdf", "local", "precedence", "primary", "projects"}
+)
+
+
+def _warn_unknown_section_keys(section_name, raw_section, known):
+    """A typo inside a section used to fail silently.
+
+    `precedance = [...]` left `precedence` empty, `resolve_profile_sources`
+    returned nothing, and the profile compiled from zero sources without an
+    error anywhere — the same fail-open shape `PrecedenceError` exists to
+    prevent one level up.
+    """
+    for key in raw_section:
+        if key not in known:
+            warnings.warn(
+                f"Unknown key {key!r} in [{section_name}] — it will be ignored. "
+                f"Known keys: {', '.join(sorted(known))}.",
+                stacklevel=3,
+            )
 
 
 def _require_budget_int(name, value):
@@ -153,6 +191,7 @@ def load(path):
 
     # budgets, with explicit defaults
     raw_budgets = raw.get("budgets", {})
+    _warn_unknown_section_keys("budgets", raw_budgets, set(_BUDGET_DEFAULTS))
     budgets = {}
     for name, default in _BUDGET_DEFAULTS.items():
         if name in raw_budgets:
@@ -164,6 +203,7 @@ def load(path):
 
     # targets
     raw_targets = raw.get("targets", {})
+    _warn_unknown_section_keys("targets", raw_targets, _KNOWN_TARGET_KEYS)
     targets = {
         "geo": raw_targets.get("geo", []),
         "companies": raw_targets.get("companies", []),
@@ -176,6 +216,7 @@ def load(path):
 
     # profile_sources
     raw_ps = raw.get("profile_sources", {})
+    _warn_unknown_section_keys("profile_sources", raw_ps, _KNOWN_PROFILE_SOURCE_KEYS)
     raw_projects = raw_ps.get("projects", {})
     profile_sources = {
         "sites": list(raw_ps.get("sites", [])),
@@ -206,6 +247,17 @@ def load(path):
 
 
 def _reject_unsafe_name(name):
+    """Reject anything that is not a plain directory name.
+
+    This is a privacy control, not tidiness: an entry that resolves to the
+    root itself turns the allow-list into "read everything", which is the one
+    mode the design rules out. `"."` and `""` both did exactly that before
+    this check existed — `os.path.join(root, ".")` is the root.
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise ProjectSourceError(
+            f"profile_sources.projects.allowed entry is empty: {name!r}"
+        )
     if os.path.isabs(name):
         raise ProjectSourceError(f"profile_sources.projects.allowed entry is absolute: {name!r}")
     if os.sep in name or (os.altsep and os.altsep in name) or "/" in name:
@@ -215,6 +267,10 @@ def _reject_unsafe_name(name):
     if ".." in name.split(os.sep) or ".." in name.split("/") or name == "..":
         raise ProjectSourceError(
             f"profile_sources.projects.allowed entry contains path traversal: {name!r}"
+        )
+    if os.path.normpath(name) in (".", "..", os.curdir, os.pardir):
+        raise ProjectSourceError(
+            f"profile_sources.projects.allowed entry resolves to the root itself: {name!r}"
         )
 
 
@@ -233,6 +289,13 @@ def _resolve_project_sources(cfg):
     root = projects.get("root")
     allowed = projects.get("allowed") or []
 
+    if allowed and not (isinstance(root, str) and root.strip()):
+        raise ProjectSourceError(
+            "profile_sources.projects.allowed is set but projects.root is missing. "
+            "Both are needed: root says where to look, allowed says which "
+            "directories under it may be read."
+        )
+
     entries = []
     for name in allowed:
         _reject_unsafe_name(name)
@@ -241,8 +304,32 @@ def _resolve_project_sources(cfg):
             raise ProjectSourceError(
                 f"Allow-listed project directory does not exist: {full_path!r}"
             )
+        _require_inside_root(root, full_path, name)
         entries.append(("project", full_path))
     return entries
+
+
+def _require_inside_root(root, full_path, name):
+    """Refuse a name that leads outside the root once links are resolved.
+
+    Validating the NAME is not enough. A symlink in the root pointing at a
+    client's directory has a perfectly innocent name, and allow-listing that
+    name allow-lists whatever it points at — which is not what the person
+    writing the config agreed to. Comparing resolved paths is what makes the
+    allow-list about directories rather than about spellings.
+    """
+    real_root = os.path.realpath(root)
+    real_path = os.path.realpath(full_path)
+    if real_path != real_root and not real_path.startswith(real_root + os.sep):
+        raise ProjectSourceError(
+            f"Allow-listed project directory {name!r} resolves outside the root: "
+            f"{real_path!r} is not under {real_root!r}. A symlink's name is "
+            "allow-listed, but what it points at is not."
+        )
+    if real_path == real_root:
+        raise ProjectSourceError(
+            f"Allow-listed project directory {name!r} resolves to the root itself."
+        )
 
 
 def resolve_profile_sources(cfg):

@@ -207,5 +207,52 @@ class TestRender(unittest.TestCase):
         self.assertIn(report["reason"], body)
 
 
+class TestSymbolBearingTechnologyNames(unittest.TestCase):
+    r"""`[^\W_]+` collapsed "C++" and "C#" to "c", so a CV mentioning a grade
+    of C marked both covered — the false "covered" this module exists to
+    prevent.
+    """
+
+    def test_cpp_and_csharp_are_not_covered_by_a_bare_c(self):
+        report = keywords.coverage(
+            "Strong C++ and C# systems programming required.",
+            "I once got a grade of C in maths.",
+        )
+        self.assertNotIn("c++", report["covered"])
+        self.assertNotIn("c#", report["covered"])
+        self.assertIn("c++", report["missing"])
+        self.assertIn("c#", report["missing"])
+
+    def test_cpp_is_covered_when_the_cv_actually_says_cpp(self):
+        report = keywords.coverage("C++ required.", "Ten years of C++.")
+        self.assertIn("c++", report["covered"])
+
+    def test_dotnet_is_not_covered_by_the_word_net(self):
+        report = keywords.coverage(".NET experience required.", "Worked on a net profit model.")
+        self.assertNotIn(".net", report["covered"])
+
+
+class TestReportTruncation(unittest.TestCase):
+    """A real posting yields hundreds of terms; an unbounded report is not read."""
+
+    def _long_jd(self):
+        return " ".join(f"term{i} skill{i} tool{i}" for i in range(200))
+
+    def test_lists_are_truncated_to_top_n(self):
+        report = keywords.coverage(self._long_jd(), "nothing matches here", top_n=10)
+        self.assertEqual(len(report["missing"]), 10)
+        self.assertGreater(report["missing_total"], 10)
+
+    def test_heading_says_when_the_list_is_truncated(self):
+        report = keywords.coverage(self._long_jd(), "nothing matches here", top_n=10)
+        heading = [l for l in keywords.render(report).splitlines() if l.startswith("## Missing")][0]
+        self.assertIn("of", heading)
+        self.assertIn(str(report["missing_total"]), heading)
+
+    def test_top_n_none_returns_everything(self):
+        report = keywords.coverage(self._long_jd(), "nothing", top_n=None)
+        self.assertEqual(len(report["missing"]), report["missing_total"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -107,3 +107,37 @@ Before finishing, this skill prints: how many rows were eligible, how many
 were sent versus left waiting for budget reasons, how many were skipped for
 missing score or closed authorization, and exactly how many MCP requests it
 spent this run.
+
+## How to run the scripts
+
+Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
+is set by Claude Code to this plugin's installed directory — never hardcode a
+path, and never import the modules directly.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
+```
+
+Run it with `--help`, or a subcommand with `--help`, to see the options. Every
+subcommand prints JSON on stdout. A refusal prints
+`{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
+it, do not retry it blindly.
+
+### Commands this skill uses
+
+```bash
+# Build the payloads that fit inside the request budget
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" promote-prepare \
+  --rows @/tmp/scored.json --limit 50
+```
+
+It returns `batches` (never more than 10 items each), `prepared`, `refused`
+(one entry per row with a named reason), `waiting`, and `requests_needed`.
+Send each batch with `add_jobs_batch`, then `save_match_results_batch` using
+the `match_text` beside each payload. Then mark them promoted:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-update \
+  --queue .jobhunter/queue/jobs.jsonl --updates @/tmp/promoted.json
+```
+

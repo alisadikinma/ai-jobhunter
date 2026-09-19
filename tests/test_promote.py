@@ -400,7 +400,9 @@ class TestRealAshbyRow(unittest.TestCase):
     def test_to_add_job_payload_shape(self):
         payload = promote.to_add_job(REAL_ASHBY_ROW)
         self.assertEqual(payload["company"], "Ramp")
-        self.assertEqual(payload["jobTitle"], " Security Engineer, Cloud")
+        # Trimmed, like the description already was. The leading space is
+        # real in Ashby's payload and travelled into jobsync untouched.
+        self.assertEqual(payload["jobTitle"], "Security Engineer, Cloud")
         self.assertEqual(payload["workplaceType"], "Hybrid")
         self.assertIs(payload["upsert"], True)
         self.assertEqual(
@@ -419,8 +421,6 @@ class TestRealAshbyRow(unittest.TestCase):
         self.assertLessEqual(len(tags), 10)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestScoreReasonsContractName(unittest.TestCase):
@@ -538,3 +538,101 @@ class TestProvisionalMatchQuality(unittest.TestCase):
         payload = promote.to_add_job(self._row(40))
         self.assertTrue(payload["upsert"])
 
+
+class TestScoreValidationIsSymmetric(unittest.TestCase):
+    """`to_add_job` validated only `is None` while `to_match_text` checked the
+    range, so a score of 105 reached jobsync through add_jobs_batch and only
+    then threw — one request spent, a job in the tracker with no match, no
+    rollback.
+    """
+
+    def _row(self, score):
+        return {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "jobDescription": " ".join(["word"] * 200),
+            "fit_score": score,
+            "work_authorization": "open",
+            "suggested_variant": "v",
+            "skills": [],
+        }
+
+    def test_out_of_range_score_is_refused_by_to_add_job(self):
+        with self.assertRaises(promote.PromoteError):
+            promote.to_add_job(self._row(150))
+
+    def test_non_integer_score_is_refused_by_to_add_job(self):
+        with self.assertRaises(promote.PromoteError):
+            promote.to_add_job(self._row("high"))
+
+    def test_both_entry_points_refuse_the_same_row(self):
+        for score in (150, -1, "high", True):
+            with self.assertRaises(promote.PromoteError):
+                promote.to_add_job(self._row(score))
+            with self.assertRaises(promote.PromoteError):
+                promote.to_match_text(self._row(score))
+
+
+class TestRequiredTextFields(unittest.TestCase):
+    def _row(self, **extra):
+        row = {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "jobDescription": " ".join(["word"] * 200),
+            "fit_score": 80,
+            "work_authorization": "open",
+            "suggested_variant": "v",
+            "skills": [],
+        }
+        row.update(extra)
+        return row
+
+    def test_missing_company_raises_a_promote_error_not_keyerror(self):
+        row = self._row()
+        del row["company"]
+        with self.assertRaises(promote.FieldMissingError):
+            promote.to_add_job(row)
+
+    def test_blank_job_title_is_refused(self):
+        with self.assertRaises(promote.FieldMissingError):
+            promote.to_add_job(self._row(jobTitle="   "))
+
+    def test_company_and_title_are_trimmed(self):
+        payload = promote.to_add_job(self._row(company="  Acme ", jobTitle=" Engineer "))
+        self.assertEqual(payload["company"], "Acme")
+        self.assertEqual(payload["jobTitle"], "Engineer")
+
+
+class TestSkillTagDeduplication(unittest.TestCase):
+    def test_case_variants_of_one_skill_take_one_slot(self):
+        row = {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "jobDescription": " ".join(["word"] * 200),
+            "fit_score": 80,
+            "work_authorization": "open",
+            "suggested_variant": "v",
+            "skills": ["Python", "python", "PYTHON", "sql"],
+        }
+        tags = promote.build_tags(row)
+        self.assertEqual(tags.count("skill:python"), 1)
+        self.assertIn("skill:sql", tags)
+
+    def test_eight_distinct_skills_still_fill_the_cap(self):
+        row = {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "jobDescription": " ".join(["word"] * 200),
+            "fit_score": 80,
+            "work_authorization": "open",
+            "suggested_variant": "v",
+            "skills": [f"skill{i}" for i in range(12)],
+        }
+        tags = promote.build_tags(row)
+        self.assertEqual(len(tags), promote.MAX_TAGS)
+        self.assertTrue(tags[0].startswith("visa:"))
+        self.assertTrue(tags[1].startswith("variant:"))
+
+
+if __name__ == "__main__":
+    unittest.main()

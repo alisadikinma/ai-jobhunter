@@ -12,6 +12,7 @@ suppression rule and the project allow-list rule).
 
 import json
 import os
+import pathlib
 import re
 import unittest
 
@@ -144,6 +145,53 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         text = _read(os.path.join(SKILLS_DIR, "profile", "SKILL.md")).lower()
         self.assertIn("verified: false", text)
         self.assertIn("allow-list", text)
+
+
+class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
+    """Before `scripts/jobhunter.py` existed, the skills named Python
+    functions and nothing in the repository said how to reach them. The only
+    code that knew was the test suite's own `sys.path.insert`.
+    """
+
+    def test_the_cli_exists_and_is_importable_as_a_module(self):
+        cli = pathlib.Path(REPO_ROOT) / "scripts" / "jobhunter.py"
+        self.assertTrue(cli.is_file())
+        self.assertIn('if __name__ == "__main__":', cli.read_text())
+
+    def test_every_skill_names_the_plugin_root_variable(self):
+        for skill_md in sorted(pathlib.Path(SKILLS_DIR).glob("*/SKILL.md")):
+            self.assertIn(
+                "CLAUDE_PLUGIN_ROOT",
+                skill_md.read_text(),
+                f"{skill_md.parent.name} gives no runnable command",
+            )
+
+    def test_no_skill_hardcodes_an_absolute_path(self):
+        for skill_md in sorted(pathlib.Path(SKILLS_DIR).glob("*/SKILL.md")):
+            text = skill_md.read_text()
+            self.assertNotIn("/Users/", text, skill_md.parent.name)
+            self.assertNotIn("/home/", text, skill_md.parent.name)
+
+    def test_every_documented_subcommand_exists_in_the_cli(self):
+        import subprocess
+        import sys
+
+        help_text = subprocess.run(
+            [sys.executable, str(pathlib.Path(REPO_ROOT) / "scripts" / "jobhunter.py"), "--help"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        documented = set()
+        for skill_md in pathlib.Path(SKILLS_DIR).glob("*/SKILL.md"):
+            for line in skill_md.read_text().splitlines():
+                if "jobhunter.py" in line:
+                    parts = line.split("jobhunter.py")[1].split()
+                    if parts and not parts[0].startswith("-"):
+                        documented.add(parts[0].strip('"'))
+        self.assertTrue(documented, "no skill documents a subcommand")
+        for name in sorted(documented):
+            self.assertIn(name, help_text, f"{name} is documented but not a real subcommand")
 
 
 if __name__ == "__main__":

@@ -95,3 +95,32 @@ whether and when to actually reach out.
 Before finishing, this skill prints: the contact it found and its source
 URL, which of the two save paths it used, and how many Firecrawl credits it
 spent finding the contact.
+
+## How to run the scripts
+
+Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
+is set by Claude Code to this plugin's installed directory — never hardcode a
+path, and never import the modules directly.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
+```
+
+Run it with `--help`, or a subcommand with `--help`, to see the options. Every
+subcommand prints JSON on stdout. A refusal prints
+`{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
+it, do not retry it blindly.
+
+### Commands this skill uses
+
+This skill runs no deterministic script of its own. It reads the compiled
+profile and the tailored application under `.jobhunter/applications/<slug>/`,
+and uses Firecrawl for contact discovery.
+
+To check the config is loadable before starting:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" config-show \
+  --config .jobhunter/config.toml
+```
+

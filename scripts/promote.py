@@ -182,6 +182,19 @@ class WorkplaceTypeError(PromoteError):
         )
 
 
+class FieldMissingError(PromoteError):
+    """A required jobsync field is absent or blank on the row."""
+
+    def __init__(self, row, field):
+        super().__init__(
+            f"Row is missing the required field {field!r} "
+            f"(company={row.get('company')!r}, jobTitle={row.get('jobTitle')!r}). "
+            "jobsync rejects an add_job without it."
+        )
+        self.row = row
+        self.field = field
+
+
 def _require_score(row):
     """Return `(fit_score, work_authorization)`, or raise a named `PromoteError`.
 
@@ -191,17 +204,28 @@ def _require_score(row):
     fit_score = row.get("fit_score")
     if fit_score is None:
         raise ScoreMissingError(row)
+    # Validate the VALUE here, not only in `to_match_text`. The skill calls
+    # `add_jobs_batch` before `save_match_results_batch`, so a score of 105
+    # or "high" that only the second call rejected would already have been
+    # stored in jobsync: one request spent, a job in the tracker with no
+    # match, and no way to roll it back.
+    _require_valid_score(fit_score)
     work_authorization = row.get("work_authorization")
     if work_authorization == "closed":
         raise AuthorizationClosedError(row)
     return fit_score, work_authorization
 
 
-def _recommendation_for(fit_score):
+def _require_valid_score(fit_score):
     if not isinstance(fit_score, int) or isinstance(fit_score, bool):
         raise PromoteError(f"fit_score must be an int 0-100, got {fit_score!r}")
     if not (0 <= fit_score <= 100):
         raise PromoteError(f"fit_score must be 0-100, got {fit_score!r}")
+    return fit_score
+
+
+def _recommendation_for(fit_score):
+    _require_valid_score(fit_score)
     for floor, label in _SCORE_BOUNDARIES:
         if fit_score >= floor:
             return label
@@ -227,6 +251,22 @@ def match_quality(row):
     if text == NA_DESCRIPTION:
         raise TitleOnlyError(row)
     return "full" if len(text.split()) >= FULL_MATCH_MIN_WORDS else "provisional"
+
+
+def _require_text(row, field):
+    """Return a trimmed required field, or raise a named `PromoteError`.
+
+    `row["company"]` raised a bare `KeyError`, which the skill's error
+    handling does not catch because every documented refusal is a
+    `PromoteError` — so one malformed queue row ended a whole promote run
+    with a traceback instead of a "1 row skipped" line. Trimming matches
+    what the description already gets; a leading space travelled into
+    jobsync as part of the job title otherwise.
+    """
+    value = row.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise FieldMissingError(row, field)
+    return value.strip()
 
 
 def _clean_description(raw):
@@ -263,8 +303,8 @@ def to_add_job(row):
     match_quality(row)  # raises TitleOnlyError when there is no posting text
 
     payload = {
-        "company": row["company"],
-        "jobTitle": row["jobTitle"],
+        "company": _require_text(row, "company"),
+        "jobTitle": _require_text(row, "jobTitle"),
         "jobDescription": _clean_description(row.get("jobDescription")),
         "upsert": True,
         "tags": build_tags(row),
@@ -338,8 +378,19 @@ def build_tags(row):
     variant = row.get("suggested_variant") or DEFAULT_VARIANT
 
     tags = [f"visa:{bucket}", f"variant:{_slugify(variant)}"]
-    for skill in (row.get("skills") or [])[:MAX_SKILL_TAGS]:
-        tags.append(f"skill:{_slugify(skill)}")
+    # Deduplicate AFTER slugifying, not before: "Python", "python" and
+    # "PYTHON" are one skill and slugify to one tag, but taking the first 8
+    # raw entries would spend three of the eight slots on it and push a real
+    # skill out of the list.
+    seen = set()
+    for skill in row.get("skills") or []:
+        slug = _slugify(skill)
+        if not slug or slug in seen:
+            continue
+        seen.add(slug)
+        tags.append(f"skill:{slug}")
+        if len(seen) == MAX_SKILL_TAGS:
+            break
     return tags[:MAX_TAGS]
 
 

@@ -332,8 +332,6 @@ class TestResolveProfileSourcesProjectAllowList(unittest.TestCase):
             self.assertEqual(len(sources), 1)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestBudgetTypeValidation(unittest.TestCase):
@@ -377,3 +375,106 @@ class TestBudgetTypeValidation(unittest.TestCase):
             cfg = self._load_with(tmp, "firecrawl_credits_per_run = 42")
             self.assertEqual(cfg["budgets"]["firecrawl_credits_per_run"], 42)
 
+
+class TestAllowListCannotResolveToTheRoot(unittest.TestCase):
+    """The allow-list is a privacy control. An entry that resolves to the
+    root turns it into "read everything", which is the one mode the design
+    rules out — unlisted project notes hold third parties' confidential
+    material.
+    """
+
+    def _cfg(self, root, allowed):
+        return {
+            "profile_sources": {
+                "precedence": ["project"],
+                "projects": {"root": root, "allowed": allowed},
+            }
+        }
+
+    def _root(self, tmp):
+        root = os.path.join(tmp, "root")
+        os.makedirs(os.path.join(root, "allowed"))
+        os.makedirs(os.path.join(root, "secret-client"))
+        return root
+
+    def test_dot_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.ProjectSourceError):
+                config.resolve_profile_sources(self._cfg(self._root(tmp), ["."]))
+
+    def test_empty_string_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.ProjectSourceError):
+                config.resolve_profile_sources(self._cfg(self._root(tmp), [""]))
+
+    def test_whitespace_only_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.ProjectSourceError):
+                config.resolve_profile_sources(self._cfg(self._root(tmp), ["   "]))
+
+    def test_symlink_pointing_outside_the_root_is_rejected(self):
+        """A symlink's NAME is allow-listed; what it points at is not."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(tmp)
+            outside = os.path.join(tmp, "client-files")
+            os.makedirs(outside)
+            os.symlink(outside, os.path.join(root, "innocent-name"))
+            with self.assertRaises(config.ProjectSourceError) as ctx:
+                config.resolve_profile_sources(self._cfg(root, ["innocent-name"]))
+            self.assertIn("outside the root", str(ctx.exception))
+
+    def test_symlink_pointing_inside_the_root_is_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(tmp)
+            os.symlink(os.path.join(root, "allowed"), os.path.join(root, "alias"))
+            sources = config.resolve_profile_sources(self._cfg(root, ["alias"]))
+            self.assertEqual(len(sources), 1)
+
+    def test_an_unlisted_sibling_is_still_never_returned(self):
+        """The real assertion the old test of this name never made: reach for
+        the root and confirm the unlisted directory does not come back.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = self._root(tmp)
+            sources = config.resolve_profile_sources(self._cfg(root, ["allowed"]))
+            returned = [path for _, path in sources]
+            self.assertEqual(len(returned), 1)
+            self.assertTrue(returned[0].endswith("allowed"))
+            self.assertFalse(any("secret-client" in p for p in returned))
+
+    def test_allowed_without_root_names_the_missing_key(self):
+        with self.assertRaises(config.ProjectSourceError) as ctx:
+            config.resolve_profile_sources(self._cfg(None, ["allowed"]))
+        self.assertIn("projects.root", str(ctx.exception))
+
+
+class TestSalaryAndSectionTypos(unittest.TestCase):
+    def _load(self, tmp, body):
+        path = os.path.join(tmp, "config.toml")
+        _write(path, body)
+        return config.load(path)
+
+    def test_quoted_salary_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.SalaryTypeError):
+                self._load(tmp, '[targets]\nmin_salary_usd = "120000"\n')
+
+    def test_negative_salary_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.SalaryTypeError):
+                self._load(tmp, "[targets]\nmin_salary_usd = -5\n")
+
+    def test_typo_inside_a_section_warns_instead_of_failing_silently(self):
+        """`precedance` left precedence empty and the profile compiled from
+        zero sources with no error anywhere.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                self._load(tmp, '[profile_sources]\nprecedance = ["site"]\n')
+            messages = [str(w.message) for w in caught]
+            self.assertTrue(any("precedance" in m for m in messages), messages)
+
+
+if __name__ == "__main__":
+    unittest.main()

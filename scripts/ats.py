@@ -39,6 +39,7 @@ or entities.
 import html
 import json
 import re
+import sys
 import urllib.error
 import urllib.request
 
@@ -191,6 +192,51 @@ def _infer_greenhouse_workplace_type(location_name):
     return None
 
 
+def _normalize_all(source, jobs, normalizer):
+    """Normalise every posting, surviving a single bad one.
+
+    A schema change upstream breaks every posting and still fails loudly,
+    because `strict` below raises once nothing at all normalised. But one
+    posting missing a field is an anomaly in somebody else's data, and a
+    list comprehension turned that into throwing away the other 666 rows of
+    a board with no way for the user to continue.
+
+    Returns `(rows, skipped)` where each skipped entry names the posting and
+    the field, so the caller can report them instead of losing them quietly.
+    """
+    rows = []
+    skipped = []
+    first_error = None
+    for job in jobs:
+        try:
+            rows.append(normalizer(job))
+        except MissingFieldError as exc:
+            if first_error is None:
+                first_error = exc
+            skipped.append({"error": str(exc), "job": _identify(job)})
+    if jobs and not rows:
+        # Nothing normalised: that is a schema change, not one bad posting.
+        # Re-raise the FIRST error so the message still names the missing
+        # key — a caller needs to know which field moved, not merely that
+        # everything failed.
+        raise first_error
+    if skipped:
+        print(
+            f"ats.normalize: source={source} rows={len(rows)} skipped={len(skipped)}",
+            file=sys.stderr,
+        )
+    return rows, skipped
+
+
+def _identify(job):
+    """Whatever identifies a posting well enough to look it up by hand."""
+    for key in ("title", "text", "id", "jobUrl", "hostedUrl", "absolute_url"):
+        value = job.get(key) if isinstance(job, dict) else None
+        if value:
+            return {key: value}
+    return {}
+
+
 def normalize_greenhouse(path):
     """Read a Greenhouse board JSON file from disk and return queue rows."""
     with open(path, "r", encoding="utf-8") as f:
@@ -198,7 +244,10 @@ def normalize_greenhouse(path):
     if not isinstance(payload, dict) or "jobs" not in payload:
         raise MissingFieldError(SOURCE_GREENHOUSE, "jobs")
 
-    return [_normalize_greenhouse_job(job) for job in payload["jobs"]]
+    rows, _skipped = _normalize_all(
+        SOURCE_GREENHOUSE, payload["jobs"], _normalize_greenhouse_job
+    )
+    return rows
 
 
 def _normalize_greenhouse_job(job):
@@ -241,7 +290,10 @@ def normalize_lever(path, company):
     if not isinstance(payload, list):
         raise AtsError(f"{SOURCE_LEVER} payload at {path} is not a JSON array")
 
-    return [_normalize_lever_posting(posting, company) for posting in payload]
+    rows, _skipped = _normalize_all(
+        SOURCE_LEVER, payload, lambda p: _normalize_lever_posting(p, company)
+    )
+    return rows
 
 
 def _normalize_lever_posting(posting, company):
@@ -293,13 +345,20 @@ def normalize_ashby(path, company):
     if not isinstance(payload, dict) or "jobs" not in payload:
         raise MissingFieldError(SOURCE_ASHBY, "jobs")
 
-    rows = []
-    for job in payload["jobs"]:
+    def normalize_one(job):
         if "isListed" not in job:
             raise MissingFieldError(SOURCE_ASHBY, "isListed")
-        if not job["isListed"]:
-            continue
-        rows.append(_normalize_ashby_job(job, company))
+        return _normalize_ashby_job(job, company)
+
+    listed = [job for job in payload["jobs"] if job.get("isListed", True)]
+    unlisted = len(payload["jobs"]) - len(listed)
+    missing_flag = [job for job in payload["jobs"] if "isListed" not in job]
+    if missing_flag and len(missing_flag) == len(payload["jobs"]):
+        raise MissingFieldError(SOURCE_ASHBY, "isListed")
+
+    rows, _skipped = _normalize_all(SOURCE_ASHBY, listed, normalize_one)
+    if unlisted:
+        print(f"ats.normalize: source={SOURCE_ASHBY} unlisted_dropped={unlisted}", file=sys.stderr)
     return rows
 
 

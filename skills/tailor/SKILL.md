@@ -81,3 +81,32 @@ directory instead of scattering duplicates.
 Before finishing, this skill prints: which JD it read (title, company,
 source), how many bullets it selected from `master-cv.md`, how many JD terms
 were covered versus missing, and which files it wrote.
+
+## How to run the scripts
+
+Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
+is set by Claude Code to this plugin's installed directory — never hardcode a
+path, and never import the modules directly.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
+```
+
+Run it with `--help`, or a subcommand with `--help`, to see the options. Every
+subcommand prints JSON on stdout. A refusal prints
+`{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
+it, do not retry it blindly.
+
+### Commands this skill uses
+
+```bash
+# Keyword overlap between this job description and the CV
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keywords-report \
+  --jd /tmp/jd.txt --cv .jobhunter/applications/<slug>/cv.md \
+  --markdown > .jobhunter/applications/<slug>/keyword-report.md
+```
+
+The lists are the ranked head, not everything — a real posting yields hundreds
+of terms. `--top N` changes the cut; the heading always states the full count
+so a truncated report never reads as complete.
+

@@ -78,3 +78,39 @@ Before finishing, this skill prints: which sources it queried (boards, ATS
 slugs, monitors), how many rows it wrote versus how many were skipped as
 duplicates, and how many Firecrawl credits it spent against the configured
 budget.
+
+## How to run the scripts
+
+Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
+is set by Claude Code to this plugin's installed directory — never hardcode a
+path, and never import the modules directly.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
+```
+
+Run it with `--help`, or a subcommand with `--help`, to see the options. Every
+subcommand prints JSON on stdout. A refusal prints
+`{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
+it, do not retry it blindly.
+
+### Commands this skill uses
+
+```bash
+# Fetch one ATS board and normalise it in one step
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" ats-fetch \
+  --board greenhouse --slug <slug> --dest /tmp/<slug>.json
+
+# lever and ashby need --company: their payloads carry no company name
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" ats-fetch \
+  --board ashby --slug <slug> --company "<Company>" --dest /tmp/<slug>.json
+
+# Append rows to the local queue (deduped by row_key)
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
+  --queue .jobhunter/queue/jobs.jsonl --rows @/tmp/rows.json
+```
+
+`ats-fetch` reports `skipped` on stderr when a single posting could not be
+normalised; the rest of the board still comes through. Pass the rows through a
+file with `@path` rather than inline — a board is megabytes.
+

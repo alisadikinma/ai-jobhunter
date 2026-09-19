@@ -98,10 +98,43 @@ original, so an interrupted run leaves the old queue intact. Do NOT use
 the unscored one by `row_key` and drop it. `update_rows` returns
 `(updated, unmatched)` — report both.
 
-The fields written are
-to each row this run scored.
+The fields written to each row this run scored are those five, and no others.
 
 Before finishing, this skill prints: how many rows it read, how many were
 already scored and skipped, how many it scored this run, how many landed in
 each `work_authorization` bucket, and how many MCP requests it spent (none,
 for this skill — scoring makes no jobsync call).
+
+## How to run the scripts
+
+Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
+is set by Claude Code to this plugin's installed directory — never hardcode a
+path, and never import the modules directly.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
+```
+
+Run it with `--help`, or a subcommand with `--help`, to see the options. Every
+subcommand prints JSON on stdout. A refusal prints
+`{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
+it, do not retry it blindly.
+
+### Commands this skill uses
+
+```bash
+# Read the rows that still need scoring
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-list \
+  --queue .jobhunter/queue/jobs.jsonl --unscored
+
+# Write the scores back, keyed by row_key
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-update \
+  --queue .jobhunter/queue/jobs.jsonl --updates @/tmp/scores.json
+```
+
+`/tmp/scores.json` is `{"<row_key>": {"fit_score": 88, "score_reasons": {...},
+"work_authorization": "unclear", "suggested_variant": "genai_agents",
+"skills": [...]}}`. Each row's `row_key` comes back with it from `queue-list`,
+or from `queue-key --row @row.json`. `queue-update` returns
+`{"updated": N, "unmatched": [...]}` — report both.
+
