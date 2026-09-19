@@ -14,6 +14,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -508,6 +509,148 @@ def _ashby_job():
         "descriptionPlain": "hi",
         "isListed": True,
     }
+
+
+class TestRenderDocx(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob2-cli-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def write_markdown(self, text, name="cv.md"):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def test_it_renders_and_reports_the_output_blocks_and_notes(self):
+        source = self.write_markdown("# Ali Sadikin\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "cv.docx")
+        code, parsed, _err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["out"], out)
+        self.assertEqual(parsed["blocks"], 2)
+        self.assertEqual(parsed["notes"], [])
+        self.assertTrue(os.path.exists(out))
+
+    def test_an_unverified_claim_refuses_and_writes_no_file(self):
+        source = self.write_markdown("# CV\n\n- revenue up 40% [verifikasi]\n")
+        out = os.path.join(self.tmp, "cv.docx")
+        code, parsed, err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertIsNone(parsed)
+        self.assertEqual(json.loads(err)["error"], "UnverifiedClaimError")
+        # Asserted, not assumed: the whole point of the gate is the absence
+        # of a file, and a warning that still writes one is not a gate.
+        self.assertFalse(os.path.exists(out))
+
+    def test_the_refusal_message_names_the_source_file_and_line(self):
+        source = self.write_markdown("# CV\n\n- revenue up 40% [verifikasi]\n")
+        out = os.path.join(self.tmp, "cv.docx")
+        _code, _parsed, err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertIn("cv.md:3", json.loads(err)["message"])
+
+    def test_allow_unverified_renders_the_same_input(self):
+        source = self.write_markdown("# CV\n\n- revenue up 40% [verifikasi]\n")
+        out = os.path.join(self.tmp, "cv.docx")
+        code, parsed, _err, _text = run(
+            ["render-docx", "--in", source, "--out", out, "--allow-unverified"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["out"], out)
+        self.assertTrue(os.path.exists(out))
+
+    def test_notes_reach_both_stdout_json_and_stderr(self):
+        source = self.write_markdown(
+            "# CV\n\n| Skill | Years |\n|---|---|\n| Python | 8 |\n"
+        )
+        out = os.path.join(self.tmp, "cv.docx")
+        code, parsed, err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertEqual(code, 0)
+        self.assertTrue(parsed["notes"])
+        self.assertIn("render-docx: line 3: table flattened", err)
+
+    def test_stdout_holds_one_json_document_and_nothing_else(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "cv.docx")
+        _code, parsed, _err, text = run(["render-docx", "--in", source, "--out", out])
+        self.assertIsNotNone(parsed)
+        self.assertEqual(text.count("\n{"), 0)
+        # The render's own observability line must not land on stdout.
+        self.assertNotIn("docx.render:", text)
+
+    def test_a_missing_in_flag_is_a_usage_error(self):
+        out = os.path.join(self.tmp, "cv.docx")
+        code, _parsed, err, _text = run(["render-docx", "--out", out])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "UsageError")
+
+    def test_a_missing_out_flag_is_a_usage_error(self):
+        source = self.write_markdown("# CV\n")
+        code, _parsed, err, _text = run(["render-docx", "--in", source])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "UsageError")
+
+    def test_out_equal_to_in_refuses_and_leaves_the_markdown_intact(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        code, _parsed, err, _text = run(
+            ["render-docx", "--in", source, "--out", source]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
+        with open(source, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "# CV\n\nProduct engineer.\n")
+
+    def test_out_equal_to_in_by_a_different_spelling_still_refuses(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        indirect = os.path.join(self.tmp, ".", "cv.md")
+        code, _parsed, err, _text = run(
+            ["render-docx", "--in", source, "--out", indirect]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
+
+    def test_a_missing_output_directory_is_a_named_refusal(self):
+        source = self.write_markdown("# CV\n")
+        out = os.path.join(self.tmp, "nope", "cv.docx")
+        code, _parsed, err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
+
+    def test_a_missing_input_file_is_a_named_refusal_not_a_traceback(self):
+        out = os.path.join(self.tmp, "cv.docx")
+        missing = os.path.join(self.tmp, "absent.md")
+        code, _parsed, err, _text = run(
+            ["render-docx", "--in", missing, "--out", out]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "FileNotFoundError")
+
+    def test_an_input_that_is_a_directory_is_a_named_refusal(self):
+        out = os.path.join(self.tmp, "cv.docx")
+        code, _parsed, err, _text = run(["render-docx", "--in", self.tmp, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertIn(json.loads(err)["error"], ("IsADirectoryError", "PermissionError"))
+
+    def test_an_empty_markdown_file_is_a_named_refusal(self):
+        source = self.write_markdown("   \n")
+        out = os.path.join(self.tmp, "cv.docx")
+        code, _parsed, err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "EmptyDocumentError")
+        self.assertFalse(os.path.exists(out))
+
+    def test_a_relative_path_works_from_the_current_directory(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        previous = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, previous)
+        code, parsed, _err, _text = run(
+            ["render-docx", "--in", "cv.md", "--out", "cv.docx"]
+        )
+        self.assertEqual(code, 0)
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "cv.docx")))
+        self.assertEqual(parsed["out"], "cv.docx")
+        self.assertTrue(os.path.exists(source))
 
 
 if __name__ == "__main__":

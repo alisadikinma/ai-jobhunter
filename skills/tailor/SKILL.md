@@ -68,6 +68,10 @@ that copies `master-cv.md` through unchanged.
 - `cv.md` — reordered, reworded, evidence selected for this JD.
 - `cover-letter.md` — likewise written for this JD, not a template filled
   with placeholders.
+- `cv.docx` and `cover-letter.docx` — built from the two markdown files by
+  `render-docx`. Nobody can attach a `.md` to a Workday form and no ATS
+  parses one, so the markdown is the working copy and the `.docx` is what
+  gets sent.
 - `keyword-report.md` — built from `keywords-report --markdown`.
   Its heading states plainly that this is a **keyword overlap report, not an
   ATS score**: no local computation can honestly predict what any ATS
@@ -112,4 +116,48 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keywords-report \
 The lists are the ranked head, not everything — a real posting yields hundreds
 of terms. `--top N` changes the cut; the heading always states the full count
 so a truncated report never reads as complete.
+
+```bash
+# Render the tailored CV as a .docx an ATS can read
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-docx \
+  --in .jobhunter/applications/<slug>/cv.md \
+  --out .jobhunter/applications/<slug>/cv.docx
+```
+
+Run it once per document — the cover letter is a second run with
+`--in cover-letter.md --out cover-letter.docx`.
+
+The `.docx` is deliberately plain: single column, no tables, no images, no
+header or footer content, Calibri throughout. Every one of those is a
+construct a resume parser either drops or scrambles, and a CV that looks
+beautiful and parses into empty fields has failed at its only job. Tables,
+images, links and nested bullets in the markdown are flattened automatically;
+each change is reported on stderr as `render-docx: line N: ...` and in the
+`notes` array on stdout. Report what changed — do not re-render to try to
+avoid it.
+
+### When `render-docx` refuses
+
+If the markdown still carries `[verifikasi]` or `[Assumption]`, the command
+writes **no file at all** and exits 1 with:
+
+```json
+{
+  "error": "UnverifiedClaimError",
+  "message": "refused to render: 1 unverified claim(s) still in the markdown. ..."
+}
+```
+
+That is the correct outcome, not a bug to work around. The message names the
+file, the line number and the claim itself. Show it to the user and ask them
+to verify the claim and remove the marker.
+
+`render-docx --allow-unverified` exists, and it is **the user's decision, per
+run, never this skill's**. Do not pass it because a render failed, do not suggest it as
+the fix, and never put it in a script or a config file. It is an opt-in
+escape from a safety gate on a document that goes out under the user's name.
+
+The other refusals: `EmptyDocumentError` when the markdown holds no headings,
+paragraphs or bullets, and `DestinationError` when the output directory does
+not exist, is not writable, or is the source markdown itself.
 

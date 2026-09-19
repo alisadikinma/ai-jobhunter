@@ -340,6 +340,19 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         )
         return match.group(1).split(",")
 
+    def test_render_docx_and_all_three_of_its_flags_are_collected(self):
+        """The guard must actually SEE the newest command, not just pass.
+
+        This guard was twice found vacuous during AJOB-1 — checking zero of
+        eighteen flags while staying green — so a new subcommand asserts its
+        own collection rather than trusting that the general test covers it.
+        """
+        commands = self._documented_commands()
+        self.assertIn("render-docx", commands)
+        self.assertEqual(
+            commands["render-docx"], {"--in", "--out", "--allow-unverified"}
+        )
+
     def test_every_documented_subcommand_exists_in_the_cli(self):
         help_text = self._cli_help()
         documented = self._documented_commands()

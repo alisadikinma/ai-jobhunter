@@ -6,6 +6,8 @@ this repository does it, which also makes the local `docx` module win over a
 standard-library only, so shadowing is the intended outcome, not an accident.
 """
 
+import contextlib
+import io
 import os
 import shutil
 import sys
@@ -605,6 +607,13 @@ class DocxTempDirCase(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="ajob2-docx-")
         self.addCleanup(shutil.rmtree, self.tmp, True)
+        # `render` writes one observability line to stderr on success. Left
+        # uncaptured it litters the suite's own output, which is the wart
+        # `ats.fetch`'s bare prints left behind before AJOB-1 removed them.
+        self.stderr = io.StringIO()
+        redirect = contextlib.redirect_stderr(self.stderr)
+        redirect.__enter__()
+        self.addCleanup(redirect.__exit__, None, None, None)
 
     def out(self, name="cv.docx"):
         return os.path.join(self.tmp, name)
@@ -670,6 +679,15 @@ class TestRenderWritesTheFiveParts(DocxTempDirCase):
         docx.render(read_fixture(TAILORED_CV), second)
         with open(first, "rb") as one, open(second, "rb") as two:
             self.assertEqual(one.read(), two.read())
+
+    def test_the_observability_line_names_blocks_notes_and_bytes(self):
+        path = self.out()
+        result = docx.render(read_fixture(MESSY_CV), path)
+        self.assertIn(
+            "docx.render: blocks=%d notes=%d bytes=%d"
+            % (result["blocks"], len(result["notes"]), result["bytes"]),
+            self.stderr.getvalue(),
+        )
 
     def test_the_result_reports_blocks_notes_and_bytes(self):
         path = self.out()

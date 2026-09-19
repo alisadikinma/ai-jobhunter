@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ats  # noqa: E402
 import config  # noqa: E402
+import docx  # noqa: E402
 import jobq  # noqa: E402
 import keywords  # noqa: E402
 import promote  # noqa: E402
@@ -168,6 +169,40 @@ def cmd_keywords_report(args):
     _emit(report)
 
 
+def cmd_render_docx(args):
+    """Render a tailored CV or cover letter to an ATS-readable `.docx`.
+
+    Notes go to BOTH channels on purpose: into the JSON on stdout, which the
+    skill parses, and as human lines on stderr, which is the channel a person
+    reads. A transformation nobody is told about is one nobody checks.
+    """
+    if os.path.abspath(args.input_path) == os.path.abspath(args.out):
+        raise docx.DestinationError(
+            "refusing to write the .docx over its own source markdown (%s). "
+            "Give --out a different path." % args.input_path
+        )
+
+    with open(args.input_path, "r", encoding="utf-8") as f:
+        markdown = f.read()
+
+    result = docx.render(
+        markdown,
+        args.out,
+        allow_unverified=args.allow_unverified,
+        source=os.path.basename(args.input_path),
+    )
+    for note in result["notes"]:
+        print("render-docx: %s" % note, file=sys.stderr)
+    _emit(
+        {
+            "out": result["out"],
+            "blocks": result["blocks"],
+            "notes": result["notes"],
+            "bytes": result["bytes"],
+        }
+    )
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -294,6 +329,28 @@ def build_parser():
     p.add_argument("--limit", type=int, default=promote.MAX_REQUESTS_PER_HOUR)
     p.add_argument("--batch-size", type=int, default=promote.MAX_BATCH_SIZE)
     p.set_defaults(func=cmd_promote_prepare)
+
+    p = sub.add_parser(
+        "render-docx", help="Render tailored markdown to an ATS-readable .docx"
+    )
+    p.add_argument(
+        "--in",
+        dest="input_path",
+        required=True,
+        help="path to the tailored markdown, e.g. .jobhunter/applications/<slug>/cv.md",
+    )
+    p.add_argument("--out", required=True, help="path to write the .docx to")
+    p.add_argument(
+        "--allow-unverified",
+        action="store_true",
+        help=(
+            "render even though the markdown still carries [verifikasi] or "
+            "[Assumption]. This is an opt-in escape from a safety gate, decided "
+            "per run by the person whose name is on the CV — never a config "
+            "default and never the skill's choice."
+        ),
+    )
+    p.set_defaults(func=cmd_render_docx)
 
     return parser
 
