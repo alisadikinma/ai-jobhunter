@@ -298,6 +298,36 @@ the contract.
     wrapped item no longer closes its ordered run, so "one note per run" now
     holds for the case a tailored CV actually writes.
 
+### Stated limits at merge, 2026-09-19 — measured, not assumed
+
+This ticket was merged by the owner's explicit decision WITHOUT a verification
+round returning CLEAN. Rounds 6, 7 and 8 each returned BLOCKING, and the
+Critical in rounds 7 and 8 was introduced by the previous round's fix. That is
+recorded here rather than left to be rediscovered.
+
+What still leaks or vanishes, each confirmed by running `flatten` +
+`parse_blocks` at the merge commit:
+
+| markdown | what reaches the page | note on stderr |
+| --- | --- | --- |
+| `#### Deep heading` | `#### Deep heading` — the hashes print | none |
+| `Revenue ~~fell~~ rose` | `Revenue ~~fell~~ rose` — the tildes print | none |
+| `---` / `***` between paragraphs | the rule vanishes | none |
+| two trailing spaces (hard break) | the lines are joined | none |
+| `- ` (empty bullet) | dropped | none |
+| two ordered lists split by a blank line | correct text | reported as ONE span |
+| ``` ``` ``` inside a `~~~` block | closes the block early | misleading |
+| fenced code | renders flush left, indentation lost | none |
+
+The first two violate Phase F's "no markdown syntax is visible" criterion. The
+rest are silent transformations, which violates spec section 5's "with a line
+on stderr". Neither is hidden: they are the known cost of merging here.
+
+The gate itself is not on this list. At the merge commit it was swept at
+2,756,762 codepoint renders across three contexts and 33,912 nested wrappings
+across nine, with zero leaks. The documented gate limit remains the one stated
+in `_unmask`: a cross-script homoglyph.
+
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally
 read, and removed from the document under `--allow-unverified`.
