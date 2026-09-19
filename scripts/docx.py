@@ -345,12 +345,17 @@ _HTML_TAG_RE = re.compile(
 # A table separator row: pipe-delimited cells of dashes, with optional
 # alignment colons. Requiring one is what keeps a sentence containing a
 # literal "|" from being read as a table.
-# One or more dash cells, so a single-column table is still a table. The
-# pattern alone also matches a bare "---", which is a horizontal rule and,
+# GFM requires exactly ONE dash per separator cell, not three. Demanding
+# three meant "| :-: |" and "|--|--|" were not tables at all: `find_tables`
+# skipped them, `flatten` never touched them, and every row collapsed into a
+# single paragraph with the raw pipes still in it. A centred column is the
+# ordinary way to write one.
+#
+# The pattern alone also matches a bare "---", which is a horizontal rule and,
 # under a line containing a pipe, a setext heading underline — so `find_tables`
 # additionally requires a pipe on the separator line itself.
 _TABLE_SEP_RE = re.compile(
-    r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$"
+    r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$"
 )
 
 # A bullet indented four or more spaces (or by a tab) is nested at least two
@@ -581,14 +586,26 @@ def strip_html(text):
     return indent + cleaned.strip()
 
 
+# A pipe the author escaped is content. Splitting on it turned the cell
+# "used `a \| b` pipelines" into two cells, put the " — " cell joiner inside
+# the candidate's own sentence, and left a stray backslash behind.
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+
+
 def _split_row(line):
-    """The cells of a markdown table row, outer pipes discarded."""
+    """The cells of a markdown table row, outer pipes discarded.
+
+    Escaped pipes survive as literal "|" inside the cell they belong to.
+    """
     stripped = line.strip()
     if stripped.startswith("|"):
         stripped = stripped[1:]
-    if stripped.endswith("|"):
+    if stripped.endswith("|") and not stripped.endswith("\\|"):
         stripped = stripped[:-1]
-    return [cell.strip() for cell in stripped.split("|")]
+    return [
+        cell.strip().replace("\\|", "|")
+        for cell in _UNESCAPED_PIPE_RE.split(stripped)
+    ]
 
 
 def _flatten_table(lines, start, stop):
