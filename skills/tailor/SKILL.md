@@ -157,6 +157,16 @@ run, never this skill's**. Do not pass it because a render failed, do not sugges
 the fix, and never put it in a script or a config file. It is an opt-in
 escape from a safety gate on a document that goes out under the user's name.
 
+When it is used, the claim is rendered but the marker itself is removed from
+the document — the override sends the claim, it does not print the user's
+private note to themselves onto a page an employer reads. `notes` reports how
+many markers were removed, so the override is never silent. Report that count.
+
+The gate also matches a marker carrying its reason (`[Assumption: figure from
+memory]`) and one wrapped in emphasis or written as html entities, because
+each of those spellings once got a claim into a rendered CV while the check
+reported clean.
+
 The other refusals: `EmptyDocumentError` when the markdown holds no headings,
 paragraphs or bullets, and `DestinationError` when the output directory does
 not exist, is not writable, is the source markdown itself, or when `--out`
