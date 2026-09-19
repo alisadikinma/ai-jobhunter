@@ -180,6 +180,31 @@ Verdict pertama: **BLOCKING** — 3 MISSING, 3 PARTIAL, 1 DIVERGED. Semua ditutu
 
 Dua temuan (M1, M2) dibuktikan dengan **menjalankan** `promote.py`, bukan membacanya.
 
+## gaspol-review Tier 1 (2026-09-19)
+
+Dua putaran. Verdict pertama: **BLOCKING** — 3 Critical. Verdict kedua atas diff perbaikan: **BLOCKING** lagi — 4 Critical, dua di antaranya tes yang baru saja ditulis dan hijau padahal tidak menjaga apa pun.
+
+| Putaran | Temuan | Tindakan |
+|---|---|---|
+| 1 | Nol entrypoint — skill menyebut nama fungsi Python, tidak ada satu pun cara memanggilnya | `scripts/jobhunter.py` (9 subcommand) + tiap SKILL.md menyebut perintah nyata |
+| 1 | Daftar putih bisa dilewati lewat `"."`, `""`, dan symlink | Nama yang menormalisasi ke root ditolak; jalur terselesaikan wajib di bawah root |
+| 1 | `update_rows` menghapus permanen baris rusak | Baris tak terbaca disimpan apa adanya |
+| 1 | Satu posting rusak membuang satu board penuh | 667 lowongan dengan 1 anomali → 666 baris; semua rusak tetap gagal keras dan menyebut field-nya |
+| 1 | `fit_score` cuma divalidasi di `to_match_text` | Divalidasi di `_require_score`, dipakai dua-duanya |
+| 1 | `KeyError` bocor dari `row["company"]` | `FieldMissingError` |
+| 1 | `C++` / `C#` jadi token `c` | Token bersimbol dipertahankan |
+| 1 | Laporan kata kunci 699 baris | Kepala berperingkat + judul jujur soal pemotongan |
+| 1 | `__main__` di tengah 3 berkas tes — 26 tes diam-diam terlewat | Dipindah ke akhir; paritas langsung-vs-discover diuji |
+| 2 | **Tes `.NET` hampa** — assertion menyebut token yang tidak pernah ada | Assertion diperbaiki; regex menerima titik di depan |
+| 2 | **Tes subcommand hampa** — parser menghasilkan string kosong | Diganti regex; dibuktikan gagal dengan subcommand palsu |
+| 2 | **Bypass keempat**: symlink DI DALAM folder yang di-allow-list | Tiap link di bawahnya diperiksa; jalur terselesaikan dikembalikan |
+| 2 | `iter_unpromoted` nol pemanggil | `queue-list --unpromoted` + masuk kriteria eligibility |
+| 2 | Kontrak error JSON pecah pada input keliru biasa | `main()` menangkap semua, selalu JSON |
+| 2 | Budget dihitung sebelum validasi — salah 6× | Validasi dulu, budget atas yang lolos |
+| 2 | `AttributeError` pada entri non-dict Ashby (regresi dari perbaikan sebelumnya) | Ditolak bernama |
+
+Uji mutasi dipakai dua kali: subcommand palsu disisipkan ke SKILL.md untuk membuktikan penjaganya menggigit.
+
 ## Utang terbuka
 
 - jobsync MCP token belum dibuat — promote hanya bisa diuji unit, belum end-to-end.
@@ -201,3 +226,4 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 - 2026-09-19 Phase F done — `python3 -m unittest discover -s tests -t .` 145 lulus / 0 gagal; `grep -rniE "alisadikin|indusia|obsidian|Drive-D" skills/` nol hasil; 23 referensi fungsi di SKILL.md semuanya menunjuk fungsi yang ada — NEXT: Phase G
 - 2026-09-19 Phase G done — `python3 -m unittest discover -s tests -t .` 157 lulus / 0 gagal; 7 fixture JD asli (Greenhouse 5, Ashby 2), teks diverifikasi ada di payload asli — SEMUA FASE SELESAI
 - 2026-09-19 audit plan-verifier BLOCKING (3 MISSING / 3 PARTIAL / 1 DIVERGED) ditutup di `8442773` — 183 lulus / 0 gagal, naik dari 157 — NEXT: tutup AJOB-1, lalu AJOB-2 (render DOCX/PDF ramah-ATS)
+- 2026-09-19 gaspol-review Tier 1 putaran 2 ditutup di `bf9ac50` — 225 lulus / 0 gagal, naik dari 157 di akhir Fase G — NEXT: review ulang putaran 3
