@@ -159,5 +159,6 @@ escape from a safety gate on a document that goes out under the user's name.
 
 The other refusals: `EmptyDocumentError` when the markdown holds no headings,
 paragraphs or bullets, and `DestinationError` when the output directory does
-not exist, is not writable, or is the source markdown itself.
+not exist, is not writable, is the source markdown itself, or when `--out`
+does not end in `.docx` — a typo there would overwrite whatever it named.
 
