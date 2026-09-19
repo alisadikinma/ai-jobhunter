@@ -53,25 +53,25 @@
 - [x] No placeholder/TODO comments in new code
 - [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
-### [ ] Phase C: ATS flattening
-- [ ] Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `Skill: Python — 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
-- [ ] Run tests, confirm it fails for that reason
-- [ ] Implement `flatten(markdown)` returning `(flattened_markdown, notes)` where `notes` is a list of strings for stderr. Transformations, all of them from spec §4 gate 2:
-- [ ] - **table** → one line per body row, `"<header1>: <cell1> — <cell2>"`, the separator row dropped
-- [ ] - **image** `![alt](src)` → removed entirely; note records the `src`
-- [ ] - **link** `[text](url)` → `text (url)`, because ATS frequently keep neither the anchor nor the href
-- [ ] - **nesting deeper than one level** → flattened to one level
-- [ ] - **inline HTML** → stripped via `ats._clean_description`, imported rather than reimplemented
-- [ ] Add tests for the enumerated edge cases: a table with one column, a table with a missing cell (pad with empty string, never drop the row), a table with no header separator (treated as paragraphs, not a table), an image with no alt text, a link whose text equals its url (emit the text once, not `url (url)`), a reference-style link `[text][ref]` (left as-is — out of scope, noted), three-level nesting, an empty table, and markdown containing a literal `|` inside a normal sentence (must NOT be treated as a table)
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(docx): flatten what an ATS parses badly, refuse nothing"
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t .` passes
-- [ ] `flatten` output, fed to `parse_blocks`, yields only `heading`/`paragraph`/`bullet` — the Phase A invariant holds on real flattened input
-- [ ] A sentence containing a literal `|` survives unflattened
-- [ ] `ats._clean_description` is imported, not reimplemented (assert by grepping the module for a second HTML stripper)
-- [ ] No placeholder/TODO comments in new code
-- [ ] detect-stack: no stack markers for this project — verification is plan-declared only
+### [x] Phase C: ATS flattening
+- [x] Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `Skill: Python — 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
+- [x] Run tests, confirm it fails for that reason
+- [x] Implement `flatten(markdown)` returning `(flattened_markdown, notes)` where `notes` is a list of strings for stderr. Transformations, all of them from spec §4 gate 2:
+- [x] - **table** → one line per body row, `"<header1>: <cell1> — <cell2>"`, the separator row dropped
+- [x] - **image** `![alt](src)` → removed entirely; note records the `src`
+- [x] - **link** `[text](url)` → `text (url)`, because ATS frequently keep neither the anchor nor the href
+- [x] - **nesting deeper than one level** → flattened to one level
+- [x] - **inline HTML** → stripped via `ats._clean_description`, imported rather than reimplemented
+- [x] Add tests for the enumerated edge cases: a table with one column, a table with a missing cell (pad with empty string, never drop the row), a table with no header separator (treated as paragraphs, not a table), an image with no alt text, a link whose text equals its url (emit the text once, not `url (url)`), a reference-style link `[text][ref]` (left as-is — out of scope, noted), three-level nesting, an empty table, and markdown containing a literal `|` inside a normal sentence (must NOT be treated as a table)
+- [x] Run tests, confirm all pass
+- [x] Commit: "feat(docx): flatten what an ATS parses badly, refuse nothing"
+- [x] `python3 -m compileall -q scripts tests` passes
+- [x] `python3 -m unittest discover -s tests -t .` passes
+- [x] `flatten` output, fed to `parse_blocks`, yields only `heading`/`paragraph`/`bullet` — the Phase A invariant holds on real flattened input
+- [x] A sentence containing a literal `|` survives unflattened
+- [x] `ats._clean_description` is imported, not reimplemented (assert by grepping the module for a second HTML stripper)
+- [x] No placeholder/TODO comments in new code
+- [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
 ### [ ] Phase D: the OOXML writer
 - [ ] Write failing test for `docx.render("# Ali\n", path)` producing a file whose `zipfile.ZipFile(path).namelist()` equals the five parts listed in "The five OOXML parts" above. Expected error: `AttributeError: module 'docx' has no attribute 'render'`
@@ -145,3 +145,4 @@
 - 2026-09-19 plan ditulis — NEXT: Phase A
 - 2026-09-19 Phase A selesai — `scripts/docx.py::parse_blocks` + 26 test baru, 288 lulus / 0 gagal. Cacat ditemukan saat dijalankan pada CV nyata: bullet yang terbungkus ke baris berikut pecah jadi paragraf liar; baris berindentasi sekarang menyambung bullet di atasnya. Commit `feat(docx): parse the supported markdown subset into blocks`. — NEXT: Phase B
 - 2026-09-19 Phase B selesai — `ats_lint` + `unverified_findings` + `UnverifiedClaimError`, 318 lulus / 0 gagal. Mutation check: buang separuh `[Assumption]` → 1 test gagal; buang `re.I` → 3 gagal; buang syarat baris pemisah tabel → MASIH HIJAU pada percobaan pertama karena test pipa-literal cuma satu baris, dan satu baris tak pernah bisa jadi tabel. Ditambal 3 kasus multi-baris, mutasi yang sama sekarang gagal ketiganya. Commit `feat(docx): refuse to render a claim the candidate never verified`. — NEXT: Phase C
+- 2026-09-19 Phase C selesai — `flatten` + `find_tables` + `strip_html`, 355 lulus / 0 gagal. Dua cacat baru muncul saat dijalankan pada CV berantakan nyata: (1) `ats._TAG_RE` = `<[^>]+>` memakan tengah kalimat "p95 < 200ms dan > 1k rps" — kurung sudut di luar tag asli sekarang disembunyikan dulu di balik sentinel, `ats._clean_description` tetap yang menghapus tag; (2) tabel satu kolom tidak terdeteksi karena pola pemisah menuntut minimal dua sel. Mutation check: buang proteksi non-tag / buang pad "N/A" / buang padding baris pendek — ketiganya gagal test. Commit `feat(docx): flatten what an ATS parses badly, refuse nothing`. — NEXT: Phase D
