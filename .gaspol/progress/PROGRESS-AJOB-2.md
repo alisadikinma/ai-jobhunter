@@ -73,23 +73,23 @@
 - [x] No placeholder/TODO comments in new code
 - [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
-### [ ] Phase D: the OOXML writer
-- [ ] Write failing test for `docx.render("# Ali\n", path)` producing a file whose `zipfile.ZipFile(path).namelist()` equals the five parts listed in "The five OOXML parts" above. Expected error: `AttributeError: module 'docx' has no attribute 'render'`
-- [ ] Run tests, confirm it fails for that reason
-- [ ] Implement `render(markdown, path)`: run `ats_lint` → raise `UnverifiedClaimError` on any `unverified-claim` finding (unless `allow_unverified=True`), then `flatten`, then `parse_blocks`, then emit the five parts with `zipfile.ZIP_DEFLATED`. Use the style table and the escaping order pinned above
-- [ ] Write to a temp file in the destination directory and `os.replace` it into place, so a failure never leaves a half-written `.docx` — the same atomic-write pattern `scripts/jobq.py::update_rows` already uses
-- [ ] Add tests for the enumerated edge cases: empty markdown (**refuse** — `EmptyDocumentError`; an empty CV is never the intent), whitespace-only markdown (same), a single heading and nothing else, 500 blocks, text containing `&`/`<`/`>` (assert the escaping order by round-tripping `a & b < c`), non-ASCII (`—`, `é`, `日本語`), a destination directory that does not exist, and a destination that is not writable
-- [ ] Round-trip test: write a `.docx`, reopen it with `zipfile`, assert `testzip() is None` and that `word/document.xml` parses under `xml.etree.ElementTree` — a well-formedness check the writer cannot fake
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(docx): write the OOXML parts, atomically"
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t .` passes
-- [ ] Generated `.docx` is a valid ZIP (`testzip() is None`) and `word/document.xml` is well-formed XML
-- [ ] `a & b < c` round-trips exactly — proves the escaping order
-- [ ] A failed render leaves no file at the destination path
-- [ ] Empty and whitespace-only markdown both raise `EmptyDocumentError`
-- [ ] No placeholder/TODO comments in new code
-- [ ] detect-stack: no stack markers for this project — verification is plan-declared only
+### [x] Phase D: the OOXML writer
+- [x] Write failing test for `docx.render("# Ali\n", path)` producing a file whose `zipfile.ZipFile(path).namelist()` equals the five parts listed in "The five OOXML parts" above. Expected error: `AttributeError: module 'docx' has no attribute 'render'`
+- [x] Run tests, confirm it fails for that reason
+- [x] Implement `render(markdown, path)`: run `ats_lint` → raise `UnverifiedClaimError` on any `unverified-claim` finding (unless `allow_unverified=True`), then `flatten`, then `parse_blocks`, then emit the five parts with `zipfile.ZIP_DEFLATED`. Use the style table and the escaping order pinned above
+- [x] Write to a temp file in the destination directory and `os.replace` it into place, so a failure never leaves a half-written `.docx` — the same atomic-write pattern `scripts/jobq.py::update_rows` already uses
+- [x] Add tests for the enumerated edge cases: empty markdown (**refuse** — `EmptyDocumentError`; an empty CV is never the intent), whitespace-only markdown (same), a single heading and nothing else, 500 blocks, text containing `&`/`<`/`>` (assert the escaping order by round-tripping `a & b < c`), non-ASCII (`—`, `é`, `日本語`), a destination directory that does not exist, and a destination that is not writable
+- [x] Round-trip test: write a `.docx`, reopen it with `zipfile`, assert `testzip() is None` and that `word/document.xml` parses under `xml.etree.ElementTree` — a well-formedness check the writer cannot fake
+- [x] Run tests, confirm all pass
+- [x] Commit: "feat(docx): write the OOXML parts, atomically"
+- [x] `python3 -m compileall -q scripts tests` passes
+- [x] `python3 -m unittest discover -s tests -t .` passes
+- [x] Generated `.docx` is a valid ZIP (`testzip() is None`) and `word/document.xml` is well-formed XML
+- [x] `a & b < c` round-trips exactly — proves the escaping order
+- [x] A failed render leaves no file at the destination path
+- [x] Empty and whitespace-only markdown both raise `EmptyDocumentError`
+- [x] No placeholder/TODO comments in new code
+- [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
 ### [ ] Phase E: CLI subcommand and skill wiring
 - [ ] Write failing test for `main(["render-docx", "--in", md_path, "--out", docx_path])` exiting 0 and printing JSON carrying `{"out": ..., "blocks": <int>, "notes": [...]}`. Expected error: `SystemExit: 1` with `{"error": "UsageError", "message": "argument command: invalid choice: 'render-docx'"}`
@@ -146,3 +146,4 @@
 - 2026-09-19 Phase A selesai — `scripts/docx.py::parse_blocks` + 26 test baru, 288 lulus / 0 gagal. Cacat ditemukan saat dijalankan pada CV nyata: bullet yang terbungkus ke baris berikut pecah jadi paragraf liar; baris berindentasi sekarang menyambung bullet di atasnya. Commit `feat(docx): parse the supported markdown subset into blocks`. — NEXT: Phase B
 - 2026-09-19 Phase B selesai — `ats_lint` + `unverified_findings` + `UnverifiedClaimError`, 318 lulus / 0 gagal. Mutation check: buang separuh `[Assumption]` → 1 test gagal; buang `re.I` → 3 gagal; buang syarat baris pemisah tabel → MASIH HIJAU pada percobaan pertama karena test pipa-literal cuma satu baris, dan satu baris tak pernah bisa jadi tabel. Ditambal 3 kasus multi-baris, mutasi yang sama sekarang gagal ketiganya. Commit `feat(docx): refuse to render a claim the candidate never verified`. — NEXT: Phase C
 - 2026-09-19 Phase C selesai — `flatten` + `find_tables` + `strip_html`, 355 lulus / 0 gagal. Dua cacat baru muncul saat dijalankan pada CV berantakan nyata: (1) `ats._TAG_RE` = `<[^>]+>` memakan tengah kalimat "p95 < 200ms dan > 1k rps" — kurung sudut di luar tag asli sekarang disembunyikan dulu di balik sentinel, `ats._clean_description` tetap yang menghapus tag; (2) tabel satu kolom tidak terdeteksi karena pola pemisah menuntut minimal dua sel. Mutation check: buang proteksi non-tag / buang pad "N/A" / buang padding baris pendek — ketiganya gagal test. Commit `feat(docx): flatten what an ATS parses badly, refuse nothing`. — NEXT: Phase D
+- 2026-09-19 Phase D selesai — `render` + lima bagian OOXML + tulis atomik, 385 lulus / 0 gagal. Dua cacat ketemu, dua-duanya dari menjalankan bukan membaca: (1) `tempfile.mkstemp` di luar guard, folder tak bisa ditulis melempar `PermissionError` telanjang — sekarang `DestinationError`; (2) file hasil dibaca balik lewat extractor dokumen nyata menunjukkan tabel skill 3 baris jadi SATU kalimat panjang — baris tabel sekarang jadi bullet, tiap baris satu blok. Bullet pakai glyph harfiah, bukan numbering.xml. Timestamp zip dikunci supaya byte hasil render sama tiap kali. Commit `feat(docx): write the OOXML parts, atomically`. — NEXT: Phase E
