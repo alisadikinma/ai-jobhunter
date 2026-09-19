@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import tempfile
 import urllib.parse
 
@@ -197,12 +198,22 @@ def update_rows(path, updates, key=row_key):
             updated += 1
 
     directory = os.path.dirname(path) or "."
+    # `mkstemp` creates at 0600 and `os.replace` carries that mode onto the
+    # destination, so without this the rewrite would silently narrow the
+    # queue file's permissions. Preserving the original mode keeps the
+    # rewrite invisible to everything except the row contents.
+    existing_mode = None
+    if os.path.exists(path):
+        existing_mode = stat.S_IMODE(os.stat(path).st_mode)
+
     fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             for row in rows:
                 f.write(json.dumps(row))
                 f.write("\n")
+        if existing_mode is not None:
+            os.chmod(tmp_path, existing_mode)
         os.replace(tmp_path, path)
     except BaseException:
         if os.path.exists(tmp_path):

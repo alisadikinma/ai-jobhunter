@@ -230,3 +230,15 @@ class TestUpdateRows(unittest.TestCase):
             leftovers = [n for n in os.listdir(tmp) if n.endswith(".tmp")]
             self.assertEqual(leftovers, [])
 
+    def test_file_permissions_survive_the_rewrite(self):
+        """`mkstemp` creates at 0600 and `os.replace` carries the mode over,
+        so without preserving it the rewrite silently narrows the file.
+        """
+        import stat
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            os.chmod(path, 0o644)
+            jobq.update_rows(path, {})
+            self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o644)
+

@@ -16,10 +16,14 @@ they already exist) the described source files under a scratch
 check `master-cv.md`, `variants.toml`, and `conflicts.md` against the pass
 criteria below.
 
-Cases 1, 2 and 4 below are built from the **real, observed conflicts**
-recorded in spec §4.2 ("Observed conflicts as of 2026-09-19") — not
-invented for this eval. That section states these are "real, and are why
-this section exists."
+Cases 1, 2 and 4 below reproduce the **shapes** of conflicts actually
+observed in a real profile and recorded in spec §4.2 ("Observed conflicts as
+of 2026-09-19"). The shapes are real; the file names and figures here are
+neutral stand-ins, because this repository ships nothing about any
+individual (spec §1). An eval of this kind tests the reconciliation
+behaviour, and that behaviour does not depend on whose numbers are used —
+only on two sources disagreeing, and on a number meaning two different
+things in two places.
 
 **Reporting unit: pass@k.** Run each case `k = 3` times and report `pass@3`.
 Case 3 (`[verifikasi]` suppression) is a hard rule, not a judgement call —
@@ -117,7 +121,7 @@ say "9 countries"; they are about unrelated subjects.
 - `master-cv.md` (or the Pass 2 extracted-claims record, checked directly if
   easier) contains these as two separate claims, each citing its own source
   file and line.
-- No rendered bullet states a fused claim such as "products used across 16
+- No rendered bullet states a fused claim such as "products used across 9
   countries by a cohort of 30 founders" or any other sentence whose
   citation would not actually support the combined statement.
 - This is explicitly **not** treated as a same-subject collision — it must
