@@ -157,7 +157,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 
 ## Amendments, 2026-09-19 (post-implementation, owner-approved)
 
-Eleven points where the pinned text above no longer matches the code. Every
+Thirteen points where the pinned text above no longer matches the code. Every
 one was found by RUNNING the code — on a real CV, through a real document
 extractor, or by an adversarial review — and each is approved. They are
 recorded here rather than silently left to drift, because this document is
@@ -216,6 +216,31 @@ the contract.
     `word/document.xml` — and the committed eval sample — fail ISO/IEC 29500
     validation. The pinned block above is updated in place, since a contract
     that produces an invalid document is not worth preserving verbatim.
+
+12. **Fenced and indented code reach `parse_blocks` as code spans**, not as
+    bare lines. Dropping the fence delimiters left the code inside with no
+    protection from `strip_inline`, so `total = a*b*c` rendered as
+    `total = abc` and `__init__` as `init` — the candidate's own characters
+    deleted, with nothing on stderr saying so. Markdown's own answer to
+    "these characters are literal" is a code span, so `flatten` wraps each
+    code line in a backtick run one longer than the longest run the code
+    contains, padding it when the line itself starts or ends with a
+    backtick. `_CODE_RE` was widened to multi-backtick spans to match, which
+    is what CommonMark specifies anyway. Found by round 6's plan-verifier;
+    this defect ARRIVED with amendment-era work, it was not inherited.
+
+13. **Notes carry the original line number through the block pass too.**
+    `flatten`'s docstring already promised this, and `_flatten_blocks` broke
+    it: that pass drops lines (reference definitions, fences) and inserts
+    them (the blank separators after code), so numbering by position
+    afterwards reported an image on line 4 as line 3. Lines now travel as
+    `(original_line_number, text)` pairs from the block pass onward. Also in
+    this amendment: an indented line under a list item keeps the list
+    context, so a bullet wrapped over three or more lines stays one bullet
+    rather than falling out of the list and being read as indented code —
+    amendment 2's defect, which had returned one line further down; and
+    ordered lists, setext underlines and task checkboxes are now each
+    reported on stderr, which spec §5 required and they were not doing.
 
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally

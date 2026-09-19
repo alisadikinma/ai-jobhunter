@@ -798,8 +798,14 @@ class TestFlattenTables(unittest.TestCase):
         # under a line holding a pipe, a setext underline. The pipe
         # requirement on the separator line is what keeps them apart.
         flat, notes = docx.flatten("Ran `a | b` daily\n---\nNext section\n")
-        self.assertEqual(notes, [])
+        self.assertEqual([n for n in notes if "table" in n], [], notes)
         self.assertIn("a | b", flat)
+        # "---" under a paragraph really is a setext underline, and since
+        # round 6 that conversion is reported rather than silent. The point
+        # of this case is that it is not read as a TABLE separator.
+        self.assertEqual(
+            notes, ["line 2: setext underline converted to a heading"]
+        )
 
     def test_an_escaped_pipe_stays_inside_its_cell(self):
         """Splitting on it made two cells and put " — " inside a sentence.
@@ -1619,8 +1625,15 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
 
     def test_fenced_code_keeps_its_lines_apart(self):
         flat, _notes = docx.flatten("```\ndef solve(x):\n    return x\n```\n")
-        self.assertNotIn("`", flat)
-        self.assertEqual(len(docx.parse_blocks(flat)), 2)
+        blocks = docx.parse_blocks(flat)
+        self.assertEqual(len(blocks), 2)
+        self.assertEqual(
+            [b["text"] for b in blocks], ["def solve(x):", "return x"]
+        )
+        # `flatten` now wraps each code line in a code span so `strip_inline`
+        # cannot eat its `*` and `_`. That backtick is intermediate markup and
+        # must not survive into the document, which is what this pins.
+        self.assertNotIn("`", " ".join(b["text"] for b in blocks))
 
     def test_a_blockquote_keeps_its_words(self):
         text, _notes = self.rendered_text("> Ali rebuilt our billing pipeline.\n")
@@ -1642,6 +1655,176 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
         )
         self.assertEqual(len(blocks), 1)
         self.assertEqual(blocks[0]["kind"], "bullet")
+
+
+class TestRoundSixFollowups(unittest.TestCase):
+    """The two regressions and three silences round 6's plan-verifier found.
+
+    Every one of them arrived WITH the eleven-construct commit, so each is a
+    defect this ticket introduced rather than one it inherited.
+    """
+
+    def blocks(self, markdown):
+        text, notes = docx.flatten(markdown)
+        return docx.parse_blocks(text), notes
+
+    # --- Major 1: Amendment 2 regressed for bullets wrapped over 3+ lines ---
+
+    def test_a_bullet_wrapped_across_three_lines_stays_one_bullet(self):
+        # Two lines already worked; the THIRD fell out of the list context and
+        # was read as indented code, which is the exact "bullet plus a stray
+        # un-bulleted paragraph" Amendment 2 exists to prevent.
+        blocks, notes = self.blocks(
+            "- Led the migration of a very long system that needed\n"
+            "    wrapping across lines\n"
+            "    and a third line too\n"
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["kind"], "bullet")
+        self.assertIn("and a third line too", blocks[0]["text"])
+        self.assertEqual(
+            [n for n in notes if "indented code" in n],
+            [],
+            "a wrapped bullet is not indented code",
+        )
+
+    def test_a_bullet_wrapped_across_six_lines_stays_one_bullet(self):
+        markdown = "- Cut AWS spend by 38 percent across\n" + "".join(
+            "    continuation line %d\n" % n for n in range(1, 6)
+        )
+        blocks, _notes = self.blocks(markdown)
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("continuation line 5", blocks[0]["text"])
+
+    def test_indented_code_after_a_paragraph_is_still_code(self):
+        # The fix must not swallow the case it was carved out of: with no list
+        # item above, four spaces really is a code block.
+        _blocks, notes = self.blocks("Here is the fix:\n\n    total = 1\n")
+        self.assertTrue(any("indented code" in n for n in notes), notes)
+
+    # --- Major 2: emphasis was stripped INSIDE fenced code ---
+
+    def test_fenced_code_keeps_its_emphasis_characters(self):
+        blocks, _notes = self.blocks(
+            "```\ntotal = a*b*c and __init__\n```\n"
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["text"], "total = a*b*c and __init__")
+
+    def test_fenced_code_keeps_a_line_that_contains_backticks(self):
+        blocks, _notes = self.blocks(
+            "```\necho `date` and *stars*\n```\n"
+        )
+        self.assertEqual(blocks[0]["text"], "echo `date` and *stars*")
+
+    def test_fenced_code_keeps_a_line_that_starts_with_a_backtick(self):
+        # Wrapping this one needs a padding space, and the padding must be
+        # taken off again. Nothing tested that until the mutation said so.
+        blocks, _notes = self.blocks(
+            "```\n`date` is a shell builtin\n```\n"
+        )
+        self.assertEqual(blocks[0]["text"], "`date` is a shell builtin")
+
+    def test_fenced_code_keeps_a_line_that_ends_with_a_backtick(self):
+        blocks, _notes = self.blocks("```\nrun `x`\n```\n")
+        self.assertEqual(blocks[0]["text"], "run `x`")
+
+    def test_indented_code_keeps_its_emphasis_characters(self):
+        blocks, _notes = self.blocks("Fix:\n\n    weight = a*b*c\n")
+        self.assertIn(
+            "a*b*c",
+            " ".join(block["text"] for block in blocks),
+        )
+
+    def test_emphasis_outside_a_fence_is_still_stripped(self):
+        blocks, _notes = self.blocks("Shipped **on time**\n")
+        self.assertEqual(blocks[0]["text"], "Shipped on time")
+
+    # --- Major 3: spec section 5 says every change gets a line on stderr ---
+
+    def test_an_ordered_list_is_reported(self):
+        _blocks, notes = self.blocks("1. Led migration\n2. Cut costs\n")
+        self.assertTrue(
+            any("ordered list" in n for n in notes), notes
+        )
+
+    def test_a_setext_heading_is_reported(self):
+        _blocks, notes = self.blocks("Experience\n==========\n")
+        self.assertTrue(any("setext" in n for n in notes), notes)
+
+    def test_a_task_checkbox_is_reported(self):
+        _blocks, notes = self.blocks("- [x] Shipped it\n")
+        self.assertTrue(any("checkbox" in n for n in notes), notes)
+
+    def test_a_horizontal_rule_is_not_reported_as_a_setext_heading(self):
+        # `---` under nothing is a rule, not an underline, and a note that
+        # cried "setext" on every rule would be noise.
+        _blocks, notes = self.blocks("Alpha\n\n---\n\nBeta\n")
+        self.assertEqual([n for n in notes if "setext" in n], [], notes)
+
+    def test_a_table_separator_is_not_reported_as_a_setext_heading(self):
+        _blocks, notes = self.blocks(
+            "| Skill | Years |\n| --- | --- |\n| Python | 8 |\n"
+        )
+        self.assertEqual([n for n in notes if "setext" in n], [], notes)
+
+    # --- Minor 1: a stale note branch that contradicted the real one ---
+
+    def test_an_unresolved_reference_link_gets_exactly_one_note(self):
+        _blocks, notes = self.blocks("[[][]][]\n")
+        reference_notes = [n for n in notes if "reference-style link" in n]
+        self.assertEqual(len(reference_notes), 1, reference_notes)
+        self.assertNotIn("out of scope", " ".join(reference_notes))
+
+    def test_a_resolved_reference_link_is_not_called_out_of_scope(self):
+        _blocks, notes = self.blocks(
+            "Spoke at [PyCon][pycon]\n\n[pycon]: https://pycon.org\n"
+        )
+        self.assertNotIn("out of scope", " ".join(notes))
+
+    # --- Minor 2: notes must name the ORIGINAL line, as flatten promises ---
+
+    def test_a_padded_code_span_does_not_leave_its_padding_behind(self):
+        # At a block edge `.strip()` hides a failure to remove the padding.
+        # Mid-sentence it shows, which is why this case exists at all.
+        blocks, _notes = self.blocks("Run `` `x` `` now\n")
+        self.assertEqual(blocks[0]["text"], "Run `x` now")
+
+    def test_a_table_note_after_a_dropped_block_line_names_the_original_line(self):
+        _blocks, notes = self.blocks(
+            "[pycon]: https://pycon.org\n"
+            "| Skill | Years |\n"
+            "| --- | --- |\n"
+            "| Python | 8 |\n"
+        )
+        self.assertTrue(
+            any("line 2: table flattened" in n for n in notes), notes
+        )
+
+    def test_a_reference_link_note_names_its_own_original_line(self):
+        _blocks, notes = self.blocks(
+            "[pycon]: https://pycon.org\n"
+            "Ali Sadikin\n"
+            "Spoke at [PyCon][pycon]\n"
+        )
+        self.assertTrue(
+            any("line 3: reference-style link resolved" in n for n in notes),
+            notes,
+        )
+
+    def test_a_note_after_a_dropped_block_line_names_the_original_line(self):
+        _blocks, notes = self.blocks(
+            "Ali Sadikin\n"
+            "[pycon]: https://pycon.org\n"
+            "Worked at <b>Acme</b> on AT&amp;T billing.\n"
+            "![logo](logo.png)\n"
+        )
+        self.assertTrue(
+            any("line 3: inline html stripped" in n for n in notes), notes
+        )
+        self.assertTrue(
+            any("line 4: image removed" in n for n in notes), notes
+        )
 
 
 if __name__ == "__main__":

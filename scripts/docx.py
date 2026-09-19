@@ -103,7 +103,12 @@ _SETEXT_H2_RE = re.compile(r"^\s*-{2,}\s*$")
 # silently lose both asterisks.
 _BOLD_RE = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.S)
 _ITALIC_RE = re.compile(r"\*(?=\S)([^*]+?)(?<=\S)\*")
-_CODE_RE = re.compile(r"`([^`]+)`")
+# A run of one or more backticks, closed by a run of the same length.
+# `flatten` wraps every fenced and indented code line in one of these, so
+# the delimiter has to be able to grow past whatever backticks the code
+# itself contains.
+_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
+_BACKTICK_RUN_RE = re.compile(r"`+")
 
 # Underscore emphasis, which models write at least as often as the asterisk
 # form. Both patterns refuse to start or end next to a word character, so
@@ -198,10 +203,43 @@ def strip_inline(text):
     # `init`.
     for match in _CODE_RE.finditer(text):
         out.append(_strip_emphasis(text[position : match.start()]))
-        out.append(match.group(1))
+        out.append(_code_span_text(match.group(2)))
         position = match.end()
     out.append(_strip_emphasis(text[position:]))
     return "".join(out)
+
+
+def _code_span_text(content):
+    """The text inside a code span, minus the one padding space each side.
+
+    CommonMark's own rule, and `_as_code_span` depends on it: a code line
+    that itself starts or ends with a backtick can only be wrapped by padding
+    it, and the padding must not reach the page.
+    """
+    if (
+        len(content) >= 2
+        and content.startswith(" ")
+        and content.endswith(" ")
+        and content.strip()
+    ):
+        return content[1:-1]
+    return content
+
+
+def _as_code_span(text):
+    """Wrap a code line so `strip_inline` leaves its characters alone.
+
+    Fenced and indented code reach `parse_blocks` as ordinary lines, and
+    `strip_inline` ran straight over them: `a*b*c` arrived as `abc` and
+    `__init__` as `init`, silently, with nothing on stderr. Markdown's own
+    answer to "these characters are literal" is a code span, so the delimiter
+    is one backtick longer than the longest run the code itself contains.
+    """
+    longest = max((len(run) for run in _BACKTICK_RUN_RE.findall(text)), default=0)
+    fence = "`" * (longest + 1)
+    if text.startswith("`") or text.endswith("`"):
+        return "%s %s %s" % (fence, text, fence)
+    return fence + text + fence
 
 
 def _strip_emphasis(text):
@@ -750,8 +788,12 @@ def flatten(markdown):
 
     # Block constructs that span lines, and the link plumbing, come first:
     # everything after them can be decided one line at a time.
-    lines, block_notes = _flatten_blocks(lines)
+    pairs, block_notes = _flatten_blocks(lines)
     notes.extend(block_notes)
+    # The block pass drops and inserts lines, so position is no longer the
+    # author's line number. Every line carries its own from here on.
+    lines = [text for _origin, text in pairs]
+    origins = [origin for origin, _text in pairs]
 
     # Tables first, and line-wise: a table is the one construct that spans
     # more than one line, so every later transformation can be per-line.
@@ -768,23 +810,23 @@ def flatten(markdown):
             start, stop = table_starts[index]
             rows = _flatten_table(lines, start, stop)
             for row in rows:
-                numbered.append((index, row))
+                numbered.append((origins[index], row))
             if rows:
                 notes.append(
-                    "line %d: table flattened to %d line(s)" % (index + 1, len(rows))
+                    "line %d: table flattened to %d line(s)"
+                    % (origins[index], len(rows))
                 )
             else:
                 notes.append(
-                    "line %d: table had no body rows, dropped" % (index + 1)
+                    "line %d: table had no body rows, dropped" % origins[index]
                 )
             continue
         if index in consumed:
             continue
-        numbered.append((index, line))
+        numbered.append((origins[index], line))
 
     out = []
-    for index, line in numbered:
-        number = index + 1
+    for number, line in numbered:
 
         removed = _HTML_TAG_RE.findall(line)
         has_entities = _ENTITY_RE.search(line)
@@ -809,11 +851,6 @@ def flatten(markdown):
             line = _IMAGE_RE.sub("", line)
             for source in images:
                 notes.append("line %d: image removed (%s)" % (number, source or "no src"))
-
-        if _REFERENCE_LINK_RE.search(line):
-            notes.append(
-                "line %d: reference-style link left as written — out of scope" % number
-            )
 
         if _INLINE_LINK_RE.search(line):
             line = _INLINE_LINK_RE.sub(_rewrite_link, line)
@@ -1188,6 +1225,21 @@ def _strip_markers(blocks):
     return changed
 
 
+def _is_paragraph_line(text):
+    """Would `parse_blocks` be accumulating this line into a paragraph?
+
+    A setext underline only becomes a heading when a paragraph is open above
+    it, so the note has to ask the same question — otherwise every horizontal
+    rule in the document is announced as a heading.
+    """
+    stripped = text.strip()
+    if not stripped or stripped.startswith("#"):
+        return False
+    if _SETEXT_H1_RE.match(text) or _SETEXT_H2_RE.match(text):
+        return False
+    return not (_BULLET_RE.match(text) or _ORDERED_RE.match(text))
+
+
 def _flatten_blocks(lines):
     """Blockquotes, code, footnotes and reference definitions.
 
@@ -1197,9 +1249,10 @@ def _flatten_blocks(lines):
     dropped WITH a line on stderr, and `skills/tailor/SKILL.md` tells the
     model to report what changed. It was being handed an empty list.
 
-    Returns `(lines, notes)`. Each output line keeps the text of its source;
-    the caller re-numbers nothing, because these transformations are all
-    one-line-in, one-line-out or a drop.
+    Returns `(pairs, notes)`, each pair `(original_line_number, text)`. The
+    number travels WITH the line because this pass drops lines and inserts
+    them: numbering by position afterwards reported an image on line 4 as
+    line 3, which sends the author looking at the wrong line.
     """
     notes = []
 
@@ -1215,6 +1268,7 @@ def _flatten_blocks(lines):
     in_fence = False
     in_indented_code = False
     last_was_list_item = False
+    previous_was_paragraph = False
     for index, line in enumerate(lines):
         number = index + 1
 
@@ -1232,8 +1286,9 @@ def _flatten_blocks(lines):
             # A blank line after each, so `parse_blocks` does not join them:
             # consecutive text lines are one paragraph by markdown's own
             # rules, and "def solve(x): return x" is not what was written.
-            out.append(line.strip())
-            out.append("")
+            stripped = line.strip()
+            out.append((number, _as_code_span(stripped) if stripped else ""))
+            out.append((number, ""))
             continue
 
         if _REFERENCE_DEF_RE.match(line):
@@ -1252,13 +1307,13 @@ def _flatten_blocks(lines):
                 "line %d: footnote marker [^%s] dropped, its text kept"
                 % (number, footnote.group(1))
             )
-            out.append(footnote.group(2).strip())
+            out.append((number, footnote.group(2).strip()))
             continue
 
         quoted = _BLOCKQUOTE_RE.match(line)
         if quoted and line.lstrip().startswith(">"):
             notes.append("line %d: blockquote marker dropped" % number)
-            out.append(quoted.group(1).strip())
+            out.append((number, quoted.group(1).strip()))
             continue
 
         indented = _INDENTED_CODE_RE.match(line)
@@ -1270,15 +1325,43 @@ def _flatten_blocks(lines):
             if not in_indented_code:
                 in_indented_code = True
                 notes.append("line %d: indented code dedented" % number)
-            out.append(indented.group(1))
-            out.append("")
+            code = indented.group(1)
+            out.append((number, _as_code_span(code) if code.strip() else ""))
+            out.append((number, ""))
             continue
         if line.strip():
             in_indented_code = False
-            last_was_list_item = bool(
-                _BULLET_RE.match(line) or _ORDERED_RE.match(line)
+            if not (indented and last_was_list_item):
+                # An indented line UNDER a list item is that bullet still
+                # wrapping, so the list context has to survive it. Clearing
+                # it here meant the second continuation line of a bullet fell
+                # out of the list and was read as code — Amendment 2's defect,
+                # back again, one line further down.
+                last_was_list_item = bool(
+                    _BULLET_RE.match(line) or _ORDERED_RE.match(line)
+                )
+
+        # Spec 5: everything outside the supported subset is flattened or
+        # dropped WITH a line on stderr. These three change the document and
+        # said nothing, because `parse_blocks` — which has no notes list —
+        # is where they are actually transformed.
+        bullet = _BULLET_RE.match(line)
+        if bullet and _TASK_RE.match(bullet.group(1)):
+            notes.append("line %d: task checkbox dropped" % number)
+        if _ORDERED_RE.match(line):
+            notes.append(
+                "line %d: ordered list rendered as a bullet, numbering dropped"
+                % number
             )
-        out.append(line)
+        if previous_was_paragraph and (
+            _SETEXT_H1_RE.match(line) or _SETEXT_H2_RE.match(line)
+        ):
+            notes.append(
+                "line %d: setext underline converted to a heading" % number
+            )
+        previous_was_paragraph = _is_paragraph_line(line)
+
+        out.append((number, line))
 
     if in_fence:
         notes.append("unclosed code fence: its text was kept as ordinary lines")
@@ -1288,7 +1371,7 @@ def _flatten_blocks(lines):
     return out, notes
 
 
-def _resolve_reference_links(lines, targets):
+def _resolve_reference_links(pairs, targets):
     """`[text][ref]` becomes `text (url)` when its definition was found.
 
     Left as written when it was not — but noted either way, which is what it
@@ -1296,9 +1379,9 @@ def _resolve_reference_links(lines, targets):
     """
     notes = []
     out = []
-    for index, line in enumerate(lines):
+    for number, line in pairs:
         if not _REFERENCE_LINK_RE.search(line):
-            out.append(line)
+            out.append((number, line))
             continue
 
         resolved = []
@@ -1313,14 +1396,14 @@ def _resolve_reference_links(lines, targets):
 
         rewritten = _REFERENCE_LINK_RE.sub(replace, line)
         if all(resolved):
-            notes.append("line %d: reference-style link resolved" % (index + 1))
+            notes.append("line %d: reference-style link resolved" % number)
         else:
             # Its definition is missing from the document. The text is kept
             # and the brackets dropped — printing "[PyCon][pycon-ref]" on the
             # page helps nobody — but the lost URL is named.
             notes.append(
                 "line %d: reference-style link had no definition, "
-                "text kept without its url" % (index + 1)
+                "text kept without its url" % number
             )
-        out.append(rewritten)
+        out.append((number, rewritten))
     return out, notes
