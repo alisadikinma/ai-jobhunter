@@ -224,6 +224,25 @@ Dua putaran. Verdict pertama: **BLOCKING** — 3 Critical. Verdict kedua atas di
 
 Uji mutasi dipakai dua kali: subcommand palsu disisipkan ke SKILL.md untuk membuktikan penjaganya menggigit.
 
+## Regression tests
+
+Each line below was proven by running the round-3 tests against the pre-fix tree
+(`git archive 50a17fb`), where all of them fail, and against HEAD, where all pass.
+Two of the guards were additionally mutation-tested: reverting the guard makes
+exactly its own test fail, and nothing else.
+
+regression-test: tests/test_config.py::test_a_nested_link_to_the_root_itself_is_refused — RED at 50a17fb (read root/client-acme-pricing/negotiation.md through `allowed/archive -> ..`), GREEN after fix; mutation-tested
+regression-test: tests/test_config.py::test_a_nested_link_to_an_unlisted_sibling_is_refused — RED at 50a17fb (read root/client-work/nda.md through `allowed/peek`), GREEN after fix; mutation-tested
+regression-test: tests/test_config.py::test_symlink_to_a_sibling_under_the_root_is_also_rejected — RED at 50a17fb (the pre-fix test of this name asserted the escape was correct), GREEN after fix; mutation-tested
+regression-test: tests/test_cli.py::test_greenhouse_survives_a_non_dict_entry — RED at 50a17fb (`'str' object has no attribute 'get'` discarded the whole board), GREEN after fix
+regression-test: tests/test_cli.py::test_lever_survives_a_non_dict_entry — RED at 50a17fb (`'int' object has no attribute 'get'`), GREEN after fix
+regression-test: tests/test_cli.py::test_ashby_survives_a_non_dict_entry — RED at 50a17fb (no `skipped` key existed to report), GREEN after fix
+regression-test: tests/test_cli.py::test_the_skipped_posting_is_reported_not_swallowed — RED at 50a17fb (`_Rows.skipped` had zero readers and json.dump dropped it), GREEN after fix
+regression-test: tests/test_cli.py::test_ats_normalize_emits_one_json_document_and_nothing_else — RED at 50a17fb (a log line on stdout made json.load fail), GREEN after fix
+regression-test: tests/test_cli.py::test_top_zero_is_refused_even_when_the_jd_is_empty — RED at 50a17fb (`--top 0` exited 0 with a report), GREEN after fix
+regression-test: tests/test_cli.py::test_missing_company_refuses_before_any_work — RED at 50a17fb (bare ValueError, not a named refusal), GREEN after fix
+regression-test: tests/test_manifest.py::test_every_documented_flag_exists_on_its_subcommand — RED when `--unpromted` is documented, GREEN when removed; mutation-tested
+
 ## Utang terbuka
 
 - jobsync MCP token belum dibuat — promote hanya bisa diuji unit, belum end-to-end.
