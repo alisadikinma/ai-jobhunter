@@ -549,15 +549,37 @@ class TestRenderDocx(unittest.TestCase):
         _code, _parsed, err, _text = run(["render-docx", "--in", source, "--out", out])
         self.assertIn("cv.md:3", json.loads(err)["message"])
 
-    def test_allow_unverified_renders_the_same_input(self):
+    def test_allow_unverified_renders_and_reports_the_stripped_marker(self):
         source = self.write_markdown("# CV\n\n- revenue up 40% [verifikasi]\n")
         out = os.path.join(self.tmp, "cv.docx")
-        code, parsed, _err, _text = run(
+        code, parsed, err, _text = run(
             ["render-docx", "--in", source, "--out", out, "--allow-unverified"]
         )
         self.assertEqual(code, 0)
         self.assertEqual(parsed["out"], out)
         self.assertTrue(os.path.exists(out))
+        self.assertTrue(any("marker(s) removed" in n for n in parsed["notes"]))
+        self.assertIn("marker(s) removed", err)
+
+    def test_an_out_that_is_not_a_docx_is_refused(self):
+        # `--out cover-letter.md` as a typo destroyed the draft cover letter.
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        victim = os.path.join(self.tmp, "cover-letter.md")
+        with open(victim, "w", encoding="utf-8") as handle:
+            handle.write("Dear hiring manager,\n")
+        code, _parsed, err, _text = run(
+            ["render-docx", "--in", source, "--out", victim]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
+        with open(victim, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "Dear hiring manager,\n")
+
+    def test_an_uppercase_docx_extension_is_accepted(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "CV.DOCX")
+        code, _parsed, _err, _text = run(["render-docx", "--in", source, "--out", out])
+        self.assertEqual(code, 0)
 
     def test_notes_reach_both_stdout_json_and_stderr(self):
         source = self.write_markdown(

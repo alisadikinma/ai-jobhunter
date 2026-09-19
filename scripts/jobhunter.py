@@ -198,6 +198,15 @@ def cmd_render_docx(args):
     skill parses, and as human lines on stderr, which is the channel a person
     reads. A transformation nobody is told about is one nobody checks.
     """
+    if not args.out.lower().endswith(".docx"):
+        # A typo in --out overwrites whatever it names. `--out
+        # cover-letter.md` destroyed the draft cover letter, silently, and
+        # this command only ever produces one kind of file.
+        raise docx.DestinationError(
+            "refusing to write to %s: --out must end in .docx, and this "
+            "command writes nothing else." % args.out
+        )
+
     if _same_file(args.input_path, args.out):
         raise docx.DestinationError(
             "refusing to write the .docx over its own source markdown (%s). "

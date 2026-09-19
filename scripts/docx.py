@@ -426,7 +426,7 @@ def _split_row(line):
 
 
 def _flatten_table(lines, start, stop):
-    """One BULLET per body row: `"- <header1>: <cell1> — <cell2>"`.
+    """One BULLET per body row: `"- <header1>: <cell1> — <header2>: <cell2>"`.
 
     A row short of cells is padded rather than dropped — a missing cell is
     missing data, but dropping the row loses the data that IS there. Padding
@@ -460,9 +460,15 @@ def _flatten_table(lines, start, stop):
             out.append("- %s:" % headers[0] if headers else "-")
             continue
 
-        label, first_value = filled[0]
-        body = " — ".join([first_value] + [cell for _header, cell in filled[1:]])
-        out.append("- %s: %s" % (label, body) if label else "- %s" % body)
+        # Every cell keeps its own header. Labelling only the first one left
+        # "Skill: Python — 8 — 2026", so an ATS read two numbers with nothing
+        # saying what they measured, and the years of experience the row
+        # existed to state were gone.
+        parts = [
+            "%s: %s" % (header, cell) if header else cell
+            for header, cell in filled
+        ]
+        out.append("- %s" % " — ".join(parts))
     return out
 
 
@@ -759,6 +765,18 @@ def render(markdown, path, allow_unverified=False, source=None):
             residual, "%s (marker survived into the rendered text)" % label
         )
 
+    if allow_unverified:
+        stripped = _strip_markers(blocks)
+        if stripped:
+            # The claim stays; the marker does not. An override is a decision
+            # to send the claim, never a decision to print the word
+            # "[verifikasi]" on a document an employer reads. The count is
+            # reported so the override is never silent.
+            notes.append(
+                "%d unverified marker(s) removed from the rendered text "
+                "(--allow-unverified)" % stripped
+            )
+
     if not blocks:
         raise EmptyDocumentError(
             "refused to render %s: the markdown holds no headings, "
@@ -828,3 +846,26 @@ def _remove_quietly(path):
         os.remove(path)
     except OSError:
         pass
+
+
+# Collapses the double space a removed marker leaves mid-sentence.
+_DOUBLE_SPACE_RE = re.compile(r"[ \t]{2,}")
+
+
+def _strip_markers(blocks):
+    """Remove `[verifikasi]` / `[Assumption]` from block text, in place.
+
+    Only reached under `allow_unverified`. Returns how many blocks changed,
+    so the caller can report it — an override that is invisible in the output
+    is an override nobody reviews.
+    """
+    changed = 0
+    for block in blocks:
+        cleaned = _UNVERIFIED_RE.sub("", block["text"])
+        if cleaned == block["text"]:
+            continue
+        cleaned = _DOUBLE_SPACE_RE.sub(" ", cleaned)
+        cleaned = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", cleaned).strip()
+        block["text"] = cleaned
+        changed += 1
+    return changed

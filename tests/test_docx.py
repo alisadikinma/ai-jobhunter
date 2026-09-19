@@ -440,7 +440,7 @@ class TestFlattenTables(unittest.TestCase):
     def test_a_table_becomes_one_line_per_body_row(self):
         flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")
         self.assertNotIn("|", flat)
-        self.assertIn("Skill: Python — 8", flat)
+        self.assertIn("Skill: Python — Years: 8", flat)
 
     def test_the_separator_row_never_survives(self):
         flat, _notes = docx.flatten("| A | B |\n|---|---|\n| 1 | 2 |\n")
@@ -479,7 +479,15 @@ class TestFlattenTables(unittest.TestCase):
 
     def test_a_filled_first_cell_still_uses_the_first_header(self):
         flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")
-        self.assertIn("Skill: Python — 8", flat)
+        self.assertIn("Skill: Python — Years: 8", flat)
+
+    def test_every_cell_keeps_its_own_header(self):
+        # Labelling only the first cell left "Skill: Python — 8 — 2026", so
+        # an ATS read two numbers with nothing saying what they measured.
+        flat, _notes = docx.flatten(
+            "| Skill | Years | Last used |\n|---|---|---|\n| Python | 8 | 2026 |\n"
+        )
+        self.assertIn("Skill: Python — Years: 8 — Last used: 2026", flat)
 
     def test_a_sentence_with_a_literal_pipe_survives_unflattened(self):
         markdown = "Ran `cat x | sort | uniq` daily.\nIt replaced a cron job.\n"
@@ -606,7 +614,7 @@ class TestFlattenOverARealMessyCV(unittest.TestCase):
 
     def test_no_table_pipes_survive(self):
         self.assertNotIn("| Python |", self.flat)
-        self.assertIn("Skill: Python — 8 — 2026", self.flat)
+        self.assertIn("Skill: Python — Years: 8 — Last used: 2026", self.flat)
 
     def test_the_three_skill_rows_stay_three_blocks(self):
         rows = [
@@ -820,13 +828,36 @@ class TestRenderRefusals(DocxTempDirCase):
             docx.render("# CV\n\n- revenue up 40% [verifikasi]\n", path)
         self.assertFalse(os.path.exists(path))
 
-    def test_allow_unverified_renders_the_same_markdown(self):
+    def test_allow_unverified_renders_but_strips_the_marker(self):
+        # The override is a decision to send the claim, never a decision to
+        # print the word "[verifikasi]" on a page an employer reads.
         path = self.out()
-        docx.render(
+        result = docx.render(
             "# CV\n\n- revenue up 40% [verifikasi]\n", path, allow_unverified=True
         )
         self.assertTrue(os.path.exists(path))
-        self.assertIn("[verifikasi]", self.document_xml(path))
+        body = self.document_xml(path)
+        self.assertNotIn("[verifikasi]", body)
+        self.assertIn("revenue up 40%", body)
+        self.assertTrue(
+            any("marker(s) removed" in note for note in result["notes"]),
+            result["notes"],
+        )
+
+    def test_the_marker_removal_leaves_no_double_space_or_floating_comma(self):
+        path = self.out()
+        docx.render(
+            "# CV\n\n- Grew ARR [verifikasi], then doubled it\n",
+            path,
+            allow_unverified=True,
+        )
+        body = self.document_xml(path)
+        self.assertIn("Grew ARR, then doubled it", body)
+
+    def test_an_override_that_removed_nothing_adds_no_note(self):
+        path = self.out()
+        result = docx.render("# CV\n\n- clean claim\n", path, allow_unverified=True)
+        self.assertEqual(result["notes"], [])
 
     def test_the_refusal_names_the_source_label(self):
         path = self.out()
