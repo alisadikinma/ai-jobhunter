@@ -518,6 +518,19 @@ _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?%)\]])")
 _SPACE_AFTER_OPEN_RE = re.compile(r"([(\[])\s+")
 
 
+# `&amp;`, `&#38;`, `&#x26;`, `&lbrack;` — any spelling of an entity.
+_ENTITY_RE = re.compile(r"&(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);")
+
+
+def _unescape_fully(text):
+    """Decode entities to a fixed point, the way `ats` does internally."""
+    previous = None
+    while text != previous:
+        previous = text
+        text = html.unescape(text)
+    return text
+
+
 def _protect_non_tags(text):
     """Hide angle brackets that are not part of an html tag.
 
@@ -549,8 +562,17 @@ def strip_html(text):
     pad, and non-tag angle brackets are hidden behind sentinels first.
     Indentation is restored afterwards: the cleaner collapses all whitespace,
     and a nested bullet that lost its indent would stop being a bullet.
+
+    Entities are decoded BEFORE the sentinels go in. `_clean_description`
+    unescapes to a fixed point and only then strips tags, so a `&lt;` became
+    a raw `<` after the protection had already run — and `<[^>]+>` then ate
+    the rest of the sentence. "kept spend &lt; $2M while headcount &gt; 40"
+    reached the page as "kept spend 40", with the note naming only the `<b>`
+    tags it had removed. Decoding first means the sentinels see those angle
+    brackets and protect them like any other.
     """
     indent = _LEADING_WS_RE.match(text).group(0)
+    text = _unescape_fully(text)
     cleaned = ats._clean_description(_protect_non_tags(text) + _HTML_FLOOR_PAD)
     cleaned = cleaned.replace("\x00", "")
     cleaned = cleaned.replace(_LT_SENTINEL, "<").replace(_GT_SENTINEL, ">")
@@ -669,15 +691,22 @@ def flatten(markdown):
         number = index + 1
 
         removed = _HTML_TAG_RE.findall(line)
-        if removed:
+        has_entities = _ENTITY_RE.search(line)
+        if removed or has_entities:
             line = strip_html(line)
-            # Naming what was removed, not just that something was. A phrase
-            # like "<team lead>" is indistinguishable from a tag, and the
-            # operator needs to see that the sentence lost those words.
-            notes.append(
-                "line %d: inline html stripped (%s)"
-                % (number, ", ".join(sorted(set(removed))))
-            )
+            if removed:
+                # Naming what was removed, not just that something was. A
+                # phrase like "<team lead>" is indistinguishable from a tag,
+                # and the operator needs to see the sentence lost those words.
+                notes.append(
+                    "line %d: inline html stripped (%s)"
+                    % (number, ", ".join(sorted(set(removed))))
+                )
+            if has_entities:
+                # Decoded on every line, not only lines that carry a tag.
+                # Before this, whether "AT&amp;T" printed correctly depended
+                # on whether an unrelated <b> happened to sit beside it.
+                notes.append("line %d: html entities decoded" % number)
 
         images = _IMAGE_RE.findall(line)
         if images:
@@ -774,11 +803,17 @@ DOCUMENT_RELS_XML = (
     "</Relationships>"
 )
 
+# `CT_PageMar` declares all seven attributes `use="required"`, so emitting
+# only the four margins makes `word/document.xml` fail ISO/IEC 29500
+# validation — and the committed eval sample failed with it. A file Word
+# opens after a silent repair is still a defect. header/footer are Word's own
+# defaults in twentieths of a point; the gutter is zero because a CV is not
+# bound.
 DOCUMENT_XML = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
     "<w:body>{body}"
-    '<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr>'
+    '<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>'
     "</w:body></w:document>"
 )
 

@@ -140,7 +140,7 @@ word/styles.xml
 `word/document.xml` — `{body}` is the concatenated `<w:p>` elements:
 
 ```xml
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>
 ```
 
 One paragraph, where `{style}` is a style id from the table above:
@@ -157,7 +157,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 
 ## Amendments, 2026-09-19 (post-implementation, owner-approved)
 
-Ten points where the pinned text above no longer matches the code. Every
+Eleven points where the pinned text above no longer matches the code. Every
 one was found by RUNNING the code — on a real CV, through a real document
 extractor, or by an adversarial review — and each is approved. They are
 recorded here rather than silently left to drift, because this document is
@@ -209,6 +209,13 @@ the contract.
     by the wrap rather than by the author, and the marker shipped into the
     document with exit 0. Measured before changing it: zero new false
     positives over a corpus of bracketed CV prose. Owner decision, 2026-09-19.
+
+11. **`w:pgMar` carries all seven required attributes**, not just the four
+    margins. `CT_PageMar` declares `header`, `footer` and `gutter`
+    `use="required"`, so the pinned four-attribute form made every rendered
+    `word/document.xml` — and the committed eval sample — fail ISO/IEC 29500
+    validation. The pinned block above is updated in place, since a contract
+    that produces an invalid document is not worth preserving verbatim.
 
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally

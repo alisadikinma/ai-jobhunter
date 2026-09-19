@@ -9,6 +9,7 @@ standard-library only, so shadowing is the intended outcome, not an accident.
 import contextlib
 import io
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -859,6 +860,47 @@ class TestFlattenNestingAndHtml(unittest.TestCase):
         flat, _notes = docx.flatten("  - <b>nested</b> point\n")
         self.assertTrue(flat.startswith("  - "), repr(flat))
 
+    def test_an_entity_spelled_comparison_next_to_a_tag_survives(self):
+        """The candidate's own numbers, deleted, with the note saying tags.
+
+        `ats._clean_description` unescapes to a fixed point and only THEN
+        strips tags, so `&lt;` became a raw `<` after the sentinels had gone
+        in, and `<[^>]+>` ate the rest of the sentence. "kept spend &lt; $2M
+        while headcount &gt; 40" reached the page as "kept spend 40" — a CV
+        asserting something its author never wrote.
+        """
+        cases = {
+            "<b>Budget</b>: kept spend &lt; $2M while headcount &gt; 40.":
+                "Budget: kept spend < $2M while headcount > 40.",
+            "Kept p95 <b>&lt; 200ms</b> and 1k rps.":
+                "Kept p95 < 200ms and 1k rps.",
+            "<b>Scale</b>: served &lt;1M&gt; daily active users.":
+                "Scale: served <1M> daily active users.",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                flat, _notes = docx.flatten(source + "\n")
+                self.assertEqual(flat.strip(), expected)
+
+    def test_entities_are_decoded_even_with_no_tag_on_the_line(self):
+        # Whether "AT&amp;T" printed correctly used to depend on whether an
+        # unrelated <b> happened to sit on the same line.
+        flat, notes = docx.flatten("Worked at AT&amp;T on R&amp;D.\n")
+        self.assertEqual(flat.strip(), "Worked at AT&T on R&D.")
+        self.assertTrue(any("entities decoded" in note for note in notes))
+
+    def test_decoding_entities_is_reported_on_stderr_per_spec_five(self):
+        # Spec 5: everything outside the subset is flattened or dropped
+        # WITH a line on stderr. A silent rewrite breaks that contract.
+        _flat, notes = docx.flatten("Kept p95 &lt; 200ms.\n")
+        self.assertTrue(notes, "an entity was decoded with no note")
+
+    def test_a_line_with_neither_tag_nor_entity_is_left_exactly_alone(self):
+        source = "Keeps p95 < 200ms and > 1k rps.\n"
+        flat, notes = docx.flatten(source)
+        self.assertEqual(flat, source)
+        self.assertEqual(notes, [])
+
     def test_a_comparison_operator_sentence_is_untouched(self):
         markdown = "Keeps p95 < 200ms and > 1k rps.\n"
         flat, notes = docx.flatten(markdown)
@@ -1041,6 +1083,23 @@ class TestRenderWritesTheFiveParts(DocxTempDirCase):
         ElementTree.fromstring(styles)
         for style_id in ("Heading1", "Heading2", "Heading3", "Normal", "ListParagraph"):
             self.assertIn('w:styleId="%s"' % style_id, styles)
+
+    def test_page_margins_carry_every_attribute_the_schema_requires(self):
+        """`CT_PageMar` declares all seven `use="required"`.
+
+        Emitting only the four margins made every rendered document — and the
+        committed eval sample, the artefact the manual open-check exists to
+        exercise — fail ISO/IEC 29500 validation. Asserted by attribute name
+        so the check needs no vendored schema.
+        """
+        path = self.out()
+        docx.render("# Ali\n", path)
+        margins = re.search(r"<w:pgMar[^>]*/>", self.document_xml(path))
+        self.assertIsNotNone(margins, "no w:pgMar in the document")
+        self.assertEqual(
+            sorted(re.findall(r"w:(\w+)=", margins.group(0))),
+            ["bottom", "footer", "gutter", "header", "left", "right", "top"],
+        )
 
     def test_every_paragraph_preserves_whitespace(self):
         # Without xml:space="preserve" Word eats leading and trailing spaces
