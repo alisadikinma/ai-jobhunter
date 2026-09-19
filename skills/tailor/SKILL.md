@@ -131,8 +131,11 @@ The `.docx` is deliberately plain: single column, no tables, no images, no
 header or footer content, Calibri throughout. Every one of those is a
 construct a resume parser either drops or scrambles, and a CV that looks
 beautiful and parses into empty fields has failed at its only job. Tables,
-images, links and nested bullets in the markdown are flattened automatically;
-each change is reported on stderr as `render-docx: line N: ...` and in the
+images, links and nested bullets in the markdown are flattened
+automatically. A table becomes one bullet per row, every cell keeping its own
+header: `| Skill | Years |` with `| Python | 8 |` reads `Skill: Python — Years:
+8`, so a parser never meets a number with nothing saying what it measures.
+Each change is reported on stderr as `render-docx: line N: ...` and in the
 `notes` array on stdout. Report what changed — do not re-render to try to
 avoid it.
 

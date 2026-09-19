@@ -186,6 +186,18 @@ the contract.
    case-insensitive and a string compare let `--out CV.MD` overwrite
    `cv.md` — the tailored markdown, destroyed with no backup.
 
+8. **Underscore emphasis is stripped too, and emphasis is stripped OUTSIDE
+   code spans only.** `__bold__` and `_italic_` are written at least as often
+   as the asterisk forms, and a marker wrapped in them defeated the gate.
+   Confining the strip to non-code regions is what keeps `` `__init__` `` and
+   `` `cat a | sed -e *` `` literal; a BARE `__init__` still becomes `init`,
+   which is what markdown renders it as.
+9. **The gate's projection NFKC-normalises and removes every character the
+   XML writer deletes.** `_ILLEGAL_XML_RE` is a subset of `_INVISIBLE_RE` by
+   construction, pinned by a test over every codepoint: a character the
+   writer removes after the last check can otherwise reassemble a marker the
+   gate cleared, which is exactly what `[veri\x01fikasi]` did.
+
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally
 read, and removed from the document under `--allow-unverified`.
