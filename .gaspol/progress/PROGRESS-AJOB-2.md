@@ -23,19 +23,19 @@
 
 ## Checklist
 
-### [ ] Phase A: markdown → blocks
-- [ ] Write failing test for `docx.parse_blocks("# Ali\n\nHello\n")` returning `[{"kind": "heading", "level": 1, "text": "Ali"}, {"kind": "paragraph", "text": "Hello"}]`. Expected error: `ModuleNotFoundError: No module named 'docx'`
-- [ ] Run `python3 -m unittest discover -s tests -t .`, confirm it fails for that reason
-- [ ] Implement `parse_blocks(markdown)` per the Block contract above: `#`/`##`/`###` → heading with level; `-` or `*` at column 0 → bullet; a blank-line-separated run of text → paragraph. Inline `**bold**`, `*italic*` and `` `code` `` markers are stripped from the text (Word carries the style, not the asterisks)
-- [ ] Add tests for the enumerated edge cases: empty string, whitespace-only, a heading with no text (`##` alone), `####` (level 4 — treated as a paragraph, not a heading, because the style table stops at 3), a bullet with no text, CRLF line endings, a line that is only `---`, two blank lines between paragraphs, 500 blocks, and text containing `&`, `<`, `>`
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(docx): parse the supported markdown subset into blocks"
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t .` passes
-- [ ] `parse_blocks` emits only `heading`/`paragraph`/`bullet`, proven by a test that asserts the set of `kind` values over a real fixture
-- [ ] `####` yields a paragraph, not a level-4 heading
-- [ ] No placeholder/TODO comments in new code
-- [ ] detect-stack: no stack markers for this project — verification is plan-declared only
+### [x] Phase A: markdown → blocks
+- [x] Write failing test for `docx.parse_blocks("# Ali\n\nHello\n")` returning `[{"kind": "heading", "level": 1, "text": "Ali"}, {"kind": "paragraph", "text": "Hello"}]`. Expected error: `ModuleNotFoundError: No module named 'docx'`
+- [x] Run `python3 -m unittest discover -s tests -t .`, confirm it fails for that reason
+- [x] Implement `parse_blocks(markdown)` per the Block contract above: `#`/`##`/`###` → heading with level; `-` or `*` at column 0 → bullet; a blank-line-separated run of text → paragraph. Inline `**bold**`, `*italic*` and `` `code` `` markers are stripped from the text (Word carries the style, not the asterisks)
+- [x] Add tests for the enumerated edge cases: empty string, whitespace-only, a heading with no text (`##` alone), `####` (level 4 — treated as a paragraph, not a heading, because the style table stops at 3), a bullet with no text, CRLF line endings, a line that is only `---`, two blank lines between paragraphs, 500 blocks, and text containing `&`, `<`, `>`
+- [x] Run tests, confirm all pass
+- [x] Commit: "feat(docx): parse the supported markdown subset into blocks"
+- [x] `python3 -m compileall -q scripts tests` passes
+- [x] `python3 -m unittest discover -s tests -t .` passes
+- [x] `parse_blocks` emits only `heading`/`paragraph`/`bullet`, proven by a test that asserts the set of `kind` values over a real fixture
+- [x] `####` yields a paragraph, not a level-4 heading
+- [x] No placeholder/TODO comments in new code
+- [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
 ### [ ] Phase B: the unverified-claim gate
 - [ ] Write failing test for `docx.ats_lint("- revenue up 40% [verifikasi]\n")` returning one finding with `reason == "unverified-claim"` and `line == 1`. Expected error: `AttributeError: module 'docx' has no attribute 'ats_lint'`
@@ -143,3 +143,4 @@
 
 ## Log
 - 2026-09-19 plan ditulis — NEXT: Phase A
+- 2026-09-19 Phase A selesai — `scripts/docx.py::parse_blocks` + 26 test baru, 288 lulus / 0 gagal. Cacat ditemukan saat dijalankan pada CV nyata: bullet yang terbungkus ke baris berikut pecah jadi paragraf liar; baris berindentasi sekarang menyambung bullet di atasnya. Commit `feat(docx): parse the supported markdown subset into blocks`. — NEXT: Phase B
