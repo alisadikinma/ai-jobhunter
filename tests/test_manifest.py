@@ -203,8 +203,13 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     # `--unpromoted` — the flag the previous round used as its own mutation
     # subject — is documented ONLY that way. Typos planted in both prose
     # mentions left the suite green.
-    _FENCED_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)(.*)')
-    _INLINE_RE = re.compile(r"`([a-z][a-z0-9-]+)((?:\s+--?[a-z][a-z0-9-]*[^`]*?)?)`")
+    # `_` belongs in the name class even though no subcommand uses one
+    # today: the help-text parse reads underscores, so a documented
+    # `queue_purge` would otherwise be invisible to BOTH documentation
+    # patterns and never asserted against the CLI at all — the parse side
+    # and the documentation side disagreeing about what a name may contain.
+    _FENCED_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9_-]+)(.*)')
+    _INLINE_RE = re.compile(r"`([a-z][a-z0-9_-]+)((?:\s+--?[a-z][a-z0-9-]*[^`]*?)?)`")
 
     # The tail captures the REST of the logical line, not a run of adjacent
     # flags: `--queue .jobhunter/queue/jobs.jsonl --unscored` puts a value
@@ -278,7 +283,8 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
                     commands.setdefault(name, set()).update(self._flags_in(tail))
                 for match in self._INLINE_RE.finditer(line):
                     name, tail = match.group(1), match.group(2)
-                    looks_like_a_command = "-" in name and tail.lstrip().startswith("--")
+                    separated = "-" in name or "_" in name
+                    looks_like_a_command = separated and tail.lstrip().startswith("--")
                     if name not in real and not looks_like_a_command:
                         continue
                     commands.setdefault(name, set()).update(self._flags_in(tail))
@@ -287,16 +293,24 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     def _cli_subcommands(self):
         """The subcommand names argparse itself reports, parsed from --help.
 
-        Anchored to the usage line, and deliberately not narrowed to the
-        characters subcommands happen to use today. An unanchored search for
-        the first lowercase braced token degrades SILENTLY: give any argument
-        a `choices` list and its `{fast,slow}` is matched instead of the
-        subcommand list, which drops `--unpromoted` and `--row` back out of
-        coverage while the suite still reports green. Measured on a help text
-        carrying `--mode {fast,slow}`:
+        Identified by the ` ...` trailer, which argparse puts after the
+        subparser metavar and after nothing else.
 
-            old regex -> 'fast,slow'
-            new regex -> 'config-show,queue_purge,queue-list'
+        Two earlier attempts both degraded SILENTLY, which is worth writing
+        down because the shape keeps recurring. Searching for the first
+        lowercase braced token matched a `choices` metavar instead — and
+        anchoring that search with `^...re.S` fixed nothing, because `^`
+        without `re.M` binds to offset 0 and `.*?` then crosses every
+        newline, so the "anchor" only required the text to begin with
+        `usage:`. Worse, widening the class to `[^}]+` removed an accidental
+        filter: `[a-z0-9,-]` had been rejecting uppercase metavars, so that
+        attempt broke a case the naive version got right. Measured against
+        real `argparse` output:
+
+            option present        first-token   ^...re.S    ` ...` trailer
+            (none, today)         correct       correct     correct
+            --mode {fast,slow}    WRONG         WRONG       correct
+            --format {JSON,CSV}   correct       WRONG       correct
 
         A guard that goes quiet instead of failing is this ticket's own
         recurring defect, so the parse fails loudly or not at all.
@@ -304,7 +318,7 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         latter and a stripped check is the same silence by another route.
         """
         help_text = self._cli_help()
-        match = re.search(r"^usage:.*?\{([^}]+)\}", help_text, re.S)
+        match = re.search(r"\{([^{}]+)\}\s*\.\.\.", help_text)
         self.assertTrue(
             match, f"could not read the subcommand list out of:\n{help_text}"
         )

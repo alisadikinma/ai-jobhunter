@@ -265,6 +265,20 @@ menggigit. Yang memblokir justru kode yang saya tulis putaran itu:
 | B2 | Filter inline hanya bisa **mengonfirmasi** nama yang sudah ada, jadi subcommand fiktif di prosa tidak pernah bisa menggagalkan tes | Nama bertanda hubung + diikuti flag panjang ikut diuji; 19 identifier prosa biasa tetap tersaring; nol false positive |
 | B3 | Flag di span backtick sendiri (`--top N`, tanpa subcommand) tidak punya pasangan untuk diuji | Dicatat sebagai batas model pasangan di docstring, bukan dianggap bug |
 
+Putaran 4 audit (scope `5fc8eb2..HEAD`): B2 dan B3 tertutup dan direproduksi — nol false positive,
+19 identifier prosa tetap tersaring, tujuh dari delapan bentuk serangan menggigit. B1 **tidak**
+tertutup, dan perbaikan saya justru memburukkan satu kasus:
+
+| # | Temuan | Tindakan |
+|---|---|---|
+| C1 | `^usage:.*?` dengan `re.S` tanpa `re.M` tidak menjangkar apa pun — `^` mengikat ke offset 0, `.*?` menyeberangi baris. Pemicu yang ditulis docstring saya sendiri (`--mode {fast,slow}`) tetap salah, karena argparse menaruh metavar opsi **sebelum** metavar subparser di baris usage | Ganti ke penanda ` ...`, yang argparse hanya pasang setelah metavar subparser |
+| C2 | Melebarkan kelas ke `[^}]+` membuang penyaring tak sengaja: `[a-z0-9,-]` dulu menolak metavar huruf besar, jadi `--format {JSON,CSV}` **benar di regex lama dan salah di regex saya** | Sama — penanda ` ...` benar di ketiga bentuk |
+| C3 | Docstring mencatat pengukuran pada string yang argparse tidak pernah hasilkan | Diganti tabel tiga bentuk vs tiga regex, diukur dari `format_help()` sungguhan |
+| C4 | `_INLINE_RE`/`_FENCED_RE` menolak `_` di nama, padahal sisi parse membacanya — subcommand fiktif ber-underscore tak pernah diuji | `_` masuk kelas nama; `looks_like_a_command` menerima pemisah `-` atau `_` |
+
+Regex baru keras pada tiga teks rusak, termasuk CLI tanpa subcommand sama sekali — yang versi saya
+sebelumnya laporkan sukses. Enam bentuk serangan diuji ulang, semua menggigit; pipe ke `jq` tetap hijau.
+
 
 ## Regression tests
 
