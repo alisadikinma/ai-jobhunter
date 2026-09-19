@@ -1,0 +1,1547 @@
+"""Turn a tailored CV or cover letter into a `.docx` an ATS can actually read.
+
+`tailor` stops at markdown, and nobody can attach a `.md` to a Workday form.
+This module writes the OOXML by hand with `zipfile` and string templates,
+because this project is standard-library only — no `python-docx`, no pip.
+
+The document it writes is deliberately plain: single column, no tables, no
+images, no header or footer content. Every one of those is a construct that a
+resume parser either drops silently or scrambles, and a CV that renders
+beautifully and parses into empty fields has failed at the only job it has.
+
+Three functions, in the order `render` calls them:
+
+- `ats_lint`   — finds what must not ship and what parses badly. Refuses only
+                 on an unverified claim.
+- `flatten`    — rewrites what parses badly into something that parses. Never
+                 refuses; a construct it cannot fix is passed through, noted.
+- `parse_blocks` — the supported markdown subset, as a flat block list.
+"""
+
+import html
+import os
+import re
+import sys
+import tempfile
+import unicodedata
+import zipfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import ats  # noqa: E402
+
+
+class DocxError(Exception):
+    """Base for every refusal this module raises."""
+
+
+class UnverifiedClaimError(DocxError):
+    """The markdown still carries a claim the candidate never checked.
+
+    Raised before a single byte is written. `README.md` promises that such a
+    claim never reaches an outward document; until this existed the promise
+    rested on model prose while the repository's other guarantees were
+    properties of the code. Rendering is the last moment before a file exists
+    on disk, so this is where the asymmetry closes.
+    """
+
+    def __init__(self, findings, source="<markdown>"):
+        self.findings = list(findings)
+        self.source = source
+        detail = "; ".join(
+            '%s:%d — "%s"' % (source, f["line"], f["text"]) for f in self.findings
+        )
+        super().__init__(
+            "refused to render: %d unverified claim(s) still in the markdown. "
+            "Verify the claim and remove the marker, or pass --allow-unverified "
+            "to render it anyway. %s" % (len(self.findings), detail)
+        )
+
+
+# --- the markdown subset -------------------------------------------------
+#
+# Deliberately small. Every construct this recognises maps onto exactly one
+# paragraph style in the table below; anything else becomes a paragraph, which
+# is the one outcome that can never corrupt a document.
+
+_HEADING_RE = re.compile(r"^(#{1,3})\s+(.*)$")
+_EMPTY_HEADING_RE = re.compile(r"^#{1,3}\s*$")
+# Leading whitespace is accepted although `flatten` already brings every
+# bullet to column 0. A nested bullet that somehow reached here and was read
+# as a paragraph would print its own "- " marker into the document, which is
+# exactly the leaked-markdown failure the eval cases look for.
+_BULLET_RE = re.compile(r"^\s*[-*+]\s+(.*)$")
+_EMPTY_BULLET_RE = re.compile(r"^\s*[-*+]\s*$")
+
+# An ordered list. Its items became one run-on paragraph with "1." "2." "3."
+# still in the text — the identical defect that a three-row table had, and
+# which was fixed there by making each row its own block. The number is kept
+# in the text because order is the point of writing an ordered list, and the
+# glyph is dropped for these so the line does not read "• 1. ".
+_ORDERED_RE = re.compile(r"^\s*(\d{1,3})[.)]\s+(.*)$")
+# "1)" is rewritten to "1." by `parse_blocks`, which is a change to the
+# author's text and therefore owes stderr a line.
+_ORDERED_PAREN_RE = re.compile(r"^\s*\d{1,3}\)\s+")
+
+# A task-list checkbox. "[x] " renders as literal brackets on the page.
+_TASK_RE = re.compile(r"^\[([ xX])\]\s+")
+
+# A horizontal rule is a separator, not content. Rendered as text it would put
+# a literal "---" in the middle of a CV.
+_RULE_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+
+# A setext underline. "===" was matched by nothing, so it was joined to the
+# line above as a soft break and the candidate's NAME rendered as
+# "Ali Sadikin ===========". The "---" form was swallowed by `_RULE_RE`,
+# which silently demoted the heading above it to a paragraph.
+_SETEXT_H1_RE = re.compile(r"^\s*={2,}\s*$")
+_SETEXT_H2_RE = re.compile(r"^\s*-{2,}\s*$")
+
+# Inline emphasis is stripped, never rendered: Word carries weight in the run
+# properties, so leaving the asterisks in would print them.
+#
+# Both emphasis patterns require a non-space character just inside the
+# markers. Without that, the sentence "a * b * c" — a literal asterisk used as
+# a separator, which real CVs do contain — would be read as italic text and
+# silently lose both asterisks.
+_BOLD_RE = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.S)
+_ITALIC_RE = re.compile(r"\*(?=\S)([^*]+?)(?<=\S)\*")
+# A run of one or more backticks, closed by a run of the same length.
+# `flatten` wraps every fenced and indented code line in one of these, so
+# the delimiter has to be able to grow past whatever backticks the code
+# itself contains.
+_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
+_BACKTICK_RUN_RE = re.compile(r"`+")
+# Markdown's own escapable set. The character is kept, the backslash is not.
+_ESCAPED_RE = re.compile(r"\\([\\`*_{}\[\]()#+.!|~>-])")
+
+# Underscore emphasis, which models write at least as often as the asterisk
+# form. Both patterns refuse to start or end next to a word character, so
+# `my_var_name` and `__init__` keep their underscores — a CV naming a Python
+# dunder should not have it silently rewritten.
+_BOLD_UNDERSCORE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])__(?=\S)(.+?)(?<=\S)__(?![A-Za-z0-9_])", re.S
+)
+_ITALIC_UNDERSCORE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"
+)
+
+# Characters that are not there as far as a reader is concerned: zero-width
+# and bidi formatting, the soft hyphen, and every control character the XML
+# writer deletes on its way out.
+#
+# That last group is why this set and `_ILLEGAL_XML_RE` are described
+# together. They were two different sets, and the gap between them was a hole
+# straight through both layers of the gate: "[veri\x01fikasi]" matched no
+# pattern here, and then `escape` — which runs AFTER the last check, inside
+# `document_xml` — deleted the \x01 and reassembled a clean "[verifikasi]"
+# in the shipped document. A character-removing transformation downstream of
+# the gate can only ever do that.
+#
+# `_ILLEGAL_XML_RE` must therefore stay a SUBSET of what this removes. The
+# two are built from different definitions — one from the XML grammar, one
+# from Unicode categories — so the relation is pinned by a test rather than
+# guaranteed by construction. Saying "by construction" here was an overclaim.
+
+# What Unicode calls Default_Ignorable_Code_Point — characters a renderer is
+# expected to show as nothing. `unicodedata` does not expose that property,
+# so it is covered by the categories that contain it rather than by a
+# hand-written range list, which is the thing that keeps going wrong here.
+#
+# `Cc` control, `Cf` format, `Cn` unassigned (the reserved ignorable blocks
+# live there, and a codepoint nobody has defined cannot be meaningful text),
+# `Cs` surrogate, `Me` enclosing mark, and `Mn` nonspacing mark. `Mn` is the
+# one that matters most and the one an earlier version missed: every
+# variation selector is `Mn`, as are the combining grapheme joiner and
+# U+E0100's block. `Me` came next — U+20DD draws a ring around a letter and
+# Calibri has no glyph for it at all. Removing marks from a PROJECTION is
+# safe in the only direction that counts: deleting characters can reveal a
+# marker that was hidden, never invent one that was not written.
+_INVISIBLE_CATEGORIES = frozenset(("Cc", "Cf", "Cn", "Cs", "Me", "Mn"))
+
+# The Hangul fillers are `Lo`, an enormous category that also holds every CJK
+# ideograph, so these four are named rather than swept in.
+_INVISIBLE_LETTERS = frozenset("\u115f\u1160\u3164\uffa0")
+
+# Every space separator EXCEPT the ordinary one. NFKC folds U+00A0, the
+# U+2000 block, U+202F, U+205F and U+3000 into U+0020, so each of them lands
+# wherever a plain space lands — and U+200A HAIR SPACE is about half a point
+# wide in Calibri, which is not a space a reader sees. U+0020 itself is left
+# in place deliberately: the loose pattern already tolerates it between the
+# letters, and removing it would silently turn "[ Assumption ]" into a match,
+# which the plan pins as NOT one.
+_INVISIBLE_SPACES = frozenset(
+    ch
+    for ch in map(chr, range(0x110000))
+    if unicodedata.category(ch) in ("Zs", "Zl", "Zp") and ch != " "
+)
+
+
+def _remove_invisible(text):
+    """Drop every character that renders as nothing to a reader.
+
+    Used on the gate's projection only, never on text that reaches the
+    document — a CV that writes "e" plus a combining acute still prints
+    "é".
+    """
+    return "".join(
+        ch
+        for ch in text
+        if ch not in _INVISIBLE_LETTERS
+        and ch not in _INVISIBLE_SPACES
+        and unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
+    )
+
+
+def strip_inline(text):
+    """Remove `**bold**`, `*italic*` and `` `code` `` markers, keeping text.
+
+    Bold runs first: `\\*\\*x\\*\\*` would otherwise be seen by the italic
+    pattern as an italic run wrapping `\\*x\\*`.
+    """
+    out = []
+    position = 0
+    # Emphasis is stripped OUTSIDE code spans only. A CV that names
+    # `__init__` or writes `cat a | sed -e *` in backticks means those
+    # characters literally, and markdown agrees: emphasis does not apply
+    # inside a code span. Applying it everywhere turned `__init__` into
+    # `init`.
+    for match in _CODE_RE.finditer(text):
+        out.append(_strip_emphasis(text[position : match.start()]))
+        out.append(_code_span_text(match.group(2)))
+        position = match.end()
+    out.append(_strip_emphasis(text[position:]))
+    return "".join(out)
+
+
+def _code_span_text(content):
+    """The text inside a code span, minus the one padding space each side.
+
+    CommonMark's own rule, and `_as_code_span` depends on it: a code line
+    that itself starts or ends with a backtick can only be wrapped by padding
+    it, and the padding must not reach the page.
+    """
+    if (
+        len(content) >= 2
+        and content.startswith(" ")
+        and content.endswith(" ")
+        and content.strip()
+    ):
+        return content[1:-1]
+    return content
+
+
+def _as_code_span(text):
+    """Wrap a code line so `strip_inline` leaves its characters alone.
+
+    Fenced and indented code reach `parse_blocks` as ordinary lines, and
+    `strip_inline` ran straight over them: `a*b*c` arrived as `abc` and
+    `__init__` as `init`, silently, with nothing on stderr. Markdown's own
+    answer to "these characters are literal" is a code span, so the delimiter
+    is one backtick longer than the longest run the code itself contains.
+    """
+    longest = max((len(run) for run in _BACKTICK_RUN_RE.findall(text)), default=0)
+    fence = "`" * (longest + 1)
+    if text.startswith("`") or text.endswith("`"):
+        return "%s %s %s" % (fence, text, fence)
+    return fence + text + fence
+
+
+def _strip_emphasis(text):
+    """Bold before italic: `**x**` would otherwise read as italic around `*x*`.
+
+    Backslash-escaped punctuation is scanned around, not substituted behind a
+    sentinel. The sentinel version used an in-band `\\x00N\\x00` marker, and
+    author text carrying that same shape either crashed with a bare
+    `IndexError` — the CLI contract says a refusal is JSON and never a
+    traceback — or had its own characters overwritten by an unrelated escaped
+    one: `\\x000\\x00 and \\*y\\*` came back as `* and *y*`. This is the same
+    scan-and-splice `strip_inline` already uses for code spans, and nothing
+    the author can write collides with it.
+    """
+    out = []
+    position = 0
+    for match in _ESCAPED_RE.finditer(text):
+        out.append(_strip_emphasis_run(text[position : match.start()]))
+        # The character, without its backslash. `a \\*literal\\* star` used to
+        # reach the page as `a \\literal\\ star`: the emphasis pattern ate the
+        # asterisks the author had explicitly escaped and left the
+        # backslashes behind, which is both halves of it backwards.
+        out.append(match.group(1))
+        position = match.end()
+    out.append(_strip_emphasis_run(text[position:]))
+    return "".join(out)
+
+
+def _strip_emphasis_run(text):
+    """One stretch of text with no escape in it."""
+    text = _BOLD_RE.sub(r"\1", text)
+    text = _BOLD_UNDERSCORE_RE.sub(r"\1", text)
+    text = _ITALIC_RE.sub(r"\1", text)
+    text = _ITALIC_UNDERSCORE_RE.sub(r"\1", text)
+    return text
+
+
+def parse_blocks(markdown):
+    """The supported markdown subset as a flat list of block dicts.
+
+    Every block carries `kind` (exactly one of `heading`, `paragraph`,
+    `bullet`) and `text`; `level` (1, 2 or 3) appears on headings only.
+
+    This function never refuses and never raises. Unrecognised syntax becomes
+    a paragraph: refusing is `ats_lint`'s job and repairing is `flatten`'s, and
+    a parser that also decides policy is a parser nobody can reason about.
+    `####` is a paragraph for the same reason — the style table stops at
+    level 3, so there is no style to render a level-4 heading with.
+
+    A block whose text is empty after stripping is dropped rather than
+    emitted: an empty heading renders as blank vertical space that looks like
+    a layout bug, and carries nothing a parser could read.
+    """
+    blocks = []
+    paragraph_lines = []
+    # The bullet a wrapped line would continue, or None. A tailored CV wraps
+    # its bullets at 72-ish columns, and without this every wrapped bullet
+    # rendered as a bullet plus a stray un-bulleted paragraph under it.
+    open_bullet = None
+
+    def flush_paragraph():
+        # A run of consecutive text lines is one paragraph, joined by spaces,
+        # which is how markdown itself reads a soft line break.
+        if paragraph_lines:
+            text = strip_inline(" ".join(paragraph_lines)).strip()
+            if text:
+                blocks.append({"kind": "paragraph", "text": text})
+            paragraph_lines.clear()
+
+    # `splitlines` handles CRLF, LF and a lone CR alike, so Windows-authored
+    # markdown needs no separate path.
+    for raw_line in (markdown or "").splitlines():
+        line = raw_line.rstrip()
+
+        if not line.strip():
+            flush_paragraph()
+            open_bullet = None
+            continue
+
+        # Setext underlines, before the rule check. A "---" under text is a
+        # heading underline; the same line with nothing above it is a
+        # horizontal rule. `_RULE_RE` used to swallow both, silently demoting
+        # the heading above it to a paragraph, while "===" matched nothing at
+        # all and got joined on as a soft break — rendering the candidate's
+        # name as "Ali Sadikin ===========".
+        setext = None
+        if _SETEXT_H1_RE.match(line):
+            setext = 1
+        elif _SETEXT_H2_RE.match(line):
+            setext = 2
+        if setext and paragraph_lines:
+            text = strip_inline(" ".join(paragraph_lines)).strip()
+            paragraph_lines.clear()
+            open_bullet = None
+            if text:
+                blocks.append(
+                    {"kind": "heading", "level": setext, "text": text}
+                )
+            continue
+
+        # Checked before the bullet rule: `---` also matches "a dash followed
+        # by dashes", and a horizontal rule read as a bullet would print one.
+        if _RULE_RE.match(line):
+            flush_paragraph()
+            open_bullet = None
+            continue
+
+        heading = _HEADING_RE.match(line)
+        if heading:
+            flush_paragraph()
+            open_bullet = None
+            text = strip_inline(heading.group(2)).strip()
+            if text:
+                blocks.append(
+                    {
+                        "kind": "heading",
+                        "level": len(heading.group(1)),
+                        "text": text,
+                    }
+                )
+            continue
+
+        if _EMPTY_HEADING_RE.match(line):
+            flush_paragraph()
+            open_bullet = None
+            continue
+
+        bullet = _BULLET_RE.match(line)
+        if bullet:
+            flush_paragraph()
+            open_bullet = None
+            text = strip_inline(bullet.group(1)).strip()
+            # A task-list checkbox prints as literal "[x] " on the page.
+            text = _TASK_RE.sub("", text).strip()
+            if text:
+                blocks.append({"kind": "bullet", "text": text})
+                open_bullet = blocks[-1]
+            continue
+
+        ordered = _ORDERED_RE.match(line)
+        if ordered:
+            # Its own block, so three items do not become one run-on
+            # sentence — the same defect a three-row table had. The number
+            # stays in the text, because order is the point of writing an
+            # ordered list, and no bullet glyph is added so the line does
+            # not read "• 1. ".
+            flush_paragraph()
+            open_bullet = None
+            text = strip_inline(ordered.group(2)).strip()
+            if text:
+                blocks.append(
+                    {
+                        "kind": "paragraph",
+                        "text": "%s. %s" % (ordered.group(1), text),
+                    }
+                )
+                # An ordered item wraps like any other list item, and without
+                # a continuation target the second line became an orphan
+                # paragraph — half a sentence on the page the employer reads.
+                open_bullet = blocks[-1]
+            continue
+
+        if _EMPTY_BULLET_RE.match(line):
+            flush_paragraph()
+            open_bullet = None
+            continue
+
+        # An indented line under a bullet is that bullet's wrapped remainder,
+        # not a new paragraph. Only indented lines continue a bullet: an
+        # unindented line is far more often the next real paragraph, and
+        # swallowing one into the list item above loses a whole section.
+        if open_bullet is not None and raw_line[:1].isspace():
+            continuation = strip_inline(line.strip()).strip()
+            if continuation:
+                open_bullet["text"] = open_bullet["text"] + " " + continuation
+            continue
+
+        open_bullet = None
+        paragraph_lines.append(line.strip())
+
+    flush_paragraph()
+    return blocks
+
+
+# --- what must not ship, and what parses badly ---------------------------
+
+# The vault convention, exact. Case is ignored because a CV written in a hurry
+# capitalises inconsistently, but the inner spelling is not loosened: matching
+# `[ verifikasi ]` or `[verifikasi-nanti]` would refuse on text that only
+# resembles the marker, and a gate that cries wolf gets bypassed by habit.
+_UNVERIFIED_RE = re.compile(r"\[(?:verifikasi|assumption)\b[^\]]*\]", re.I)
+
+
+def _spaced(word):
+    """`verifikasi` as a pattern tolerating whitespace between its letters."""
+    return r"\s*".join(re.escape(ch) for ch in word)
+
+
+# Applied to the PROJECTION only, never to the raw line. Two things put a
+# space inside the word after the gate had already read it: a line wrapped
+# mid-marker, whose continuation `parse_blocks` joins with a space, and a tag
+# with spaces inside it — "[veri<span>  </span>fikasi]" — which the html
+# cleaner collapses to "[veri fikasi]". Both shipped the claim.
+# Whitespace is tolerated after the opening bracket too. The plan originally
+# pinned "[ Assumption ]" as NOT a match, on the reasoning that a leading
+# space means the author wrote something else while a space inside the word
+# means a transformation split it. That reasoning turned out to be false on
+# one path: a line wrapped immediately after "[" arrives as
+# "[ Assumption: FY24 baseline]", the space put there by the wrap and not by
+# the author, and the marker shipped. Measured cost of closing it — zero new
+# false positives over a corpus of bracketed CV prose. Amended in the plan
+# rather than left leaking; the owner decided it on 2026-09-19.
+_UNVERIFIED_LOOSE_RE = re.compile(
+    r"\[\s*(?:" + _spaced("verifikasi") + r"|" + _spaced("assumption")
+    + r")\b[^\]]*\]",
+    re.I,
+)
+
+_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]*)\)")
+
+# Stricter than `ats._TAG_RE` (`<[^>]+>`) on purpose, and only for DETECTING
+# html — the stripping itself still delegates to `ats._clean_description`.
+# `ats`'s pattern matches "< 200ms, throughput >" inside an ordinary sentence,
+# and a CV that says "p95 < 200ms and > 1k rps" would have the middle of that
+# sentence deleted as if it were a tag.
+_HTML_TAG_RE = re.compile(
+    r"<!--.*?-->|</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*?)?\s*/?>", re.S
+)
+
+# A table separator row: pipe-delimited cells of dashes, with optional
+# alignment colons. Requiring one is what keeps a sentence containing a
+# literal "|" from being read as a table.
+# GFM requires exactly ONE dash per separator cell, not three. Demanding
+# three meant "| :-: |" and "|--|--|" were not tables at all: `find_tables`
+# skipped them, `flatten` never touched them, and every row collapsed into a
+# single paragraph with the raw pipes still in it. A centred column is the
+# ordinary way to write one.
+#
+# The pattern alone also matches a bare "---", which is a horizontal rule and,
+# under a line containing a pipe, a setext heading underline — so `find_tables`
+# additionally requires a pipe on the separator line itself.
+_TABLE_SEP_RE = re.compile(
+    r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$"
+)
+
+# A bullet indented four or more spaces (or by a tab) is nested at least two
+# levels deep. One level of nesting survives flattening; deeper does not.
+_DEEP_BULLET_RE = re.compile(r"^(?: {4,}|\t+)\s*[-*]\s")
+
+
+def _unmask(line):
+    """The line as it will READ once every later stage has had its turn.
+
+    The gate used to run on the raw markdown only, while `strip_inline` and
+    the html cleaner ran afterwards — so a marker could reassemble itself
+    downstream of the check. Three spellings got a claim into a shipped CV
+    with the gate reporting clean:
+
+        - Grew ARR to $9M [**verifikasi**]      emphasis stripped later
+        - Cut spend 35% [`verifikasi`]          code span stripped later
+        - <b>Impact</b> revenue &#91;verifikasi&#93;   entities decoded later
+
+    Linting this projection as well as the raw line closes all three, and
+    closes the ones nobody has thought of yet: any future transformation that
+    removes characters can only make a marker MORE visible here, never less.
+
+    That reasoning holds for transformations that REMOVE characters and said
+    nothing about one that ADDS protective delimiters. `flatten` now wraps
+    every fenced and indented code line in a code span, and `_CODE_RE` accepts
+    a backtick run of any length, so nesting depth became the author's to
+    choose. The inline strip below therefore runs to a fixed point rather
+    than once.
+
+    Tags are removed with no separator on purpose. That is stricter than the
+    html cleaner, which substitutes a space — `[verif<i>ikasi</i>]` rejoins
+    into the marker here and is refused, rather than being caught by luck.
+    Characters that render as nothing go the same way, whether they are
+    zero-width spaces, control characters, variation selectors or the Hangul
+    fillers: `[verifi<ZWSP>kasi]` and `[veri<VS1>fikasi]` both read to a
+    human as the marker while matching no pattern of their own.
+
+    Known limit, stated rather than hidden: a homoglyph from another script —
+    Cyrillic "а" for Latin "a" — is not caught. NFKC folds compatibility
+    forms, not confusables, and a confusables table is not in the standard
+    library. It is an evasion nobody writes by accident. The gate is built
+    against mistakes, not against an author deliberately smuggling a claim
+    past themselves.
+    """
+    text = line
+    previous = None
+    # To a fixed point, because `&amp;#91;` decodes to `&#91;` and then to
+    # `[`. One pass would leave the second spelling readable.
+    while text != previous:
+        previous = text
+        text = html.unescape(text)
+    # Compatibility normalisation folds the fullwidth forms — "［verifikasi］"
+    # is indistinguishable from the marker on the page. It does NOT fold a
+    # Cyrillic "а" into a Latin "a"; see the limit stated below.
+    # Marks are removed BEFORE normalising as well as after. NFKC does not
+    # only decompose — it COMPOSES, and composition destroys a match rather
+    # than revealing one: "i" plus U+0301 becomes "í", a letter, and the Mn
+    # is gone before anything can strip it. Seventeen combining marks hid a
+    # marker that way.
+    text = _remove_invisible(text)
+    text = unicodedata.normalize("NFKC", text)
+    text = _HTML_TAG_RE.sub("", text)
+    text = _remove_invisible(text)
+    # To a fixed point, like the entity decoding above, and for a reason a
+    # single pass never had: `_CODE_RE` matches a backtick run of any length,
+    # so how many code-span layers wrap a marker is the AUTHOR's to choose.
+    # `strip_inline` peels exactly one. Peeling one layer twice — once here,
+    # once again on the rendered text — is not peeling two, and
+    # ``` `[**verifikasi**]` ``` walked through both and printed on the page.
+    # This terminates because every pass only removes characters.
+    previous = None
+    while text != previous:
+        previous = text
+        text = strip_inline(text)
+    return text
+
+
+def _is_table_row(line):
+    return "|" in line and line.strip() != ""
+
+
+def find_tables(lines):
+    """Index ranges of `lines` that form a markdown table, header row first.
+
+    Returns a list of `(start, stop)` half-open index pairs. A table is a row
+    containing a pipe, immediately followed by a separator row, followed by
+    any number of further pipe-carrying rows.
+
+    One detector, used by both `ats_lint` and `flatten`, so the two can never
+    disagree about what a table is.
+    """
+    tables = []
+    index = 0
+    while index < len(lines) - 1:
+        separator = lines[index + 1]
+        if (
+            _is_table_row(lines[index])
+            and "|" in separator
+            and _TABLE_SEP_RE.match(separator)
+        ):
+            stop = index + 2
+            while stop < len(lines) and _is_table_row(lines[stop]):
+                stop += 1
+            tables.append((index, stop))
+            index = stop
+            continue
+        index += 1
+    return tables
+
+
+def ats_lint(markdown):
+    """Findings for everything an ATS reads badly, plus the refusal trigger.
+
+    Each finding is `{"line": <1-based>, "text": <the line>, "reason": <one
+    of unverified-claim, table, image, deep-nesting, html>}`.
+
+    Only `unverified-claim` refuses — `render` raises on it. The other four
+    are what `flatten` repairs, reported here so the operator sees what the
+    document contained before anything rewrote it.
+
+    Every finding carries the line's own text, not just a count, because the
+    person reading the refusal at 3am needs to see the claim itself.
+    """
+    lines = (markdown or "").splitlines()
+    findings = []
+
+    def add(index, reason):
+        findings.append(
+            {"line": index + 1, "text": lines[index].rstrip(), "reason": reason}
+        )
+
+    for start, _stop in find_tables(lines):
+        add(start, "table")
+
+    for index, line in enumerate(lines):
+        # One finding per line even when the line carries two markers: the
+        # unit of the refusal is the claim's line, and two findings pointing
+        # at one line read as two separate problems.
+        if _UNVERIFIED_RE.search(line) or _UNVERIFIED_LOOSE_RE.search(_unmask(line)):
+            add(index, "unverified-claim")
+        if _IMAGE_RE.search(line):
+            add(index, "image")
+        if _DEEP_BULLET_RE.match(line):
+            add(index, "deep-nesting")
+        if _HTML_TAG_RE.search(line):
+            add(index, "html")
+
+    findings.sort(key=lambda f: (f["line"], f["reason"]))
+    return findings
+
+
+def unverified_findings(markdown):
+    """Just the findings that refuse — the gate `render` consults."""
+    return [f for f in ats_lint(markdown) if f["reason"] == "unverified-claim"]
+
+
+# --- repairing what an ATS reads badly -----------------------------------
+
+# The link text may itself contain brackets — "[ref [1]](url)" is ordinary
+# in a CV citing a source. `[^\]]*` stopped at the inner "]" and matched
+# nothing, so the whole construct reached the page as raw markdown.
+_INLINE_LINK_RE = re.compile(r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]*)\)")
+_REFERENCE_LINK_RE = re.compile(r"\[([^\]]*)\]\[([^\]]*)\]")
+
+# `[1]: https://example.com` — link plumbing, not prose. Collected so the
+# reference links that point at it can be resolved, then dropped.
+_REFERENCE_DEF_RE = re.compile(r"^\s{0,3}\[([^\]^][^\]]*)\]:\s*(\S+)\s*$")
+
+# `[^1]: Source: internal dashboard` — a footnote's text. The marker is
+# plumbing; the sentence after it is the candidate's own writing.
+_FOOTNOTE_DEF_RE = re.compile(r"^\s{0,3}\[\^([^\]]+)\]:\s*(.*)$")
+
+_BLOCKQUOTE_RE = re.compile(r"^\s{0,3}>\s?(.*)$")
+_FENCE_RE = re.compile(r"^\s{0,3}(?:`{3,}|~{3,})\s*(\w*)\s*$")
+_INDENTED_CODE_RE = re.compile(r"^(?: {4}|\t)(.*)$")
+_LEADING_WS_RE = re.compile(r"^[ \t]*")
+
+# `ats._clean_description` returns the literal "N/A" for any result shorter
+# than ten characters, because jobsync rejects a 1-9 character description.
+# That floor belongs to jobsync, not to a CV: without this pad, the line
+# "<b>Skills</b>" would come back as "N/A" and a heading would be replaced by
+# a shrug. NUL is used because nothing in the cleaning pipeline touches it —
+# it is not whitespace, not a tag, not an entity — and it is not legal in XML
+# anyway, so a leak would be loud rather than silent.
+_HTML_FLOOR_PAD = "\x00" * ats._MIN_DESCRIPTION_LEN
+
+
+# Sentinels for the angle brackets that are NOT part of a tag. See
+# `_protect_non_tags` — `ats._TAG_RE` is `<[^>]+>`, which happily eats the
+# middle of "p95 < 200ms and > 1k rps".
+_LT_SENTINEL = "\x01"
+_GT_SENTINEL = "\x02"
+
+# " ," and "( " after a tag became a space. A CV that reads "engineer ,
+# Amsterdam" looks like a bug to the human who opens it.
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?%)\]])")
+_SPACE_AFTER_OPEN_RE = re.compile(r"([(\[])\s+")
+
+
+# `&amp;`, `&#38;`, `&#x26;`, `&lbrack;` — any spelling of an entity.
+_ENTITY_RE = re.compile(r"&(?:#\d+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]*);")
+
+
+def _unescape_fully(text):
+    """Decode entities to a fixed point, the way `ats` does internally."""
+    previous = None
+    while text != previous:
+        previous = text
+        text = html.unescape(text)
+    return text
+
+
+def _protect_non_tags(text):
+    """Hide angle brackets that are not part of an html tag.
+
+    `ats._clean_description` strips `<[^>]+>`, which is right for a job
+    description scraped from a careers page and wrong for a CV line: it
+    deletes everything between a less-than and the next greater-than, and
+    "Keeps p95 < 200ms and > 1k rps" loses its middle. Only the spans the
+    strict tag pattern matched are left visible to it.
+    """
+    spans = [match.span() for match in _HTML_TAG_RE.finditer(text)]
+    out = []
+    position = 0
+    for start, stop in spans:
+        before = text[position:start]
+        out.append(
+            before.replace("<", _LT_SENTINEL).replace(">", _GT_SENTINEL)
+        )
+        out.append(text[start:stop])
+        position = stop
+    tail = text[position:]
+    out.append(tail.replace("<", _LT_SENTINEL).replace(">", _GT_SENTINEL))
+    return "".join(out)
+
+
+def strip_html(text):
+    """`ats._clean_description`, minus two behaviours a CV cannot survive.
+
+    The jobsync length floor ("N/A" below ten characters) is neutralised by a
+    pad, and non-tag angle brackets are hidden behind sentinels first.
+    Indentation is restored afterwards: the cleaner collapses all whitespace,
+    and a nested bullet that lost its indent would stop being a bullet.
+
+    Entities are decoded BEFORE the sentinels go in. `_clean_description`
+    unescapes to a fixed point and only then strips tags, so a `&lt;` became
+    a raw `<` after the protection had already run — and `<[^>]+>` then ate
+    the rest of the sentence. "kept spend &lt; $2M while headcount &gt; 40"
+    reached the page as "kept spend 40", with the note naming only the `<b>`
+    tags it had removed. Decoding first means the sentinels see those angle
+    brackets and protect them like any other.
+    """
+    indent = _LEADING_WS_RE.match(text).group(0)
+    text = _unescape_fully(text)
+    cleaned = ats._clean_description(_protect_non_tags(text) + _HTML_FLOOR_PAD)
+    cleaned = cleaned.replace("\x00", "")
+    cleaned = cleaned.replace(_LT_SENTINEL, "<").replace(_GT_SENTINEL, ">")
+    cleaned = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", cleaned)
+    cleaned = _SPACE_AFTER_OPEN_RE.sub(r"\1", cleaned)
+    return indent + cleaned.strip()
+
+
+# A pipe the author escaped is content. Splitting on it turned the cell
+# "used `a \| b` pipelines" into two cells, put the " — " cell joiner inside
+# the candidate's own sentence, and left a stray backslash behind.
+_UNESCAPED_PIPE_RE = re.compile(r"(?<!\\)\|")
+
+
+def _split_row(line):
+    """The cells of a markdown table row, outer pipes discarded.
+
+    Escaped pipes survive as literal "|" inside the cell they belong to.
+    """
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|") and not stripped.endswith("\\|"):
+        stripped = stripped[:-1]
+    return [
+        cell.strip().replace("\\|", "|")
+        for cell in _UNESCAPED_PIPE_RE.split(stripped)
+    ]
+
+
+def _flatten_table(lines, start, stop):
+    """One BULLET per body row: `"- <header1>: <cell1> — <header2>: <cell2>"`.
+
+    A row short of cells is padded rather than dropped — a missing cell is
+    missing data, but dropping the row loses the data that IS there. Padding
+    is trailing-only by construction, so a short row simply ends early.
+
+    The bullet marker is not decoration. Emitted as bare lines, consecutive
+    rows are a run of text with no blank line between them, and
+    `parse_blocks` — correctly, by markdown's own rules — joins them into one
+    paragraph. A three-row skills table came out of a real render as a single
+    run-on sentence. A row of a table is a list item; marking it as one keeps
+    each row its own block.
+    """
+    headers = _split_row(lines[start])
+    out = []
+    for row_line in lines[start + 2 : stop]:
+        cells = _split_row(row_line)
+        # Only the headers are padded. Padding the cells was inert — `zip`
+        # stops at the shorter list and the filter below drops empty cells
+        # anyway — and an inert line reads as load-bearing to the next person.
+        # A short row is still never dropped: `filled` decides that, and the
+        # branch below keeps a row even when every cell is empty.
+        padded_headers = headers + [""] * (len(cells) - len(headers))
+
+        # The label is the header of the first NON-EMPTY cell, not simply the
+        # first header. Dropping empties before choosing the label let a row
+        # like "|  | 5 |" render as "Skill: 5" — the CV then asserts that "5"
+        # is a skill. That is corruption, not loss, and the worse of the two.
+        filled = [
+            (header, cell) for header, cell in zip(padded_headers, cells) if cell
+        ]
+        if not filled:
+            # Every cell was empty. The row still held a position in the
+            # table, so it is kept rather than silently dropped.
+            out.append("- %s:" % headers[0] if headers else "-")
+            continue
+
+        # Every cell keeps its own header. Labelling only the first one left
+        # "Skill: Python — 8 — 2026", so an ATS read two numbers with nothing
+        # saying what they measured, and the years of experience the row
+        # existed to state were gone.
+        parts = [
+            "%s: %s" % (header, cell) if header else cell
+            for header, cell in filled
+        ]
+        out.append("- %s" % " — ".join(parts))
+    return out
+
+
+def flatten(markdown):
+    """Rewrite what an ATS parses badly into something it parses.
+
+    Returns `(flattened_markdown, notes)`. `notes` is a list of human lines
+    naming every transformation applied, printed to stderr by the CLI so the
+    operator sees what changed without diffing two files.
+
+    This function never refuses — that is the whole distinction from
+    `ats_lint`. A construct it cannot repair is passed through and noted.
+    Every note carries the line number from the ORIGINAL markdown, so it
+    still points at something the author can find after the rewrite has
+    shifted every line below it.
+    """
+    lines = (markdown or "").splitlines()
+    notes = []
+
+    # Block constructs that span lines, and the link plumbing, come first:
+    # everything after them can be decided one line at a time.
+    pairs, block_notes = _flatten_blocks(lines)
+    notes.extend(block_notes)
+    # The block pass drops and inserts lines, so position is no longer the
+    # author's line number. Every line carries its own from here on.
+    lines = [text for _origin, text, _code in pairs]
+    origins = [origin for origin, _text, _code in pairs]
+    # Whether a line is code is recorded where it is KNOWN, not re-derived
+    # from its shape later. Re-deriving it with `_CODE_RE.fullmatch` matched
+    # any line that merely STARTS and ENDS with a code span — a skills line
+    # like "`React` - see [portfolio](url) - and `Node`" skipped every prose
+    # pass and printed raw link syntax on the page.
+    code_lines = [is_code for _origin, _text, is_code in pairs]
+
+    # Tables first, and line-wise: a table is the one construct that spans
+    # more than one line, so every later transformation can be per-line.
+    # Each output line keeps the original line number it came from.
+    numbered = []
+    table_ranges = find_tables(lines)
+    consumed = set()
+    for start, stop in table_ranges:
+        consumed.update(range(start, stop))
+    table_starts = {start: (start, stop) for start, stop in table_ranges}
+
+    for index, line in enumerate(lines):
+        if index in table_starts:
+            start, stop = table_starts[index]
+            rows = _flatten_table(lines, start, stop)
+            for row in rows:
+                numbered.append((origins[index], row, False))
+            if rows:
+                notes.append(
+                    "line %d: table flattened to %d line(s)"
+                    % (origins[index], len(rows))
+                )
+            else:
+                notes.append(
+                    "line %d: table had no body rows, dropped" % origins[index]
+                )
+            continue
+        if index in consumed:
+            continue
+        numbered.append((origins[index], line, code_lines[index]))
+
+    out = []
+    for number, line, is_code in numbered:
+        if is_code:
+            # Every pass below rewrites PROSE. Running them over a code
+            # line deleted the candidate's own characters:
+            # `List<String> parse(Vec<T> x)` arrived as `List parse(Vec x)`,
+            # and `&#96;` decoded into a real backtick that unbalanced the
+            # span it sat in.
+            out.append(line)
+            continue
+
+        removed = _HTML_TAG_RE.findall(line)
+        has_entities = _ENTITY_RE.search(line)
+        if removed or has_entities:
+            line = strip_html(line)
+            if removed:
+                # Naming what was removed, not just that something was. A
+                # phrase like "<team lead>" is indistinguishable from a tag,
+                # and the operator needs to see the sentence lost those words.
+                notes.append(
+                    "line %d: inline html stripped (%s)"
+                    % (number, ", ".join(sorted(set(removed))))
+                )
+            if has_entities:
+                # Decoded on every line, not only lines that carry a tag.
+                # Before this, whether "AT&amp;T" printed correctly depended
+                # on whether an unrelated <b> happened to sit beside it.
+                notes.append("line %d: html entities decoded" % number)
+
+        images = _IMAGE_RE.findall(line)
+        if images:
+            line = _IMAGE_RE.sub("", line)
+            for source in images:
+                notes.append("line %d: image removed (%s)" % (number, source or "no src"))
+
+        if _INLINE_LINK_RE.search(line):
+            line = _INLINE_LINK_RE.sub(_rewrite_link, line)
+            notes.append("line %d: link rewritten as text (url)" % number)
+
+        if _DEEP_BULLET_RE.match(line):
+            # One level, not zero: a nested bullet still reads as a
+            # sub-point, and `parse_blocks` renders it as an ordinary bullet
+            # either way.
+            line = "  " + line.lstrip()
+            notes.append("line %d: nesting flattened to one level" % number)
+
+        # A line that held nothing but an image is now empty. Keeping it as a
+        # blank line is correct — it separates the paragraphs around it.
+        out.append(line.rstrip())
+
+    # Tables are found in a first pass over the whole document, so their
+    # notes would otherwise all precede notes about earlier lines. Sorted by
+    # the number each note names, a reader can follow them down the file.
+    notes.sort(key=_note_line_number)
+    return "\n".join(out) + ("\n" if out else ""), notes
+
+
+_NOTE_LINE_RE = re.compile(r"^line (\d+):")
+
+
+def _note_line_number(note):
+    match = _NOTE_LINE_RE.match(note)
+    return int(match.group(1)) if match else 0
+
+
+def _rewrite_link(match):
+    """`[text](url)` → `text (url)`, because an ATS keeps neither reliably."""
+    text = match.group(1).strip()
+    url = match.group(2).strip()
+    if not text:
+        return url
+    if not url or text == url:
+        return text
+    return "%s (%s)" % (text, url)
+
+
+# --- the OOXML writer ----------------------------------------------------
+
+class DestinationError(DocxError):
+    """The destination cannot be written — missing directory, or no permission.
+
+    A named class rather than a bare `OSError`, so the CLI reports a refusal
+    instead of a crash wearing a refusal's clothes.
+    """
+
+
+class EmptyDocumentError(DocxError):
+    """The markdown held nothing to render.
+
+    An empty CV is never the intent. Writing a valid, blank `.docx` would be
+    the worst outcome available: it fails silently, at the one moment the
+    candidate believes the work is done.
+    """
+
+
+CONTENT_TYPES_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+    "</Types>"
+)
+
+ROOT_RELS_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+    "</Relationships>"
+)
+
+DOCUMENT_RELS_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+    "</Relationships>"
+)
+
+# `CT_PageMar` declares all seven attributes `use="required"`, so emitting
+# only the four margins makes `word/document.xml` fail ISO/IEC 29500
+# validation — and the committed eval sample failed with it. A file Word
+# opens after a silent repair is still a defect. header/footer are Word's own
+# defaults in twentieths of a point; the gutter is zero because a CV is not
+# bound.
+DOCUMENT_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    "<w:body>{body}"
+    '<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>'
+    "</w:body></w:document>"
+)
+
+# `xml:space="preserve"` is mandatory. Without it Word collapses leading and
+# trailing spaces, and two bullets can merge visually.
+PARAGRAPH_XML = (
+    '<w:p><w:pPr><w:pStyle w:val="{style}"/></w:pPr>'
+    '<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+)
+
+# Fixed, not configurable. Every style option is a new way to produce a CV
+# that fails to parse, and the candidate cannot tell which one did it.
+STYLES = {
+    ("heading", 1): ("Heading1", 32, True),
+    ("heading", 2): ("Heading2", 26, True),
+    ("heading", 3): ("Heading3", 24, True),
+    ("paragraph", None): ("Normal", 22, False),
+    ("bullet", None): ("ListParagraph", 22, False),
+}
+
+# A literal glyph, not a numbering definition. Real list formatting needs a
+# sixth part (`word/numbering.xml`) and is a routine source of resume-parser
+# garbage; a bullet character is plain text that every parser reads as text.
+BULLET_GLYPH = "• "
+
+# Every timestamp fixed, so rendering the same markdown twice produces the
+# same bytes. The committed eval sample can then be regenerated and diffed
+# rather than taken on trust.
+_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+# XML 1.0 forbids most control characters outright — a stray one makes the
+# document unopenable rather than merely ugly.
+# The complement of XML 1.0's `Char` production, rather than a list of
+# control characters somebody thought of. The list version allowed U+FFFF
+# through: one of those in ordinary CV text produced a `.docx` that no
+# parser can open, and `render-docx` reported success with a plausible byte
+# count. Surrogates and the two noncharacters are forbidden too, and only
+# the grammar knows the whole set.
+_ILLEGAL_XML_RE = re.compile(
+    "[^\x09\x0a\x0d\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
+)
+
+
+def escape(text):
+    """XML-escape, ampersand first.
+
+    Escaping `&` last would double-escape the entities the other two
+    produced, and the reader would see "&amp;lt;" on the page.
+    """
+    text = _ILLEGAL_XML_RE.sub("", text)
+    text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    return text
+
+
+def _style_for(block):
+    return STYLES[(block["kind"], block.get("level"))]
+
+
+def styles_xml():
+    """`word/styles.xml` built from the one style table above."""
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+        "<w:docDefaults><w:rPrDefault><w:rPr>"
+        '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'
+        '<w:sz w:val="22"/><w:szCs w:val="22"/>'
+        "</w:rPr></w:rPrDefault></w:docDefaults>",
+    ]
+    for style_id, half_points, bold in sorted(set(STYLES.values())):
+        default = ' w:default="1"' if style_id == "Normal" else ""
+        indent = (
+            '<w:ind w:left="360"/>' if style_id == "ListParagraph" else ""
+        )
+        parts.append(
+            '<w:style w:type="paragraph"%s w:styleId="%s">'
+            '<w:name w:val="%s"/>'
+            "<w:pPr>%s</w:pPr>"
+            "<w:rPr>"
+            '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'
+            "%s"
+            '<w:sz w:val="%d"/><w:szCs w:val="%d"/>'
+            "</w:rPr></w:style>"
+            % (
+                default,
+                style_id,
+                style_id,
+                indent,
+                "<w:b/>" if bold else "",
+                half_points,
+                half_points,
+            )
+        )
+    parts.append("</w:styles>")
+    return "".join(parts)
+
+
+def document_xml(blocks):
+    """`word/document.xml` — the body is a flat run of `<w:p>` elements."""
+    body = []
+    for block in blocks:
+        style_id, _size, _bold = _style_for(block)
+        text = block["text"]
+        if block["kind"] == "bullet":
+            text = BULLET_GLYPH + text
+        body.append(PARAGRAPH_XML.format(style=style_id, text=escape(text)))
+    return DOCUMENT_XML.format(body="".join(body))
+
+
+def render(markdown, path, allow_unverified=False, source=None):
+    """Write `markdown` to `path` as an ATS-readable `.docx`.
+
+    The order is the whole design: lint, then refuse, then repair, then
+    parse, then write. Nothing touches the filesystem until the refusal has
+    had its chance, so a refused render leaves no file — not a truncated one,
+    not a stale one, none.
+
+    Returns `{"out", "blocks", "notes", "bytes"}`. Raises
+    `UnverifiedClaimError` unless `allow_unverified`, and
+    `EmptyDocumentError` when there is nothing to write.
+    """
+    label = source or os.path.basename(path) or "<markdown>"
+
+    unverified = unverified_findings(markdown)
+    if unverified and not allow_unverified:
+        raise UnverifiedClaimError(unverified, label)
+
+    flattened, notes = flatten(markdown)
+    blocks = parse_blocks(flattened)
+
+    # The last word, on the text that will actually be written. `_unmask`
+    # anticipates the transformations that exist today; this catches any that
+    # arrive later, on the only string that matters — the one the employer
+    # reads. A gate defended in one place is a gate one refactor from gone.
+    # Joined two ways. A character that `splitlines` treats as a line break —
+    # a vertical tab, a form feed, U+2028 — splits "[verifikasi]" across two
+    # blocks, and neither half matches anything. Concatenating without a
+    # separator puts the marker back together. It cannot raise a false alarm
+    # unless one block ends mid-marker and the next begins mid-marker.
+    rendered = [block["text"] for block in blocks]
+    residual = unverified_findings("\n".join(rendered)) or unverified_findings(
+        "".join(rendered)
+    )
+    if residual and not allow_unverified:
+        raise UnverifiedClaimError(
+            residual, "%s (marker survived into the rendered text)" % label
+        )
+
+    if allow_unverified:
+        stripped = _strip_markers(blocks)
+        # A bullet whose only content WAS the marker is now empty, and an
+        # empty ListParagraph renders as a lone "•" on the page. The block
+        # carried nothing else, so it goes.
+        emptied = [block for block in blocks if not block["text"].strip()]
+        if emptied:
+            blocks = [block for block in blocks if block["text"].strip()]
+            notes.append(
+                "%d block(s) held nothing but a marker and were dropped"
+                % len(emptied)
+            )
+        if stripped:
+            # The claim stays; the marker does not. An override is a decision
+            # to send the claim, never a decision to print the word
+            # "[verifikasi]" on a document an employer reads. The count is
+            # reported so the override is never silent.
+            notes.append(
+                "%d unverified marker(s) removed from the rendered text "
+                "(--allow-unverified)" % stripped
+            )
+
+    # Checked after the marker strip, so a document that held nothing but
+    # markers refuses rather than writing an empty page.
+    if not blocks:
+        raise EmptyDocumentError(
+            "refused to render %s: the markdown holds no headings, "
+            "paragraphs or bullets. An empty document is never the intent." % label
+        )
+
+    payload = {
+        "[Content_Types].xml": CONTENT_TYPES_XML,
+        "_rels/.rels": ROOT_RELS_XML,
+        "word/_rels/document.xml.rels": DOCUMENT_RELS_XML,
+        "word/styles.xml": styles_xml(),
+        "word/document.xml": document_xml(blocks),
+    }
+
+    directory = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(directory):
+        raise DestinationError(
+            "cannot write %s: the directory %s does not exist" % (path, directory)
+        )
+
+    return _write_archive(path, payload, blocks, notes, directory)
+
+
+def _write_archive(path, payload, blocks, notes, directory):
+    """Write the parts to a temp file in `directory`, then `os.replace` it.
+
+    The same atomic-write pattern `scripts/jobq.py::update_rows` uses. A
+    failure halfway through leaves the temp file, never a half-written
+    `.docx` at the destination — and a `.docx` that is half a ZIP is a file
+    the candidate discovers is broken only when the employer does.
+    """
+    try:
+        # Inside the guard: an unwritable directory fails HERE, and an
+        # unguarded `mkstemp` would hand the CLI a bare `PermissionError` —
+        # a crash wearing a refusal's clothes.
+        handle, temporary = tempfile.mkstemp(suffix=".docx.tmp", dir=directory)
+        os.close(handle)
+    except OSError as error:
+        raise DestinationError("cannot write %s: %s" % (path, error)) from error
+
+    try:
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, text in payload.items():
+                info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, text.encode("utf-8"))
+        size = os.path.getsize(temporary)
+        os.replace(temporary, path)
+    except OSError as error:
+        _remove_quietly(temporary)
+        raise DestinationError("cannot write %s: %s" % (path, error)) from error
+    except Exception:
+        _remove_quietly(temporary)
+        raise
+
+    # The three numbers that tell a reader whether the document is plausibly
+    # complete, without opening it.
+    print(
+        "docx.render: blocks=%d notes=%d bytes=%d" % (len(blocks), len(notes), size),
+        file=sys.stderr,
+    )
+    return {"out": path, "blocks": len(blocks), "notes": notes, "bytes": size}
+
+
+def _remove_quietly(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+# Collapses the double space a removed marker leaves mid-sentence.
+_DOUBLE_SPACE_RE = re.compile(r"[ \t]{2,}")
+
+
+def _strip_markers(blocks):
+    """Remove `[verifikasi]` / `[Assumption]` from block text, in place.
+
+    Only reached under `allow_unverified`. Returns how many blocks changed,
+    so the caller can report it — an override that is invisible in the output
+    is an override nobody reviews.
+    """
+    changed = 0
+    for block in blocks:
+        text = block["text"]
+        # Substituting on the raw text removed only the spellings that happen
+        # to be literal there. A marker written as html entities survived the
+        # strip, printed the word "verifikasi" onto the page, and reported
+        # nothing — the override went silent, which is the one thing it
+        # promised not to do. Collapsing to the projection first makes the
+        # removal cover exactly what the gate detects, by construction.
+        if not _UNVERIFIED_RE.search(text) and _UNVERIFIED_LOOSE_RE.search(
+            _unmask(text)
+        ):
+            text = _unmask(text)
+        cleaned = _UNVERIFIED_LOOSE_RE.sub("", _UNVERIFIED_RE.sub("", text))
+        if cleaned == block["text"]:
+            continue
+        cleaned = _DOUBLE_SPACE_RE.sub(" ", cleaned)
+        cleaned = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", cleaned).strip()
+        block["text"] = cleaned
+        changed += 1
+    return changed
+
+
+def _is_paragraph_line(text):
+    """Would `parse_blocks` be accumulating this line into a paragraph?
+
+    A setext underline only becomes a heading when a paragraph is open above
+    it, so the note has to ask the same question — otherwise every horizontal
+    rule in the document is announced as a heading.
+    """
+    stripped = text.strip()
+    if not stripped or stripped.startswith("#"):
+        return False
+    if _SETEXT_H1_RE.match(text) or _SETEXT_H2_RE.match(text):
+        return False
+    return not (_BULLET_RE.match(text) or _ORDERED_RE.match(text))
+
+
+def _leading_columns(text):
+    """How far the text is indented, counting a tab as four columns."""
+    blank = text[: len(text) - len(text.lstrip(" \t"))]
+    return len(blank.expandtabs(4))
+
+
+def _note_subset_constructs(content, number, notes, previous_was_paragraph):
+    """Report what `parse_blocks` changes but has no notes list to say so.
+
+    Called from the blockquote path as well as the ordinary one: that branch
+    used to `continue` past these checks, so "> Praise\n---\n" became a
+    heading and "> 1. one" lost its list, both in silence.
+    """
+    bullet = _BULLET_RE.match(content)
+    if bullet and _TASK_RE.match(bullet.group(1)):
+        notes.append("line %d: task checkbox dropped" % number)
+    if _ORDERED_PAREN_RE.match(content):
+        notes.append(
+            'line %d: ordered list marker ")" rewritten as "."' % number
+        )
+    if previous_was_paragraph and (
+        _SETEXT_H1_RE.match(content) or _SETEXT_H2_RE.match(content)
+    ):
+        notes.append("line %d: setext underline converted to a heading" % number)
+    return _is_paragraph_line(content)
+
+
+def _flatten_blocks(lines):
+    """Blockquotes, code, footnotes and reference definitions.
+
+    Every one of these previously reached the document as raw markdown —
+    a leading ">", a row of backticks, "[^1]:", "[1]:" — with no note. Spec
+    5 requires that anything outside the supported subset is flattened or
+    dropped WITH a line on stderr, and `skills/tailor/SKILL.md` tells the
+    model to report what changed. It was being handed an empty list.
+
+    Returns `(pairs, notes)`, each pair `(original_line_number, text)`. The
+    number travels WITH the line because this pass drops lines and inserts
+    them: numbering by position afterwards reported an image on line 4 as
+    line 3, which sends the author looking at the wrong line.
+    """
+    notes = []
+
+    # Reference definitions are collected before anything else, so the links
+    # that point at them can be resolved instead of passed through.
+    targets = {}
+    for line in lines:
+        match = _REFERENCE_DEF_RE.match(line)
+        if match:
+            targets[match.group(1).strip().lower()] = match.group(2)
+
+    out = []
+    in_fence = False
+    in_indented_code = False
+    last_was_list_item = False
+    list_content_indent = 0
+    previous_was_paragraph = False
+    # One note per RUN of ordered items, not one per item: a forty-item list
+    # produced forty identical lines on stderr, which is noise, not a report.
+    ordered_from = None
+    ordered_to = None
+
+    def close_ordered_run():
+        nonlocal ordered_from, ordered_to
+        if ordered_from is not None:
+            notes.append(
+                "lines %d-%d: ordered list numbering kept inline, "
+                "list formatting dropped" % (ordered_from, ordered_to)
+            )
+            ordered_from = ordered_to = None
+    for index, line in enumerate(lines):
+        number = index + 1
+
+        fence = _FENCE_RE.match(line)
+        if fence:
+            # The delimiters are dropped; the code between them is kept, one
+            # line per block, so it is not run together into a sentence.
+            in_fence = not in_fence
+            notes.append(
+                "line %d: code fence %s, delimiters dropped"
+                % (number, "opened" if in_fence else "closed")
+            )
+            continue
+        if in_fence:
+            # A blank line after each, so `parse_blocks` does not join them:
+            # consecutive text lines are one paragraph by markdown's own
+            # rules, and "def solve(x): return x" is not what was written.
+            stripped = line.strip()
+            out.append((number, _as_code_span(stripped) if stripped else "", True))
+            out.append((number, "", False))
+            continue
+
+        if _REFERENCE_DEF_RE.match(line):
+            match = _REFERENCE_DEF_RE.match(line)
+            notes.append(
+                "line %d: reference definition dropped (%s)"
+                % (number, match.group(2))
+            )
+            continue
+
+        footnote = _FOOTNOTE_DEF_RE.match(line)
+        if footnote:
+            # The marker is plumbing; the sentence after it is the
+            # candidate's own writing and is kept.
+            notes.append(
+                "line %d: footnote marker [^%s] dropped, its text kept"
+                % (number, footnote.group(1))
+            )
+            out.append((number, footnote.group(2).strip(), False))
+            continue
+
+        quoted = _BLOCKQUOTE_RE.match(line)
+        if quoted and line.lstrip().startswith(">"):
+            notes.append("line %d: blockquote marker dropped" % number)
+            content = quoted.group(1).strip()
+            if _ORDERED_RE.match(content):
+                if ordered_from is None:
+                    ordered_from = number
+                ordered_to = number
+            else:
+                close_ordered_run()
+            previous_was_paragraph = _note_subset_constructs(
+                content, number, notes, previous_was_paragraph
+            )
+            out.append((number, content, False))
+            continue
+
+        indented = _INDENTED_CODE_RE.match(line)
+        continues_a_list_item = last_was_list_item and line[:1].isspace()
+        # Under a list item, indentation alone does not mean code: that is
+        # where the item's own wrapped text lives. CommonMark puts code
+        # inside a list item four columns past the item's CONTENT, so that
+        # is the line drawn here. Below it the line is the item still
+        # wrapping; at or above it the line is code.
+        #
+        # Deciding this with a blank line instead — "a blank ends the item,
+        # so anything indented after it is code" — read a perfectly ordinary
+        # continuation paragraph as code and printed the author's `**bold**`
+        # markers on the page.
+        deep_enough = _leading_columns(line) >= list_content_indent + 4
+        if indented and (not continues_a_list_item or deep_enough):
+            if not in_indented_code:
+                in_indented_code = True
+                notes.append("line %d: indented code dedented" % number)
+            code = indented.group(1)
+            out.append((number, _as_code_span(code) if code.strip() else "", True))
+            out.append((number, "", False))
+            continue
+        if line.strip():
+            in_indented_code = False
+            marker = _BULLET_RE.match(line) or _ORDERED_RE.match(line)
+            if marker:
+                # An indented line carrying a list MARKER is a nested item,
+                # not its parent's wrapped text, so it moves the content
+                # column. Leaving the column where the outer item put it
+                # read the level below a twice-nested bullet as code — which
+                # this repository's own messy fixture has on line 19.
+                #
+                # The column is where the item's own text starts, marker and
+                # all: "- " puts it at 2, "    - " at 6, "10. " at 4.
+                last_was_list_item = True
+                list_content_indent = len(
+                    line[: marker.start(len(marker.groups()))].expandtabs(4)
+                )
+            elif not continues_a_list_item:
+                # An indented line UNDER a list item is that item still
+                # wrapping, so the list context has to survive it. Clearing
+                # it here meant the second continuation line of a bullet fell
+                # out of the list and was read as code — Amendment 2's defect,
+                # back again, one line further down.
+                last_was_list_item = False
+
+        # Spec 5: everything outside the supported subset is flattened or
+        # dropped WITH a line on stderr. These change the document and said
+        # nothing, because `parse_blocks` — which has no notes list — is
+        # where they are actually transformed.
+        if _ORDERED_RE.match(line):
+            if ordered_from is None:
+                ordered_from = number
+            ordered_to = number
+        elif line.strip() and not continues_a_list_item:
+            # A wrapped item does not end its run. Closing on it turned the
+            # one-note-per-run fix back into one note per item for exactly
+            # the lists a tailored CV writes — every item wrapping.
+            close_ordered_run()
+        previous_was_paragraph = _note_subset_constructs(
+            line, number, notes, previous_was_paragraph
+        )
+
+        out.append((number, line, False))
+
+    close_ordered_run()
+    if in_fence:
+        notes.append("unclosed code fence: its text was kept as ordinary lines")
+
+    out, link_notes = _resolve_reference_links(out, targets)
+    notes.extend(link_notes)
+    return out, notes
+
+
+def _resolve_reference_links(pairs, targets):
+    """`[text][ref]` becomes `text (url)` when its definition was found.
+
+    Left as written when it was not — but noted either way, which is what it
+    was missing.
+    """
+    notes = []
+    out = []
+    for number, line, is_code in pairs:
+        if is_code or not _REFERENCE_LINK_RE.search(line):
+            # A reference link inside code is code: `[x][y]` in a shell
+            # snippet is a test expression, not a link to resolve.
+            out.append((number, line, is_code))
+            continue
+
+        resolved = []
+
+        def replace(match):
+            text, key = match.group(1), match.group(2).strip().lower()
+            url = targets.get(key or text.strip().lower())
+            resolved.append(bool(url))
+            if url:
+                return "%s (%s)" % (text, url)
+            return text
+
+        rewritten = _REFERENCE_LINK_RE.sub(replace, line)
+        if all(resolved):
+            notes.append("line %d: reference-style link resolved" % number)
+        else:
+            # Its definition is missing from the document. The text is kept
+            # and the brackets dropped — printing "[PyCon][pycon-ref]" on the
+            # page helps nobody — but the lost URL is named.
+            notes.append(
+                "line %d: reference-style link had no definition, "
+                "text kept without its url" % number
+            )
+        out.append((number, rewritten, is_code))
+    return out, notes

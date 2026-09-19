@@ -340,6 +340,19 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         )
         return match.group(1).split(",")
 
+    def test_render_docx_and_all_three_of_its_flags_are_collected(self):
+        """The guard must actually SEE the newest command, not just pass.
+
+        This guard was twice found vacuous during AJOB-1 — checking zero of
+        eighteen flags while staying green — so a new subcommand asserts its
+        own collection rather than trusting that the general test covers it.
+        """
+        commands = self._documented_commands()
+        self.assertIn("render-docx", commands)
+        self.assertEqual(
+            commands["render-docx"], {"--in", "--out", "--allow-unverified"}
+        )
+
     def test_every_documented_subcommand_exists_in_the_cli(self):
         help_text = self._cli_help()
         documented = self._documented_commands()
@@ -390,22 +403,39 @@ class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
             if "profile_sources" in block
         ]
 
-    def _only(self, pattern):
-        """The single file matching `pattern`, or a named failure.
+    def _blocks_of_the_one_document_carrying_them(self, pattern):
+        """The TOML blocks of the single doc matching `pattern` that has any.
 
-        `glob(...).__next__()` raises a bare `StopIteration` on zero matches
-        — a test error with no message — and silently picks whichever file
-        comes first on two, which is how a second ticket's plan would make
-        this guard check the wrong document while staying green.
+        Selecting on "exactly one file matching the glob" was wrong the
+        moment a second ticket landed its own plan: the config template
+        lives in AJOB-1's documents, and later tickets' plans carry no TOML
+        block at all, so the count assertion fired on a repo that had not
+        drifted. `glob(...).__next__()` would have been worse — a bare
+        `StopIteration` on zero matches, and whichever file sorts first on
+        two, which is how this guard would silently check the wrong
+        document while staying green.
+
+        The "exactly one" guarantee still holds, but over the copies of the
+        contract rather than over the number of tickets the repo has had.
+        Zero matches fail too: a deleted block is drift, not absence of it.
         """
-        paths = sorted(pathlib.Path(REPO_ROOT).glob(pattern))
+        matches = [
+            (path, blocks)
+            for path in sorted(pathlib.Path(REPO_ROOT).glob(pattern))
+            if (blocks := self._toml_blocks(path))
+        ]
         self.assertEqual(
-            len(paths), 1, f"expected exactly one {pattern}, found {len(paths)}: {paths}"
+            len(matches),
+            1,
+            f"expected exactly one {pattern} carrying a profile_sources TOML "
+            f"block, found {len(matches)}: {[str(path) for path, _ in matches]}",
         )
-        return paths[0]
+        return matches[0][1]
 
     def test_the_spec_carries_the_template_verbatim(self):
-        blocks = self._toml_blocks(self._only("docs/plans/*-spec.md"))
+        blocks = self._blocks_of_the_one_document_carrying_them(
+            "docs/plans/*-spec.md"
+        )
         self.assertIn(
             self._template(),
             blocks,
@@ -413,7 +443,9 @@ class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
         )
 
     def test_the_plan_carries_the_template_verbatim(self):
-        blocks = self._toml_blocks(self._only("docs/plans/*-plan.md"))
+        blocks = self._blocks_of_the_one_document_carrying_them(
+            "docs/plans/*-plan.md"
+        )
         self.assertIn(
             self._template(),
             blocks,

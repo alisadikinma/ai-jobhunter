@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import ats  # noqa: E402
 import config  # noqa: E402
+import docx  # noqa: E402
 import jobq  # noqa: E402
 import keywords  # noqa: E402
 import promote  # noqa: E402
@@ -168,6 +169,71 @@ def cmd_keywords_report(args):
     _emit(report)
 
 
+def _same_file(source, destination):
+    """Whether two paths name the same file, asking the filesystem when it exists.
+
+    A string compare of the absolute paths is not enough on macOS, whose
+    default APFS is case-insensitive: `--in cv.md --out CV.MD` compared as
+    two different files and the render then overwrote the tailored markdown
+    with a ZIP. The source the whole `tailor` pipeline produced was gone,
+    with no backup and no warning.
+
+    `samefile` needs the destination to exist, so the string compare stays
+    for the ordinary case where it does not.
+    """
+    if os.path.abspath(source) == os.path.abspath(destination):
+        return True
+    if not os.path.exists(destination):
+        return False
+    try:
+        return os.path.samefile(source, destination)
+    except OSError:
+        return False
+
+
+def cmd_render_docx(args):
+    """Render a tailored CV or cover letter to an ATS-readable `.docx`.
+
+    Notes go to BOTH channels on purpose: into the JSON on stdout, which the
+    skill parses, and as human lines on stderr, which is the channel a person
+    reads. A transformation nobody is told about is one nobody checks.
+    """
+    if not args.out.lower().endswith(".docx"):
+        # A typo in --out overwrites whatever it names. `--out
+        # cover-letter.md` destroyed the draft cover letter, silently, and
+        # this command only ever produces one kind of file.
+        raise docx.DestinationError(
+            "refusing to write to %s: --out must end in .docx, and this "
+            "command writes nothing else." % args.out
+        )
+
+    if _same_file(args.input_path, args.out):
+        raise docx.DestinationError(
+            "refusing to write the .docx over its own source markdown (%s). "
+            "Give --out a different path." % args.input_path
+        )
+
+    with open(args.input_path, "r", encoding="utf-8") as f:
+        markdown = f.read()
+
+    result = docx.render(
+        markdown,
+        args.out,
+        allow_unverified=args.allow_unverified,
+        source=os.path.basename(args.input_path),
+    )
+    for note in result["notes"]:
+        print("render-docx: %s" % note, file=sys.stderr)
+    _emit(
+        {
+            "out": result["out"],
+            "blocks": result["blocks"],
+            "notes": result["notes"],
+            "bytes": result["bytes"],
+        }
+    )
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -294,6 +360,28 @@ def build_parser():
     p.add_argument("--limit", type=int, default=promote.MAX_REQUESTS_PER_HOUR)
     p.add_argument("--batch-size", type=int, default=promote.MAX_BATCH_SIZE)
     p.set_defaults(func=cmd_promote_prepare)
+
+    p = sub.add_parser(
+        "render-docx", help="Render tailored markdown to an ATS-readable .docx"
+    )
+    p.add_argument(
+        "--in",
+        dest="input_path",
+        required=True,
+        help="path to the tailored markdown, e.g. .jobhunter/applications/<slug>/cv.md",
+    )
+    p.add_argument("--out", required=True, help="path to write the .docx to")
+    p.add_argument(
+        "--allow-unverified",
+        action="store_true",
+        help=(
+            "render even though the markdown still carries [verifikasi] or "
+            "[Assumption]. This is an opt-in escape from a safety gate, decided "
+            "per run by the person whose name is on the CV — never a config "
+            "default and never the skill's choice."
+        ),
+    )
+    p.set_defaults(func=cmd_render_docx)
 
     return parser
 

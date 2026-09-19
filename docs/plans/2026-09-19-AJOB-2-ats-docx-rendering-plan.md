@@ -140,7 +140,7 @@ word/styles.xml
 `word/document.xml` — `{body}` is the concatenated `<w:p>` elements:
 
 ```xml
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>{body}<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>
 ```
 
 One paragraph, where `{style}` is a style id from the table above:
@@ -155,6 +155,183 @@ spaces and two bullets can merge visually.
 XML escaping, in this order: `&` → `&amp;`, then `<` → `&lt;`, then `>` → `&gt;`.
 Escaping `&` last would double-escape the entities the first two produced.
 
+## Amendments, 2026-09-19 (post-implementation, owner-approved)
+
+Seventeen points where the pinned text above no longer matches the code. Every
+one was found by RUNNING the code — on a real CV, through a real document
+extractor, or by an adversarial review — and each is approved. They are
+recorded here rather than silently left to drift, because this document is
+the contract.
+
+1. **Table rows are bullets, and every cell keeps its header.** Emitted as
+   bare lines, consecutive rows are one run of text and `parse_blocks` joins
+   them into a single paragraph by markdown's own rules: a three-row skills
+   table rendered as one run-on sentence. Labelling only the first cell then
+   left an ATS reading unlabelled numbers.
+2. **Bullets may be indented, and an indented line continues the bullet
+   above.** A CV wraps its bullets; without this, every wrapped bullet
+   rendered as a bullet plus a stray un-bulleted paragraph.
+3. **Bullets carry a literal `•` glyph.** Real list formatting needs a sixth
+   part, `word/numbering.xml`, which is outside the pinned five and is a
+   routine source of resume-parser garbage. The glyph is plain text.
+4. **ZIP timestamps are fixed** to 1980-01-01, so the same markdown renders
+   to the same bytes and the committed eval sample can be regenerated and
+   diffed rather than trusted.
+5. **`escape` first deletes XML-illegal control characters.** One stray byte
+   makes the document unopenable rather than merely ugly.
+6. **`word/styles.xml` carries `<w:ind w:left="360"/>` on `ListParagraph`**
+   and a `docDefaults` block — what produces the bullet indent.
+7. **`--out` is refused when it equals `--in` or does not end in `.docx`.**
+   Compared with `os.path.samefile`, because macOS's default APFS is
+   case-insensitive and a string compare let `--out CV.MD` overwrite
+   `cv.md` — the tailored markdown, destroyed with no backup.
+
+8. **Underscore emphasis is stripped too, and emphasis is stripped OUTSIDE
+   code spans only.** `__bold__` and `_italic_` are written at least as often
+   as the asterisk forms, and a marker wrapped in them defeated the gate.
+   Confining the strip to non-code regions is what keeps `` `__init__` `` and
+   `` `cat a | sed -e *` `` literal; a BARE `__init__` still becomes `init`,
+   which is what markdown renders it as.
+9. **The gate's projection NFKC-normalises and removes every character the
+   XML writer deletes.** Every character `escape` deletes is already gone
+   from the projection `_remove_invisible` produces, pinned by a test: a
+   character the writer removes after the last check can otherwise
+   reassemble a marker the gate cleared, which is exactly what
+   `[veri\x01fikasi]` did. Invisibility is Unicode's
+   `Default_Ignorable_Code_Point`, covered by the categories that contain it
+   plus the four Hangul fillers — defining it as `Cc`/`Cf` alone let all
+   sixteen variation selectors ship a readable marker.
+
+10. **`[ Assumption ]` with a space after the bracket IS a match**, reversing
+    Phase B step 5. The original reasoning — a leading space means the author
+    wrote something else — is false on one path: a line wrapped immediately
+    after "[" arrives as "[ Assumption: FY24 baseline]", the space put there
+    by the wrap rather than by the author, and the marker shipped into the
+    document with exit 0. Measured before changing it: zero new false
+    positives over a corpus of bracketed CV prose. Owner decision, 2026-09-19.
+
+11. **`w:pgMar` carries all seven required attributes**, not just the four
+    margins. `CT_PageMar` declares `header`, `footer` and `gutter`
+    `use="required"`, so the pinned four-attribute form made every rendered
+    `word/document.xml` — and the committed eval sample — fail ISO/IEC 29500
+    validation. The pinned block above is updated in place, since a contract
+    that produces an invalid document is not worth preserving verbatim.
+
+12. **Fenced and indented code reach `parse_blocks` as code spans**, not as
+    bare lines. Dropping the fence delimiters left the code inside with no
+    protection from `strip_inline`, so `total = a*b*c` rendered as
+    `total = abc` and `__init__` as `init` — the candidate's own characters
+    deleted, with nothing on stderr saying so. Markdown's own answer to
+    "these characters are literal" is a code span, so `flatten` wraps each
+    code line in a backtick run one longer than the longest run the code
+    contains, padding it when the line itself starts or ends with a
+    backtick. `_CODE_RE` was widened to multi-backtick spans to match, which
+    is what CommonMark specifies anyway. Found by round 6's plan-verifier;
+    this defect ARRIVED with amendment-era work, it was not inherited.
+
+13. **Notes carry the original line number through the block pass too.**
+    `flatten`'s docstring already promised this, and `_flatten_blocks` broke
+    it: that pass drops lines (reference definitions, fences) and inserts
+    them (the blank separators after code), so numbering by position
+    afterwards reported an image on line 4 as line 3. Lines now travel as
+    `(original_line_number, text)` pairs from the block pass onward. Also in
+    this amendment: an indented line under a list item keeps the list
+    context, so a bullet wrapped over three or more lines stays one bullet
+    rather than falling out of the list and being read as indented code —
+    amendment 2's defect, which had returned one line further down; and
+    ordered lists, setext underlines and task checkboxes are now each
+    reported on stderr, which spec §5 required and they were not doing.
+
+14. **The gate peels inline markup to a fixed point, not once.** Amendment 12
+    widened `_CODE_RE` to multi-backtick spans and made `flatten` wrap every
+    code line in one more span — and together those made code-span NESTING
+    DEPTH something the author chooses. `strip_inline` peels exactly one
+    layer, and the gate runs it twice (raw markdown, then rendered text);
+    two rounds of one layer is not two layers. ``` `[**verifikasi**]` ```
+    walked through both and printed on the page, in plain prose, in a
+    bullet, in a fence and in indented code. `_unmask` now loops
+    `strip_inline` to a fixed point, the same trick it already used for
+    `html.unescape` and for the same reason. Its docstring claimed any
+    future transformation "can only make a marker MORE visible here"; that
+    held for transformations that REMOVE characters and said nothing about
+    one that ADDS delimiters. The claim is corrected rather than deleted.
+
+15. **Code lines are literal past `strip_inline` too, ordered items wrap,
+    and backslash escapes keep their character.** Three further losses, each
+    reproduced by rendering: a fenced `List<String> parse(Vec<T> x)` reached
+    the page as `List parse(Vec x)` because every prose pass still ran over
+    code lines; a wrapped ordered item had no continuation target and left
+    half a sentence as an orphan paragraph; `a \*literal\* star` printed as
+    `a \literal\ star`, the escaped asterisks eaten and the backslashes
+    kept, which is the transformation backwards. Also: a blank line now ends
+    a list item, so an indented code block that merely FOLLOWS a list is
+    code rather than that item still wrapping — amendment 12's fix had left
+    that path destructive and silent. The ordered-list note is one line per
+    RUN and says what actually happens (the number is kept inline, the list
+    formatting is dropped); the old wording described the opposite
+    transformation, forty times for a forty-item list. The blockquote branch
+    now reports the same constructs every other path does.
+
+16. **Backslash escapes are scanned around, not hidden behind a sentinel.**
+    Amendment 15 hid them behind an in-band `\\x00N\\x00` marker, and author
+    text carrying that shape collided with it: `\\x0099999\\x00 and \\_x\\_`
+    raised a bare `IndexError` — the CLI contract says a refusal is JSON and
+    never a traceback — and `\\x000\\x00 and \\*y\\*` came back as `* and *y*`,
+    the author's own `0` overwritten by an unrelated escaped character.
+    `_strip_emphasis` now scans escapes in one pass and splices, the shape
+    `strip_inline` already uses for code spans.
+
+17. **Whether a line is CODE is carried from where it is known, and the code
+    boundary inside a list is the content column plus four.** Amendment 15
+    re-derived code-ness with `_CODE_RE.fullmatch`, whose premise ("a line
+    that is entirely one code span") is false: `_CODE_RE` spans interior
+    backticks, so any line that merely STARTS and ENDS with a code span
+    matched. A skills line — `` `React` - see [portfolio](url) - and `Node` ``
+    — skipped every prose pass and printed raw link syntax and live html
+    tags on the page, notes empty. `_flatten_blocks` now returns
+    `(line_number, text, is_code)` triples. Amendment 15 also ended a list
+    item on a blank line, which read an ordinary continuation paragraph as
+    code and printed the author's `**bold**` markers; the boundary is now
+    CommonMark's — code inside a list item starts four columns past the
+    item's content. A nested list MARKER moves that column, which this
+    repository's own `tests/fixtures/messy_cv.md` line 19 caught. And a
+    wrapped item no longer closes its ordered run, so "one note per run" now
+    holds for the case a tailored CV actually writes.
+
+### Stated limits at merge, 2026-09-19 — measured, not assumed
+
+This ticket was merged by the owner's explicit decision WITHOUT a verification
+round returning CLEAN. Rounds 6, 7 and 8 each returned BLOCKING, and the
+Critical in rounds 7 and 8 was introduced by the previous round's fix. That is
+recorded here rather than left to be rediscovered.
+
+What still leaks or vanishes, each confirmed by running `flatten` +
+`parse_blocks` at the merge commit:
+
+| markdown | what reaches the page | note on stderr |
+| --- | --- | --- |
+| `#### Deep heading` | `#### Deep heading` — the hashes print | none |
+| `Revenue ~~fell~~ rose` | `Revenue ~~fell~~ rose` — the tildes print | none |
+| `---` / `***` between paragraphs | the rule vanishes | none |
+| two trailing spaces (hard break) | the lines are joined | none |
+| `- ` (empty bullet) | dropped | none |
+| two ordered lists split by a blank line | correct text | reported as ONE span |
+| ``` ``` ``` inside a `~~~` block | closes the block early | misleading |
+| fenced code | renders flush left, indentation lost | none |
+
+The first two violate Phase F's "no markdown syntax is visible" criterion. The
+rest are silent transformations, which violates spec section 5's "with a line
+on stderr". Neither is hidden: they are the known cost of merging here.
+
+The gate itself is not on this list. At the merge commit it was swept at
+2,756,762 codepoint renders across three contexts and 33,912 nested wrappings
+across nine, with zero leaks. The documented gate limit remains the one stated
+in `_unmask`: a cross-script homoglyph.
+
+A further amendment to the gate itself is recorded in the spec: the marker is
+matched with its reason attached, matched on the line as it will finally
+read, and removed from the document under `--allow-unverified`.
+
 ## Phases
 
 ### Phase A: markdown → blocks
@@ -168,7 +345,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 **Steps:**
 1. Write failing test for `docx.parse_blocks("# Ali\n\nHello\n")` returning `[{"kind": "heading", "level": 1, "text": "Ali"}, {"kind": "paragraph", "text": "Hello"}]`. Expected error: `ModuleNotFoundError: No module named 'docx'`
 2. Run `python3 -m unittest discover -s tests -t .`, confirm it fails for that reason
-3. Implement `parse_blocks(markdown)` per the Block contract above: `#`/`##`/`###` → heading with level; `-` or `*` at column 0 → bullet; a blank-line-separated run of text → paragraph. Inline `**bold**`, `*italic*` and `` `code` `` markers are stripped from the text (Word carries the style, not the asterisks)
+3. Implement `parse_blocks(markdown)` per the Block contract above: `#`/`##`/`###` → heading with level; `-` or `*` at the start of a line, leading whitespace allowed → bullet; an indented line under a bullet continues that bullet; a blank-line-separated run of text → paragraph. Inline `**bold**`, `*italic*` and `` `code` `` markers are stripped from the text (Word carries the style, not the asterisks)
 4. Add tests for the enumerated edge cases: empty string, whitespace-only, a heading with no text (`##` alone), `####` (level 4 — treated as a paragraph, not a heading, because the style table stops at 3), a bullet with no text, CRLF line endings, a line that is only `---`, two blank lines between paragraphs, 500 blocks, and text containing `&`, `<`, `>`
 5. Run tests, confirm all pass
 6. Commit: "feat(docx): parse the supported markdown subset into blocks"
@@ -208,7 +385,7 @@ a file exists, so this is where the asymmetry closes.
 2. Run tests, confirm it fails for that reason
 3. Implement `ats_lint(markdown)` returning findings per the Lint finding contract. Detect `[verifikasi]` and `[Assumption]` **case-insensitively**, anywhere on the line. Also detect and report (without refusing) `table`, `image`, `deep-nesting`, `html`
 4. Implement `UnverifiedClaimError(Exception)` carrying `.findings`, with a message naming the file, the line number and the offending text, e.g. `cv.md:14 — "increased revenue 40% [verifikasi]"`
-5. Add tests for the enumerated edge cases: marker in a heading, marker inside a fenced code block (**still refuses** — a CV has no reason to carry code fences, and a marker there is far more likely a real claim than a deliberate literal), `[VERIFIKASI]` uppercase, `[ Assumption ]` with inner spaces (**not** a match — the convention is exact, and loosening it invites false positives), two markers on one line (one finding, not two), a marker on the last line with no trailing newline, and markdown with no markers at all (empty finding list)
+5. Add tests for the enumerated edge cases: marker in a heading, marker inside a fenced code block (**still refuses** — a CV has no reason to carry code fences, and a marker there is far more likely a real claim than a deliberate literal), `[VERIFIKASI]` uppercase, `[ Assumption ]` with inner spaces (**a match** — see Amendment 10; originally pinned as *not* a match, reversed once a line wrapping after `[` was found shipping the marker), two markers on one line (one finding, not two), a marker on the last line with no trailing newline, and markdown with no markers at all (empty finding list)
 6. Run tests, confirm all pass
 7. Commit: "feat(docx): refuse to render a claim the candidate never verified"
 
@@ -222,7 +399,7 @@ a file exists, so this is where the asymmetry closes.
 - [ ] `python3 -m compileall -q scripts tests` passes
 - [ ] `python3 -m unittest discover -s tests -t .` passes
 - [ ] A markdown file carrying `[verifikasi]` produces a finding whose `line` matches the real 1-based line number, proven against a multi-line fixture
-- [ ] `[ Assumption ]` with inner spaces produces no finding
+- [ ] `[ Assumption ]` with inner spaces produces a finding (Amendment 10 reversed this)
 - [ ] Mutation check: delete the `[Assumption]` half of the pattern and confirm a test fails — a guard that guards only half of what it claims is this repository's documented recurring defect
 - [ ] No placeholder/TODO comments in new code
 - [ ] detect-stack: no stack markers for this project — verification is plan-declared only
@@ -238,10 +415,10 @@ a file exists, so this is where the asymmetry closes.
 - Test: `tests/test_docx.py`
 
 **Steps:**
-1. Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `Skill: Python — 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
+1. Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `- Skill: Python — Years: 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
 2. Run tests, confirm it fails for that reason
 3. Implement `flatten(markdown)` returning `(flattened_markdown, notes)` where `notes` is a list of strings for stderr. Transformations, all of them from spec §4 gate 2:
-   - **table** → one line per body row, `"<header1>: <cell1> — <cell2>"`, the separator row dropped
+   - **table** → one BULLET per body row, every cell keeping its own header, `"- <header1>: <cell1> — <header2>: <cell2>"`, the separator row dropped
    - **image** `![alt](src)` → removed entirely; note records the `src`
    - **link** `[text](url)` → `text (url)`, because ATS frequently keep neither the anchor nor the href
    - **nesting deeper than one level** → flattened to one level

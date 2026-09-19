@@ -68,6 +68,10 @@ that copies `master-cv.md` through unchanged.
 - `cv.md` — reordered, reworded, evidence selected for this JD.
 - `cover-letter.md` — likewise written for this JD, not a template filled
   with placeholders.
+- `cv.docx` and `cover-letter.docx` — built from the two markdown files by
+  `render-docx`. Nobody can attach a `.md` to a Workday form and no ATS
+  parses one, so the markdown is the working copy and the `.docx` is what
+  gets sent.
 - `keyword-report.md` — built from `keywords-report --markdown`.
   Its heading states plainly that this is a **keyword overlap report, not an
   ATS score**: no local computation can honestly predict what any ATS
@@ -112,4 +116,63 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keywords-report \
 The lists are the ranked head, not everything — a real posting yields hundreds
 of terms. `--top N` changes the cut; the heading always states the full count
 so a truncated report never reads as complete.
+
+```bash
+# Render the tailored CV as a .docx an ATS can read
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-docx \
+  --in .jobhunter/applications/<slug>/cv.md \
+  --out .jobhunter/applications/<slug>/cv.docx
+```
+
+Run it once per document — the cover letter is a second run with
+`--in cover-letter.md --out cover-letter.docx`.
+
+The `.docx` is deliberately plain: single column, no tables, no images, no
+header or footer content, Calibri throughout. Every one of those is a
+construct a resume parser either drops or scrambles, and a CV that looks
+beautiful and parses into empty fields has failed at its only job. Tables,
+images, links and nested bullets in the markdown are flattened
+automatically. A table becomes one bullet per row, every cell keeping its own
+header: `| Skill | Years |` with `| Python | 8 |` reads `Skill: Python — Years:
+8`, so a parser never meets a number with nothing saying what it measures.
+Each change is reported on stderr as `render-docx: line N: ...` and in the
+`notes` array on stdout. Report what changed — do not re-render to try to
+avoid it.
+
+### When `render-docx` refuses
+
+If the markdown still carries `[verifikasi]` or `[Assumption]`, the command
+writes **no file at all** and exits 1 with:
+
+```json
+{
+  "error": "UnverifiedClaimError",
+  "message": "refused to render: 1 unverified claim(s) still in the markdown. ..."
+}
+```
+
+That is the correct outcome, not a bug to work around. The message names the
+file, the line number and the claim itself. Show it to the user and ask them
+to verify the claim and remove the marker.
+
+`render-docx --allow-unverified` exists, and it is **the user's decision, per
+run, never this skill's**. Do not pass it because a render failed, do not suggest it as
+the fix, and never put it in a script or a config file. It is an opt-in
+escape from a safety gate on a document that goes out under the user's name.
+
+When it is used, the claim is rendered but the marker itself is removed from
+the document — the override sends the claim, it does not print the user's
+private note to themselves onto a page an employer reads. `notes` reports how
+many markers were removed, so the override is never silent. Report that count.
+
+The gate matches the marker however it is written: carrying its reason
+(`[Assumption: figure from memory]`), wrapped in emphasis, spelled with html
+entities, split by an invisible character, or broken across a line wrap.
+Every one of those spellings once got a claim into a rendered CV while the
+check reported clean, so each is now pinned by a test.
+
+The other refusals: `EmptyDocumentError` when the markdown holds no headings,
+paragraphs or bullets, and `DestinationError` when the output directory does
+not exist, is not writable, is the source markdown itself, or when `--out`
+does not end in `.docx` — a typo there would overwrite whatever it named.
 
