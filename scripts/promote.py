@@ -225,7 +225,7 @@ def _require_valid_score(fit_score):
 
 
 def _recommendation_for(fit_score):
-    _require_valid_score(fit_score)
+    # Already validated by `_require_score`, which every entry point calls.
     for floor, label in _SCORE_BOUNDARIES:
         if fit_score >= floor:
             return label

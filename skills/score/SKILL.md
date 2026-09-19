@@ -13,11 +13,11 @@ skill only edits the local queue; it never writes to jobsync — that is
 
 ## Inputs
 
-- `.jobhunter/config.toml`, read with `config.load(path)`. If missing, this
+- `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
   `/ai-jobhunter:profile` first.
-- `.jobhunter/queue/jobs.jsonl`, read with `jobq.load(path)`;
-  `jobq.iter_unscored(rows)` selects the rows this run actually scores (any
+- `.jobhunter/queue/jobs.jsonl`, read with `queue-list` (see the commands below);
+  `queue-list --unscored` selects the rows this run actually scores (any
   row already carrying a `fit_score` is left untouched, so re-running this
   skill never re-scores what is already scored).
 - `.jobhunter/profile/master-cv.md` and `.jobhunter/profile/variants.toml`.
@@ -91,7 +91,7 @@ still be the wrong one; keyword lists in this domain rot within months.
 ## Output
 
 Rewrites `.jobhunter/queue/jobs.jsonl` in place via
-`jobq.update_rows(path, {jobq.row_key(row): fields})`, which merges the
+`queue-update` (see the commands below), which merges the
 fields above into each matching row and renames a temporary file over the
 original, so an interrupted run leaves the old queue intact. Do NOT use
 `jobq.append_rows` for this: it would see the scored row as a duplicate of
@@ -109,7 +109,9 @@ for this skill — scoring makes no jobsync call).
 
 Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
 is set by Claude Code to this plugin's installed directory — never hardcode a
-path, and never import the modules directly.
+path. Reach every script through this command; the module and function names
+that appear elsewhere in this file describe what a command wraps, and are not
+an instruction to import anything.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]

@@ -11,7 +11,7 @@ anywhere in this skill.** It writes drafts; it never transmits anything.
 
 ## Inputs
 
-- `.jobhunter/config.toml`, read with `config.load(path)`. If missing, this
+- `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
   `/ai-jobhunter:profile` first.
 - The target job's company and full description — from the matching row in
@@ -100,7 +100,9 @@ spent finding the contact.
 
 Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
 is set by Claude Code to this plugin's installed directory — never hardcode a
-path, and never import the modules directly.
+path. Reach every script through this command; the module and function names
+that appear elsewhere in this file describe what a command wraps, and are not
+an instruction to import anything.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]

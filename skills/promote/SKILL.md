@@ -12,15 +12,20 @@ ever touch the local queue file.
 
 ## Inputs
 
-- `.jobhunter/config.toml`, read with `config.load(path)`. If missing, this
+- `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
   `/ai-jobhunter:profile` first.
 - `budgets.jobsync_requests_per_run` — this run's own ceiling, itself always
   clamped to jobsync's hard hourly limit of 60 MCP requests (see
   `promote.MAX_REQUESTS_PER_HOUR`).
-- `.jobhunter/queue/jobs.jsonl`, read with `jobq.load(path)`. Only rows
-  carrying a `fit_score` (i.e. already run through `/ai-jobhunter:score`)
-  and `work_authorization != "closed"` are eligible; everything else is
+- `.jobhunter/queue/jobs.jsonl`, read with `queue-list` (see the commands below). Only rows
+  carrying a `fit_score` (i.e. already run through `/ai-jobhunter:score`),
+  with `work_authorization != "closed"`, and **not already promoted** are
+  eligible. Read them with `queue-list --unscored`'s counterpart
+  `queue-list --unpromoted`: a row already in jobsync costs two requests to
+  re-upsert against a ceiling of sixty an hour, so re-sending old rows is
+  how a run spends its whole budget before reaching a new posting.
+  Everything else is
   left on the queue untouched.
 
 ## Scripts this skill calls
@@ -98,8 +103,7 @@ a poor fit rather than as a posting nobody bothered to write out.
 ## Output
 
 Writes to jobsync only (no local file output). Rows successfully promoted
-are marked in the local queue with `jobq.update_rows(path, {jobq.row_key(row):
-{"promoted": True}})`, so a later run of this skill does not re-spend a
+are marked in the local queue with `queue-update` with `{"<row_key>": {"promoted": true}}`, so a later run of this skill does not re-spend a
 request re-promoting them. `jobq.append_rows` cannot do this — it would drop
 the changed row as a duplicate by `row_key`.
 
@@ -112,7 +116,9 @@ spent this run.
 
 Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
 is set by Claude Code to this plugin's installed directory — never hardcode a
-path, and never import the modules directly.
+path. Reach every script through this command; the module and function names
+that appear elsewhere in this file describe what a command wraps, and are not
+an instruction to import anything.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]

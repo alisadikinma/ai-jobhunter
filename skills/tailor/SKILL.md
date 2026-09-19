@@ -11,7 +11,7 @@ generic document.
 
 ## Inputs
 
-- `.jobhunter/config.toml`, read with `config.load(path)`. If missing, this
+- `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
   `/ai-jobhunter:profile` first.
 - The target job's full description text — from the matching row in
@@ -39,7 +39,7 @@ that copies `master-cv.md` through unchanged.
 
 ## Scripts this skill calls
 
-- `scripts/keywords.py` — `keywords.coverage(jd_text, cv_text)` to compute
+- `scripts/keywords.py` — `keywords-report` to compute
   which JD terms the drafted CV covers and which it misses, then
   `keywords.render(report)` to produce `keyword-report.md`'s body.
 - `scripts/config.py` — `config.load`.
@@ -68,7 +68,7 @@ that copies `master-cv.md` through unchanged.
 - `cv.md` — reordered, reworded, evidence selected for this JD.
 - `cover-letter.md` — likewise written for this JD, not a template filled
   with placeholders.
-- `keyword-report.md` — built from `keywords.coverage` + `keywords.render`.
+- `keyword-report.md` — built from `keywords-report --markdown`.
   Its heading states plainly that this is a **keyword overlap report, not an
   ATS score**: no local computation can honestly predict what any ATS
   vendor's own parser would score, since they parse differently from each
@@ -86,7 +86,9 @@ were covered versus missing, and which files it wrote.
 
 Every deterministic step in this skill is one command. `${CLAUDE_PLUGIN_ROOT}`
 is set by Claude Code to this plugin's installed directory — never hardcode a
-path, and never import the modules directly.
+path. Reach every script through this command; the module and function names
+that appear elsewhere in this file describe what a command wraps, and are not
+an instruction to import anything.
 
 ```bash
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]

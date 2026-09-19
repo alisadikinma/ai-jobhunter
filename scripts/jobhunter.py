@@ -66,13 +66,37 @@ def cmd_config_show(args):
     _emit({"config": cfg, "sources": [{"tier": t, "path": p} for t, p in sources]})
 
 
+def _require_company(args):
+    """Fail before the network call, not after it.
+
+    Lever and Ashby payloads carry no company name, so the operator must
+    supply it. Without this the run fetched the board, then failed with
+    "Lever posting missing required key 'company'" — blaming the data for a
+    missing flag. Greenhouse carries its own, so passing --company there is
+    a mistake worth naming rather than ignoring.
+    """
+    needs_company = args.board in ("lever", "ashby")
+    if needs_company and not (args.company or "").strip():
+        raise ValueError(
+            f"--company is required for {args.board}: its payload carries no "
+            "company name. Pass the company's display name."
+        )
+    if not needs_company and args.company:
+        raise ValueError(
+            f"--company is not accepted for {args.board}: its payload states "
+            "the company itself, and the flag would be silently ignored."
+        )
+
+
 def cmd_ats_fetch(args):
+    _require_company(args)
     ats.fetch(args.board, args.slug, args.dest)
     rows = _NORMALIZERS[args.board](args.dest, *( [args.company] if args.board != "greenhouse" else [] ))
     _emit({"board": args.board, "slug": args.slug, "dest": args.dest, "rows": rows})
 
 
 def cmd_ats_normalize(args):
+    _require_company(args)
     rows = _NORMALIZERS[args.board](args.path, *( [args.company] if args.board != "greenhouse" else [] ))
     _emit({"board": args.board, "rows": rows})
 
@@ -87,6 +111,8 @@ def cmd_queue_list(args):
     rows = jobq.load(args.queue)
     if args.unscored:
         rows = list(jobq.iter_unscored(rows))
+    if args.unpromoted:
+        rows = list(jobq.iter_unpromoted(rows))
     _emit({"count": len(rows), "rows": rows})
 
 
@@ -114,12 +140,14 @@ def cmd_keywords_report(args):
 
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
-    limit = args.limit
-    sending, waiting, requests_needed = promote.plan_budget(rows, limit)
 
+    # Validate FIRST, budget second. Budgeting over the raw rows counted
+    # refusals against the ceiling: 25 bad rows ahead of 50 good ones
+    # reported 60 requests for 5 prepared payloads and held back 45 healthy
+    # rows for a budget nothing was going to spend.
     prepared = []
     refused = []
-    for row in rows[:sending]:
+    for row in rows:
         try:
             prepared.append(
                 {
@@ -138,10 +166,13 @@ def cmd_promote_prepare(args):
                 }
             )
 
+    sending, waiting, requests_needed = promote.plan_budget(prepared, args.limit)
+    to_send = prepared[:sending]
+
     _emit(
         {
-            "batches": [list(batch) for batch in promote.chunk(prepared, args.batch_size)],
-            "prepared": len(prepared),
+            "batches": [list(batch) for batch in promote.chunk(to_send, args.batch_size)],
+            "prepared": len(to_send),
             "refused": refused,
             "waiting": waiting,
             "requests_needed": requests_needed,
@@ -181,6 +212,12 @@ def build_parser():
     p = sub.add_parser("queue-list", help="Read the local queue")
     p.add_argument("--queue", required=True)
     p.add_argument("--unscored", action="store_true", help="only rows with no fit_score")
+    p.add_argument(
+        "--unpromoted",
+        action="store_true",
+        help="only rows not yet marked promoted — use this before promote-prepare "
+        "so the budget is not spent re-upserting rows already in jobsync",
+    )
     p.set_defaults(func=cmd_queue_list)
 
     p = sub.add_parser("queue-update", help="Merge fields into matching queue rows")
@@ -212,7 +249,12 @@ def main(argv=None):
     args = build_parser().parse_args(argv)
     try:
         args.func(args)
-    except (config.ConfigError, promote.PromoteError, ats.AtsError) as exc:
+    except Exception as exc:  # noqa: BLE001 — the contract is JSON, never a traceback
+        # Every SKILL.md tells the model a refusal arrives as
+        # {"error": ..., "message": ...} on stderr. Catching only the three
+        # named base classes broke that promise on the most ordinary
+        # mistakes: malformed JSON in --rows, a missing @file, a bad --jd
+        # path. A traceback is not a result the skill can report.
         json.dump(
             {"error": type(exc).__name__, "message": str(exc)},
             sys.stderr,

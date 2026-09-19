@@ -192,6 +192,20 @@ def _infer_greenhouse_workplace_type(location_name):
     return None
 
 
+class _Rows(list):
+    """A normal list of rows that also carries what could not be normalised.
+
+    `_normalize_all` returned `(rows, skipped)` and every caller discarded
+    the second half, so the postings it named were lost as quietly as before.
+    Subclassing `list` keeps every existing caller working — the rows ARE the
+    list — while `rows.skipped` stays available to a caller that reports it.
+    """
+
+    def __init__(self, rows, skipped):
+        super().__init__(rows)
+        self.skipped = skipped
+
+
 def _normalize_all(source, jobs, normalizer):
     """Normalise every posting, surviving a single bad one.
 
@@ -244,10 +258,10 @@ def normalize_greenhouse(path):
     if not isinstance(payload, dict) or "jobs" not in payload:
         raise MissingFieldError(SOURCE_GREENHOUSE, "jobs")
 
-    rows, _skipped = _normalize_all(
+    rows, skipped = _normalize_all(
         SOURCE_GREENHOUSE, payload["jobs"], _normalize_greenhouse_job
     )
-    return rows
+    return rows if not skipped else _Rows(rows, skipped)
 
 
 def _normalize_greenhouse_job(job):
@@ -290,10 +304,10 @@ def normalize_lever(path, company):
     if not isinstance(payload, list):
         raise AtsError(f"{SOURCE_LEVER} payload at {path} is not a JSON array")
 
-    rows, _skipped = _normalize_all(
+    rows, skipped = _normalize_all(
         SOURCE_LEVER, payload, lambda p: _normalize_lever_posting(p, company)
     )
-    return rows
+    return rows if not skipped else _Rows(rows, skipped)
 
 
 def _normalize_lever_posting(posting, company):
@@ -346,20 +360,27 @@ def normalize_ashby(path, company):
         raise MissingFieldError(SOURCE_ASHBY, "jobs")
 
     def normalize_one(job):
+        if not isinstance(job, dict):
+            raise MissingFieldError(SOURCE_ASHBY, "job object")
         if "isListed" not in job:
             raise MissingFieldError(SOURCE_ASHBY, "isListed")
         return _normalize_ashby_job(job, company)
 
-    listed = [job for job in payload["jobs"] if job.get("isListed", True)]
+    # `job.get(...)` on a non-dict raises AttributeError, which neither
+    # `_normalize_all` nor the CLI catches, so a stray non-object in the
+    # payload escaped as a traceback. Keep such entries in the list and let
+    # `normalize_one` reject them by name instead.
+    listed = [
+        job
+        for job in payload["jobs"]
+        if not isinstance(job, dict) or job.get("isListed", True)
+    ]
     unlisted = len(payload["jobs"]) - len(listed)
-    missing_flag = [job for job in payload["jobs"] if "isListed" not in job]
-    if missing_flag and len(missing_flag) == len(payload["jobs"]):
-        raise MissingFieldError(SOURCE_ASHBY, "isListed")
 
-    rows, _skipped = _normalize_all(SOURCE_ASHBY, listed, normalize_one)
+    rows, skipped = _normalize_all(SOURCE_ASHBY, listed, normalize_one)
     if unlisted:
         print(f"ats.normalize: source={SOURCE_ASHBY} unlisted_dropped={unlisted}", file=sys.stderr)
-    return rows
+    return rows if not skipped else _Rows(rows, skipped)
 
 
 def _normalize_ashby_job(job, company):

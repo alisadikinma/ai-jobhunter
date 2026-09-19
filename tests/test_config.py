@@ -206,7 +206,15 @@ class TestResolveProfileSourcesProjectAllowList(unittest.TestCase):
             )
             cfg = config.load(path)
             sources = config.resolve_profile_sources(cfg)
-            self.assertEqual(sources, [("project", os.path.join(root, "project-a"))])
+            # The RESOLVED path is returned, so the containment guarantee
+            # travels with the value rather than being left behind at the
+            # check. On macOS /var is itself a symlink to /private/var, so
+            # comparing against the unresolved path would fail here for a
+            # reason that has nothing to do with the allow-list.
+            self.assertEqual(
+                sources,
+                [("project", os.path.realpath(os.path.join(root, "project-a")))],
+            )
 
     def test_directory_on_disk_but_not_allowlisted_is_never_returned(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -474,6 +482,92 @@ class TestSalaryAndSectionTypos(unittest.TestCase):
                 self._load(tmp, '[profile_sources]\nprecedance = ["site"]\n')
             messages = [str(w.message) for w in caught]
             self.assertTrue(any("precedance" in m for m in messages), messages)
+
+
+class TestNestedLinksCannotEscapeTheAllowList(unittest.TestCase):
+    """Checking only the allow-listed entry protects one level. A link INSIDE
+    it has an innocent name, is never inspected, and any ordinary walk
+    follows it — measured reading a file out of a client directory through
+    `projects/allowed/notes -> /client-work`.
+    """
+
+    def _cfg(self, root, allowed=("allowed",)):
+        return {
+            "profile_sources": {
+                "precedence": ["project"],
+                "projects": {"root": root, "allowed": list(allowed)},
+            }
+        }
+
+    def test_a_link_inside_an_allowed_directory_leading_out_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            outside = os.path.join(tmp, "client-work")
+            os.makedirs(outside)
+            with open(os.path.join(outside, "nda.md"), "w", encoding="utf-8") as f:
+                f.write("confidential")
+            os.symlink(outside, os.path.join(root, "allowed", "notes"))
+            with self.assertRaises(config.ProjectSourceError) as ctx:
+                config.resolve_profile_sources(self._cfg(root))
+            self.assertIn("leading outside the root", str(ctx.exception))
+
+    def test_a_link_pointing_back_inside_the_root_is_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed", "sub"))
+            os.symlink(
+                os.path.join(root, "allowed", "sub"),
+                os.path.join(root, "allowed", "alias"),
+            )
+            self.assertEqual(len(config.resolve_profile_sources(self._cfg(root))), 1)
+
+    def test_a_deeply_nested_escaping_link_is_still_caught(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            deep = os.path.join(root, "allowed", "a", "b", "c")
+            os.makedirs(deep)
+            outside = os.path.join(tmp, "elsewhere")
+            os.makedirs(outside)
+            os.symlink(outside, os.path.join(deep, "escape"))
+            with self.assertRaises(config.ProjectSourceError):
+                config.resolve_profile_sources(self._cfg(root))
+
+    def test_returned_paths_are_resolved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            (tier, path), = config.resolve_profile_sources(self._cfg(root))
+            self.assertEqual(path, os.path.realpath(path))
+
+
+class TestNestedSectionTypos(unittest.TestCase):
+    """`alowed` left `allowed` empty, and because an empty list is falsy even
+    the "allowed without root" guard stayed quiet.
+    """
+
+    def _load(self, tmp, body):
+        path = os.path.join(tmp, "config.toml")
+        _write(path, body)
+        return config.load(path)
+
+    def test_typo_in_projects_table_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                self._load(tmp, '[profile_sources.projects]\nalowed = ["a"]\nroot = "/tmp"\n')
+            self.assertTrue(any("alowed" in str(w.message) for w in caught))
+
+    def test_typo_in_tracking_table_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                self._load(tmp, '[tracking]\njobsync_mpc = "required"\n')
+            self.assertTrue(any("jobsync_mpc" in str(w.message) for w in caught))
+
+    def test_root_slash_does_not_produce_a_false_outside_claim(self):
+        self.assertTrue(config._is_under("/Users", "/"))
+        self.assertFalse(config._is_under("/Users", "/etc"))
 
 
 if __name__ == "__main__":

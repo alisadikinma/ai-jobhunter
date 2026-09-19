@@ -118,6 +118,8 @@ _KNOWN_TARGET_KEYS = frozenset({"geo", "companies", "min_salary_usd"})
 _KNOWN_PROFILE_SOURCE_KEYS = frozenset(
     {"sites", "linkedin_pdf", "local", "precedence", "primary", "projects"}
 )
+_KNOWN_PROJECT_KEYS = frozenset({"root", "allowed"})
+_KNOWN_TRACKING_KEYS = frozenset({"jobsync_mcp"})
 
 
 def _warn_unknown_section_keys(section_name, raw_section, known):
@@ -217,6 +219,14 @@ def load(path):
     # profile_sources
     raw_ps = raw.get("profile_sources", {})
     _warn_unknown_section_keys("profile_sources", raw_ps, _KNOWN_PROFILE_SOURCE_KEYS)
+    # Nested tables need the same warning. `alowed = [...]` left `allowed`
+    # empty, which made even the "allowed without root" guard stay quiet
+    # (an empty list is falsy), so the profile compiled from zero project
+    # sources with nothing said anywhere.
+    _warn_unknown_section_keys(
+        "profile_sources.projects", raw_ps.get("projects", {}), _KNOWN_PROJECT_KEYS
+    )
+    _warn_unknown_section_keys("tracking", raw.get("tracking", {}), _KNOWN_TRACKING_KEYS)
     raw_projects = raw_ps.get("projects", {})
     profile_sources = {
         "sites": list(raw_ps.get("sites", [])),
@@ -305,8 +315,53 @@ def _resolve_project_sources(cfg):
                 f"Allow-listed project directory does not exist: {full_path!r}"
             )
         _require_inside_root(root, full_path, name)
-        entries.append(("project", full_path))
+        _require_no_escaping_links(root, full_path, name)
+        # Return the RESOLVED path. Handing back the unresolved one leaves the
+        # containment guarantee behind: a reader could still traverse a link
+        # swapped in afterwards, and nothing downstream could tell.
+        entries.append(("project", os.path.realpath(full_path)))
     return entries
+
+
+def _require_no_escaping_links(root, full_path, name):
+    """Walk the allow-listed directory and refuse any link leading outside it.
+
+    Checking only the top-level entry protects one level. A symlink INSIDE an
+    allow-listed directory — `projects/allowed/notes -> /client-work` — has an
+    innocent name, is never inspected, and is followed by any ordinary walk.
+    Measured: a file under such a link was read straight out of the
+    allow-listed directory. That is the "read everything" mode the allow-list
+    exists to rule out, reachable with one link.
+    """
+    real_root = os.path.realpath(root)
+    for dirpath, dirnames, filenames in os.walk(full_path, followlinks=False):
+        for entry in list(dirnames) + list(filenames):
+            candidate = os.path.join(dirpath, entry)
+            if not os.path.islink(candidate):
+                continue
+            target = os.path.realpath(candidate)
+            if target != real_root and not _is_under(target, real_root):
+                raise ProjectSourceError(
+                    f"Allow-listed project directory {name!r} contains a link "
+                    f"leading outside the root: {os.path.relpath(candidate, full_path)!r} "
+                    f"resolves to {target!r}. Allow-listing a directory does not "
+                    "allow-list what its links point at."
+                )
+
+
+def _is_under(path, root):
+    """True when `path` sits inside `root`.
+
+    `root + os.sep` is wrong when root is `/`: the prefix becomes `//` and
+    every real path fails it, so the error message claimed `/Users` is not
+    under `/`. `os.path.commonpath` has no such edge.
+    """
+    if path == root:
+        return True
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:  # different drives on Windows
+        return False
 
 
 def _require_inside_root(root, full_path, name):
@@ -320,7 +375,7 @@ def _require_inside_root(root, full_path, name):
     """
     real_root = os.path.realpath(root)
     real_path = os.path.realpath(full_path)
-    if real_path != real_root and not real_path.startswith(real_root + os.sep):
+    if not _is_under(real_path, real_root) and real_path != real_root:
         raise ProjectSourceError(
             f"Allow-listed project directory {name!r} resolves outside the root: "
             f"{real_path!r} is not under {real_root!r}. A symlink's name is "

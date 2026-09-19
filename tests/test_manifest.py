@@ -182,16 +182,26 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
             text=True,
             check=True,
         ).stdout
+        # The path is quoted in the skills, so splitting on whitespace made
+        # parts[0] the closing quote and every documented name an empty
+        # string. The set was {""}, assertTrue passed on a non-empty set and
+        # assertIn("" , help_text) passed trivially — a guard that would have
+        # accepted a completely fictional subcommand.
+        pattern = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)')
         documented = set()
         for skill_md in pathlib.Path(SKILLS_DIR).glob("*/SKILL.md"):
             for line in skill_md.read_text().splitlines():
-                if "jobhunter.py" in line:
-                    parts = line.split("jobhunter.py")[1].split()
-                    if parts and not parts[0].startswith("-"):
-                        documented.add(parts[0].strip('"'))
+                match = pattern.search(line)
+                if match:
+                    documented.add(match.group(1))
         self.assertTrue(documented, "no skill documents a subcommand")
+        self.assertNotIn("", documented)
         for name in sorted(documented):
-            self.assertIn(name, help_text, f"{name} is documented but not a real subcommand")
+            self.assertIn(
+                name,
+                help_text,
+                f"{name} is documented in a skill but is not a real subcommand",
+            )
 
 
 if __name__ == "__main__":

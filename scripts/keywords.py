@@ -77,7 +77,11 @@ _STOPWORDS = frozenset(
 # both as covered — the exact false "covered" this module exists to prevent.
 # `.NET` collapses to "net" the same way. A trailing run of + or # and an
 # internal dot are therefore part of the token.
-_WORD = r"[^\W_]+(?:\.[^\W_]+)*[+#]*"
+# A leading dot is part of the name in ".NET"; without it the token is
+# "net" and a CV saying "net profit" marks .NET covered. The dot is only
+# taken when a word character follows, so ordinary sentence punctuation
+# never starts a token.
+_WORD = r"\.?[^\W_]+(?:\.[^\W_]+)*[+#]*"
 _TOKEN_RE = re.compile(rf"{_WORD}(?:-{_WORD})*")
 _MAX_PHRASE_LEN = 3
 
@@ -182,7 +186,13 @@ def coverage(jd_text, cv_text, top_n=DEFAULT_TOP_N):
     covered = [term for term, _count in ranked if term in cv_terms]
     missing = [term for term, _count in ranked if term not in cv_terms]
 
-    limit = None if top_n is None or top_n <= 0 else top_n
+    # `top_n=None` means "no limit" explicitly. A non-positive number is a
+    # mistake, not a request for everything — silently returning all 688
+    # terms because someone typed `--top 0` is the opposite of what they
+    # asked for.
+    if top_n is not None and top_n <= 0:
+        raise KeywordsError(f"top_n must be positive or None, got {top_n!r}")
+    limit = top_n
     return {
         "covered": covered[:limit] if limit else covered,
         "missing": missing[:limit] if limit else missing,

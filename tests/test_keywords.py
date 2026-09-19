@@ -229,7 +229,12 @@ class TestSymbolBearingTechnologyNames(unittest.TestCase):
 
     def test_dotnet_is_not_covered_by_the_word_net(self):
         report = keywords.coverage(".NET experience required.", "Worked on a net profit model.")
+        # Assert on the token the bug produced. Asserting ".net" was vacuous:
+        # ".net" was never a token at all, so the test passed while ".NET"
+        # was still collapsing to "net" and matching "net profit".
+        self.assertNotIn("net", report["covered"])
         self.assertNotIn(".net", report["covered"])
+        self.assertIn(".net", report["missing"])
 
 
 class TestReportTruncation(unittest.TestCase):
@@ -248,6 +253,12 @@ class TestReportTruncation(unittest.TestCase):
         heading = [l for l in keywords.render(report).splitlines() if l.startswith("## Missing")][0]
         self.assertIn("of", heading)
         self.assertIn(str(report["missing_total"]), heading)
+
+    def test_non_positive_top_n_is_an_error_not_everything(self):
+        """`--top 0` silently returned all 688 terms — the opposite of the ask."""
+        for bad in (0, -5):
+            with self.assertRaises(keywords.KeywordsError):
+                keywords.coverage(self._long_jd(), "nothing", top_n=bad)
 
     def test_top_n_none_returns_everything(self):
         report = keywords.coverage(self._long_jd(), "nothing", top_n=None)
