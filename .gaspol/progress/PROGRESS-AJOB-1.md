@@ -315,6 +315,20 @@ Dua lane konkuren, scope `50a17fb..HEAD`. Lane kode: 3 blocking. Lane plan-artif
 
 Tidak ditemukan: bypass daftar putih kedelapan. Sepuluh skenario diuji lane kode, semua ditolak.
 
+Putaran 5 (adjudikasi, scope `5a2abbf..HEAD`): **Ready to merge: Yes.** Nol Critical, nol Important.
+Keenam klaim diuji mutasi oleh reviewer dan gagal seperti seharusnya; penulisan ulang fixture terbukti
+lossless (7 berkas, nol nilai berubah, panjang `jobDescription` identik). Empat tindak lanjut kecil
+dilipat masuk:
+
+| # | Temuan | Tindakan |
+|---|---|---|
+| A1 | `allowed = 5` masih `TypeError`, dan `[profile_sources.projects.allowed]` sebagai **tabel TOML** diam-diam memakai NAMA KUNCI-nya sebagai nama direktori — membaca folder yang tak pernah didaftarkan, persis yang daftar putih cegah | Guard diperluas ke `not isinstance(raw_allowed, (list, tuple))` + 2 tes |
+| A2 | Kalimat stderr putaran 4 menukar satu angka pasti dengan angka pasti lain. Diukur: `ats-normalize` bersih menulis **nol** baris, jadi `ats-fetch` bersih menulis satu, bukan dua | Diganti "hanya saat ada yang dihitung" |
+| A3 | `glob().__next__()` di penjaga drift: `StopIteration` tanpa pesan kalau nol cocok, pilih sembarang kalau dua | Helper `_only()` yang menegaskan tepat satu |
+| A4 | Jalur bahagia `ats-fetch` tak pernah diuji, padahal berbagi invarian `rows.skipped` dengan `ats-normalize` | 2 tes dengan `urlopen` di-mock; uji mutasi: log sukses ke stdout → gagal |
+
+**Gate gaspol-review Tier 1: LULUS.**
+
 ## Regression tests
 
 Each line below was proven by running the round-3 tests against the pre-fix tree
@@ -358,3 +372,4 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 - 2026-09-19 gaspol-review Tier 1 putaran 2 ditutup di `bf9ac50` — 225 lulus / 0 gagal, naik dari 157 di akhir Fase G — NEXT: review ulang putaran 3
 - 2026-09-19 gaspol-review Tier 1 putaran 3 — 10 temuan, tiga di antaranya bypass daftar putih (kelima, keenam, ketujuh), semua dibuktikan dengan membaca file rahasia yang ditanam. Satu test lama justru mengkodekan lubangnya sebagai perilaku benar. Diperbaiki di `b88f813`; 239 lulus / 0 gagal; kedua penjaga baru diuji mutasi — NEXT: gaspol-review putaran 4 (scope `50a17fb..HEAD`)
 - 2026-09-19 plan-verifier 5 putaran → CLEAN di `5a2abbf`; gaspol-review Tier 1 putaran 4 → 3 blocking + 2 Critical artefak, semua direproduksi dan ditutup; 258 lulus / 0 gagal — NEXT: gaspol-review putaran 5 (scope `5a2abbf..HEAD`)
+- 2026-09-19 gaspol-review Tier 1 putaran 5 → CLEAN di `27de280`; empat tindak lanjut dilipat masuk; 262 lulus / 0 gagal — NEXT: gaspol-sync-docs

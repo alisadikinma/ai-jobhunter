@@ -390,10 +390,22 @@ class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
             if "profile_sources" in block
         ]
 
-    def test_the_spec_carries_the_template_verbatim(self):
-        blocks = self._toml_blocks(
-            pathlib.Path(REPO_ROOT).glob("docs/plans/*-spec.md").__next__()
+    def _only(self, pattern):
+        """The single file matching `pattern`, or a named failure.
+
+        `glob(...).__next__()` raises a bare `StopIteration` on zero matches
+        — a test error with no message — and silently picks whichever file
+        comes first on two, which is how a second ticket's plan would make
+        this guard check the wrong document while staying green.
+        """
+        paths = sorted(pathlib.Path(REPO_ROOT).glob(pattern))
+        self.assertEqual(
+            len(paths), 1, f"expected exactly one {pattern}, found {len(paths)}: {paths}"
         )
+        return paths[0]
+
+    def test_the_spec_carries_the_template_verbatim(self):
+        blocks = self._toml_blocks(self._only("docs/plans/*-spec.md"))
         self.assertIn(
             self._template(),
             blocks,
@@ -401,9 +413,7 @@ class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
         )
 
     def test_the_plan_carries_the_template_verbatim(self):
-        blocks = self._toml_blocks(
-            pathlib.Path(REPO_ROOT).glob("docs/plans/*-plan.md").__next__()
-        )
+        blocks = self._toml_blocks(self._only("docs/plans/*-plan.md"))
         self.assertIn(
             self._template(),
             blocks,

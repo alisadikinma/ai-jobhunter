@@ -17,6 +17,7 @@ import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -111,6 +112,80 @@ class TestACleanBoardStillReturnsRows(unittest.TestCase):
         self.assertEqual(code, 0, f"{board} refused a clean board: {err}")
         self.assertEqual(len(parsed["rows"]), 1)
         self.assertEqual(parsed["skipped"], [])
+
+
+class TestAtsFetchOnACleanBoard(unittest.TestCase):
+    """`cmd_ats_fetch` reads `rows.skipped` on the same object
+    `cmd_ats_normalize` does, so the two share the invariant — but only
+    `ats-normalize` had a clean-board test, leaving the fetch path's happy
+    case unexercised."""
+
+    def test_emits_rows_and_an_empty_skipped_list(self):
+        payload = json.dumps({"jobs": [_greenhouse_job()]}).encode()
+
+        class FakeResponse:
+            status = 200
+
+            def __init__(self):
+                self._body = io.BytesIO(payload)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def read(self, size=-1):
+                return self._body.read(size)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "board.json")
+            with unittest.mock.patch(
+                "urllib.request.urlopen", return_value=FakeResponse()
+            ):
+                code, parsed, _err, text = run(
+                    [
+                        "ats-fetch", "--board", "greenhouse",
+                        "--slug", "acme", "--dest", dest,
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
+        self.assertEqual(len(parsed["rows"]), 1)
+        self.assertEqual(parsed["skipped"], [])
+
+    def test_the_fetch_log_stays_off_stdout(self):
+        """A log line on stdout made `json.load` fail on a real fetch."""
+        payload = json.dumps({"jobs": [_greenhouse_job()]}).encode()
+
+        class FakeResponse:
+            status = 200
+
+            def __init__(self):
+                self._body = io.BytesIO(payload)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def read(self, size=-1):
+                return self._body.read(size)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "board.json")
+            with unittest.mock.patch(
+                "urllib.request.urlopen", return_value=FakeResponse()
+            ):
+                _code, _parsed, err, text = run(
+                    [
+                        "ats-fetch", "--board", "greenhouse",
+                        "--slug", "acme", "--dest", dest,
+                    ]
+                )
+        json.loads(text)  # raises if anything preceded the JSON
+        self.assertIn("ats.fetch:", err)
 
 
 class TestAScalarJobsKeyIsANamedRefusal(unittest.TestCase):

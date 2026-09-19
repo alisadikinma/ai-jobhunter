@@ -621,7 +621,39 @@ class TestNestedLinksCannotEscapeTheAllowList(unittest.TestCase):
             }
             with self.assertRaises(config.ProjectSourceError) as ctx:
                 config.resolve_profile_sources(cfg)
-            self.assertIn("not a single string", str(ctx.exception))
+            self.assertIn("must be a list of directory names", str(ctx.exception))
+
+    def test_allowed_given_as_a_toml_table_is_refused(self):
+        """The dangerous spelling. `[profile_sources.projects.allowed]` is a
+        TOML table, and iterating a dict yields its KEY NAMES — which were
+        then treated as directory names, reading a directory the author never
+        listed. That is precisely what the allow-list exists to prevent."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            cfg = {
+                "profile_sources": {
+                    "precedence": ["project"],
+                    "projects": {"root": root, "allowed": {"allowed": 1}},
+                }
+            }
+            with self.assertRaises(config.ProjectSourceError):
+                config.resolve_profile_sources(cfg)
+
+    def test_allowed_given_as_a_number_is_a_named_refusal(self):
+        """`allowed = 5` raised `TypeError: 'int' object is not iterable` —
+        the same crash-wearing-a-refusal's-clothes shape fixed in ats.py."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            cfg = {
+                "profile_sources": {
+                    "precedence": ["project"],
+                    "projects": {"root": root, "allowed": 5},
+                }
+            }
+            with self.assertRaises(config.ProjectSourceError):
+                config.resolve_profile_sources(cfg)
 
     def test_returned_paths_are_resolved(self):
         with tempfile.TemporaryDirectory() as tmp:

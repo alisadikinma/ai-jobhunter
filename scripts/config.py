@@ -298,15 +298,20 @@ def _resolve_project_sources(cfg):
     projects = cfg["profile_sources"]["projects"]
     root = projects.get("root")
     raw_allowed = projects.get("allowed") or []
-    if isinstance(raw_allowed, str):
-        # `allowed = "notes"` — the brackets forgotten — would otherwise be
-        # exploded into ["n","o","t","e","s"] and refused by naming a
-        # directory the author never wrote. It fails closed either way; this
-        # only makes the diagnosis match the mistake.
+    if not isinstance(raw_allowed, (list, tuple)):
+        # Three ways to get this wrong, all of which used to fail badly:
+        #   allowed = "notes"   exploded into ["n","o","t","e","s"] and
+        #                       refused by naming a directory nobody wrote
+        #   allowed = 5         TypeError: 'int' object is not iterable —
+        #                       a crash wearing a refusal's clothes
+        #   [profile_sources.projects.allowed]  a TOML TABLE, whose KEY NAMES
+        #                       were then silently treated as directory names
+        # The last is the dangerous one: it reads a directory the author
+        # never listed, which is the whole thing the allow-list prevents.
         raise ProjectSourceError(
             "profile_sources.projects.allowed must be a list of directory "
-            f"names, not a single string: got {raw_allowed!r}. Write "
-            f'allowed = ["{raw_allowed}"].'
+            f"names, not {type(raw_allowed).__name__}: got {raw_allowed!r}. "
+            'Write allowed = ["project-a", "project-b"].'
         )
     allowed = list(raw_allowed)
 

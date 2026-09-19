@@ -116,8 +116,9 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
 When a single posting cannot be normalised the rest of the board still comes
 through, and the postings that did not make it are listed in the `skipped` key
 of the JSON **on stdout** — each entry naming the posting and the field that
-moved. stderr carries only counts — `ats-fetch` writes two lines, one for the fetch
-and one for the normalisation. Read `skipped`; a board that came
+moved. stderr carries only counts, and only when there is something to count: a clean
+`ats-fetch` writes one line, plus one more if any posting was skipped and (Ashby)
+one if any posting was unlisted. Read `skipped`; a board that came
 back short says so there, not in the log. Pass the rows through a file with
 `@path` rather than inline — a board is megabytes.
 
