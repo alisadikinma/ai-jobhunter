@@ -21,6 +21,8 @@ Three functions, in the order `render` calls them:
 import os
 import re
 import sys
+import tempfile
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -392,11 +394,18 @@ def _split_row(line):
 
 
 def _flatten_table(lines, start, stop):
-    """One line per body row: `"<header1>: <cell1> — <cell2>"`.
+    """One BULLET per body row: `"- <header1>: <cell1> — <cell2>"`.
 
     A row short of cells is padded rather than dropped — a missing cell is
     missing data, but dropping the row loses the data that IS there. Padding
     is trailing-only by construction, so a short row simply ends early.
+
+    The bullet marker is not decoration. Emitted as bare lines, consecutive
+    rows are a run of text with no blank line between them, and
+    `parse_blocks` — correctly, by markdown's own rules — joins them into one
+    paragraph. A three-row skills table came out of a real render as a single
+    run-on sentence. A row of a table is a list item; marking it as one keeps
+    each row its own block.
     """
     headers = _split_row(lines[start])
     first_header = headers[0] if headers else ""
@@ -408,13 +417,13 @@ def _flatten_table(lines, start, stop):
         values = [cell for cell in cells if cell]
         body = " — ".join(values)
         if first_header and body:
-            out.append("%s: %s" % (first_header, body))
+            out.append("- %s: %s" % (first_header, body))
         elif first_header:
             # Every cell was empty. The row still carried a position in the
             # table, so it is kept rather than silently dropped.
-            out.append("%s:" % first_header)
+            out.append("- %s:" % first_header)
         else:
-            out.append(body)
+            out.append("- %s" % body)
     return out
 
 
@@ -521,3 +530,244 @@ def _rewrite_link(match):
     if not url or text == url:
         return text
     return "%s (%s)" % (text, url)
+
+
+# --- the OOXML writer ----------------------------------------------------
+
+class DestinationError(DocxError):
+    """The destination cannot be written — missing directory, or no permission.
+
+    A named class rather than a bare `OSError`, so the CLI reports a refusal
+    instead of a crash wearing a refusal's clothes.
+    """
+
+
+class EmptyDocumentError(DocxError):
+    """The markdown held nothing to render.
+
+    An empty CV is never the intent. Writing a valid, blank `.docx` would be
+    the worst outcome available: it fails silently, at the one moment the
+    candidate believes the work is done.
+    """
+
+
+CONTENT_TYPES_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+    '<Default Extension="xml" ContentType="application/xml"/>'
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>'
+    '<Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>'
+    "</Types>"
+)
+
+ROOT_RELS_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>'
+    "</Relationships>"
+)
+
+DOCUMENT_RELS_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+    "</Relationships>"
+)
+
+DOCUMENT_XML = (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+    "<w:body>{body}"
+    '<w:sectPr><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr>'
+    "</w:body></w:document>"
+)
+
+# `xml:space="preserve"` is mandatory. Without it Word collapses leading and
+# trailing spaces, and two bullets can merge visually.
+PARAGRAPH_XML = (
+    '<w:p><w:pPr><w:pStyle w:val="{style}"/></w:pPr>'
+    '<w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+)
+
+# Fixed, not configurable. Every style option is a new way to produce a CV
+# that fails to parse, and the candidate cannot tell which one did it.
+STYLES = {
+    ("heading", 1): ("Heading1", 32, True),
+    ("heading", 2): ("Heading2", 26, True),
+    ("heading", 3): ("Heading3", 24, True),
+    ("paragraph", None): ("Normal", 22, False),
+    ("bullet", None): ("ListParagraph", 22, False),
+}
+
+# A literal glyph, not a numbering definition. Real list formatting needs a
+# sixth part (`word/numbering.xml`) and is a routine source of resume-parser
+# garbage; a bullet character is plain text that every parser reads as text.
+BULLET_GLYPH = "• "
+
+# Every timestamp fixed, so rendering the same markdown twice produces the
+# same bytes. The committed eval sample can then be regenerated and diffed
+# rather than taken on trust.
+_ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+
+# XML 1.0 forbids most control characters outright — a stray one makes the
+# document unopenable rather than merely ugly.
+_ILLEGAL_XML_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def escape(text):
+    """XML-escape, ampersand first.
+
+    Escaping `&` last would double-escape the entities the other two
+    produced, and the reader would see "&amp;lt;" on the page.
+    """
+    text = _ILLEGAL_XML_RE.sub("", text)
+    text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    return text
+
+
+def _style_for(block):
+    return STYLES[(block["kind"], block.get("level"))]
+
+
+def styles_xml():
+    """`word/styles.xml` built from the one style table above."""
+    parts = [
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">',
+        "<w:docDefaults><w:rPrDefault><w:rPr>"
+        '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'
+        '<w:sz w:val="22"/><w:szCs w:val="22"/>'
+        "</w:rPr></w:rPrDefault></w:docDefaults>",
+    ]
+    for style_id, half_points, bold in sorted(set(STYLES.values())):
+        default = ' w:default="1"' if style_id == "Normal" else ""
+        indent = (
+            '<w:ind w:left="360"/>' if style_id == "ListParagraph" else ""
+        )
+        parts.append(
+            '<w:style w:type="paragraph"%s w:styleId="%s">'
+            '<w:name w:val="%s"/>'
+            "<w:pPr>%s</w:pPr>"
+            "<w:rPr>"
+            '<w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>'
+            "%s"
+            '<w:sz w:val="%d"/><w:szCs w:val="%d"/>'
+            "</w:rPr></w:style>"
+            % (
+                default,
+                style_id,
+                style_id,
+                indent,
+                "<w:b/>" if bold else "",
+                half_points,
+                half_points,
+            )
+        )
+    parts.append("</w:styles>")
+    return "".join(parts)
+
+
+def document_xml(blocks):
+    """`word/document.xml` — the body is a flat run of `<w:p>` elements."""
+    body = []
+    for block in blocks:
+        style_id, _size, _bold = _style_for(block)
+        text = block["text"]
+        if block["kind"] == "bullet":
+            text = BULLET_GLYPH + text
+        body.append(PARAGRAPH_XML.format(style=style_id, text=escape(text)))
+    return DOCUMENT_XML.format(body="".join(body))
+
+
+def render(markdown, path, allow_unverified=False, source=None):
+    """Write `markdown` to `path` as an ATS-readable `.docx`.
+
+    The order is the whole design: lint, then refuse, then repair, then
+    parse, then write. Nothing touches the filesystem until the refusal has
+    had its chance, so a refused render leaves no file — not a truncated one,
+    not a stale one, none.
+
+    Returns `{"out", "blocks", "notes", "bytes"}`. Raises
+    `UnverifiedClaimError` unless `allow_unverified`, and
+    `EmptyDocumentError` when there is nothing to write.
+    """
+    label = source or os.path.basename(path) or "<markdown>"
+
+    unverified = unverified_findings(markdown)
+    if unverified and not allow_unverified:
+        raise UnverifiedClaimError(unverified, label)
+
+    flattened, notes = flatten(markdown)
+    blocks = parse_blocks(flattened)
+    if not blocks:
+        raise EmptyDocumentError(
+            "refused to render %s: the markdown holds no headings, "
+            "paragraphs or bullets. An empty document is never the intent." % label
+        )
+
+    payload = {
+        "[Content_Types].xml": CONTENT_TYPES_XML,
+        "_rels/.rels": ROOT_RELS_XML,
+        "word/_rels/document.xml.rels": DOCUMENT_RELS_XML,
+        "word/styles.xml": styles_xml(),
+        "word/document.xml": document_xml(blocks),
+    }
+
+    directory = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(directory):
+        raise DestinationError(
+            "cannot write %s: the directory %s does not exist" % (path, directory)
+        )
+
+    return _write_archive(path, payload, blocks, notes, directory)
+
+
+def _write_archive(path, payload, blocks, notes, directory):
+    """Write the parts to a temp file in `directory`, then `os.replace` it.
+
+    The same atomic-write pattern `scripts/jobq.py::update_rows` uses. A
+    failure halfway through leaves the temp file, never a half-written
+    `.docx` at the destination — and a `.docx` that is half a ZIP is a file
+    the candidate discovers is broken only when the employer does.
+    """
+    try:
+        # Inside the guard: an unwritable directory fails HERE, and an
+        # unguarded `mkstemp` would hand the CLI a bare `PermissionError` —
+        # a crash wearing a refusal's clothes.
+        handle, temporary = tempfile.mkstemp(suffix=".docx.tmp", dir=directory)
+        os.close(handle)
+    except OSError as error:
+        raise DestinationError("cannot write %s: %s" % (path, error)) from error
+
+    try:
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name, text in payload.items():
+                info = zipfile.ZipInfo(name, date_time=_ZIP_DATE)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, text.encode("utf-8"))
+        size = os.path.getsize(temporary)
+        os.replace(temporary, path)
+    except OSError as error:
+        _remove_quietly(temporary)
+        raise DestinationError("cannot write %s: %s" % (path, error)) from error
+    except Exception:
+        _remove_quietly(temporary)
+        raise
+
+    # The three numbers that tell a reader whether the document is plausibly
+    # complete, without opening it.
+    print(
+        "docx.render: blocks=%d notes=%d bytes=%d" % (len(blocks), len(notes), size),
+        file=sys.stderr,
+    )
+    return {"out": path, "blocks": len(blocks), "notes": notes, "bytes": size}
+
+
+def _remove_quietly(path):
+    try:
+        os.remove(path)
+    except OSError:
+        pass

@@ -7,8 +7,12 @@ standard-library only, so shadowing is the intended outcome, not an accident.
 """
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
+import xml.etree.ElementTree as ElementTree
+import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -411,6 +415,19 @@ class TestFlattenTables(unittest.TestCase):
         self.assertIn("cat x | sort | uniq", flat)
         self.assertEqual(notes, [])
 
+    def test_each_row_becomes_its_own_block(self):
+        # Emitted as bare lines, consecutive rows are one run of text and
+        # `parse_blocks` joins them into a single run-on paragraph. A real
+        # render of a three-row skills table came out as one sentence.
+        markdown = (
+            "| Skill | Years |\n|---|---|\n| Python | 8 |\n"
+            "| Go | 3 |\n| Rust | 1 |\n"
+        )
+        flat, _notes = docx.flatten(markdown)
+        blocks = docx.parse_blocks(flat)
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual({b["kind"] for b in blocks}, {"bullet"})
+
     def test_a_table_note_names_the_original_line_number(self):
         markdown = "intro\n\n| Skill | Years |\n|---|---|\n| Python | 8 |\n"
         _flat, notes = docx.flatten(markdown)
@@ -513,6 +530,14 @@ class TestFlattenOverARealMessyCV(unittest.TestCase):
         self.assertNotIn("| Python |", self.flat)
         self.assertIn("Skill: Python — 8 — 2026", self.flat)
 
+    def test_the_three_skill_rows_stay_three_blocks(self):
+        rows = [
+            b
+            for b in docx.parse_blocks(self.flat)
+            if b["text"].startswith("Skill: ")
+        ]
+        self.assertEqual(len(rows), 3)
+
     def test_the_literal_pipe_sentence_survives(self):
         self.assertIn("cat ledger | sort | uniq -c", self.flat)
 
@@ -565,6 +590,244 @@ class TestHtmlStrippingIsNotReimplemented(unittest.TestCase):
         source = read_fixture(os.path.join(FIXTURES, "..", "..", "scripts", "docx.py"))
         self.assertNotIn("_TAG_RE.sub", source)
         self.assertNotIn("html.unescape", source)
+
+
+THE_FIVE_PARTS = [
+    "[Content_Types].xml",
+    "_rels/.rels",
+    "word/document.xml",
+    "word/_rels/document.xml.rels",
+    "word/styles.xml",
+]
+
+
+class DocxTempDirCase(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob2-docx-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def out(self, name="cv.docx"):
+        return os.path.join(self.tmp, name)
+
+    def document_xml(self, path):
+        with zipfile.ZipFile(path) as archive:
+            return archive.read("word/document.xml").decode("utf-8")
+
+
+class TestRenderWritesTheFiveParts(DocxTempDirCase):
+    def test_the_archive_holds_exactly_the_five_parts(self):
+        path = self.out()
+        docx.render("# Ali\n", path)
+        with zipfile.ZipFile(path) as archive:
+            self.assertEqual(sorted(archive.namelist()), sorted(THE_FIVE_PARTS))
+
+    def test_the_archive_is_a_valid_zip(self):
+        path = self.out()
+        docx.render(read_fixture(TAILORED_CV), path)
+        with zipfile.ZipFile(path) as archive:
+            self.assertIsNone(archive.testzip())
+
+    def test_document_xml_is_well_formed(self):
+        path = self.out()
+        docx.render(read_fixture(TAILORED_CV), path)
+        # A well-formedness check the writer cannot fake by construction.
+        ElementTree.fromstring(self.document_xml(path))
+
+    def test_styles_xml_is_well_formed_and_carries_every_style_id(self):
+        path = self.out()
+        docx.render(read_fixture(TAILORED_CV), path)
+        with zipfile.ZipFile(path) as archive:
+            styles = archive.read("word/styles.xml").decode("utf-8")
+        ElementTree.fromstring(styles)
+        for style_id in ("Heading1", "Heading2", "Heading3", "Normal", "ListParagraph"):
+            self.assertIn('w:styleId="%s"' % style_id, styles)
+
+    def test_every_paragraph_preserves_whitespace(self):
+        # Without xml:space="preserve" Word eats leading and trailing spaces
+        # and two bullets can merge visually.
+        path = self.out()
+        docx.render(read_fixture(TAILORED_CV), path)
+        body = self.document_xml(path)
+        self.assertEqual(body.count("<w:t"), body.count('xml:space="preserve"'))
+
+    def test_headings_carry_their_style_id(self):
+        path = self.out()
+        docx.render("# One\n\n## Two\n\n### Three\n", path)
+        body = self.document_xml(path)
+        for style_id in ("Heading1", "Heading2", "Heading3"):
+            self.assertIn('w:pStyle w:val="%s"' % style_id, body)
+
+    def test_a_bullet_carries_a_literal_glyph(self):
+        # No numbering.xml exists, so the glyph is the bullet. It is also
+        # plain text, which is what a resume parser reads most reliably.
+        path = self.out()
+        docx.render("- one\n", path)
+        self.assertIn("\u2022 one", self.document_xml(path))
+
+    def test_rendering_the_same_markdown_twice_produces_identical_bytes(self):
+        first, second = self.out("a.docx"), self.out("b.docx")
+        docx.render(read_fixture(TAILORED_CV), first)
+        docx.render(read_fixture(TAILORED_CV), second)
+        with open(first, "rb") as one, open(second, "rb") as two:
+            self.assertEqual(one.read(), two.read())
+
+    def test_the_result_reports_blocks_notes_and_bytes(self):
+        path = self.out()
+        result = docx.render(read_fixture(MESSY_CV), path)
+        self.assertEqual(result["out"], path)
+        self.assertGreater(result["blocks"], 0)
+        self.assertGreater(result["bytes"], 0)
+        self.assertTrue(result["notes"])
+
+
+class TestRenderRefusals(DocxTempDirCase):
+    def test_an_unverified_claim_refuses_and_writes_nothing(self):
+        path = self.out()
+        with self.assertRaises(docx.UnverifiedClaimError):
+            docx.render("# CV\n\n- revenue up 40% [verifikasi]\n", path)
+        self.assertFalse(os.path.exists(path))
+
+    def test_allow_unverified_renders_the_same_markdown(self):
+        path = self.out()
+        docx.render(
+            "# CV\n\n- revenue up 40% [verifikasi]\n", path, allow_unverified=True
+        )
+        self.assertTrue(os.path.exists(path))
+        self.assertIn("[verifikasi]", self.document_xml(path))
+
+    def test_the_refusal_names_the_source_label(self):
+        path = self.out()
+        with self.assertRaises(docx.UnverifiedClaimError) as caught:
+            docx.render("- x [verifikasi]\n", path, source="cv.md")
+        self.assertIn("cv.md:1", str(caught.exception))
+
+    def test_the_refusal_falls_back_to_the_output_filename(self):
+        path = self.out("tailored.docx")
+        with self.assertRaises(docx.UnverifiedClaimError) as caught:
+            docx.render("- x [verifikasi]\n", path)
+        self.assertIn("tailored.docx:1", str(caught.exception))
+
+    def test_empty_markdown_refuses(self):
+        path = self.out()
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.render("", path)
+        self.assertFalse(os.path.exists(path))
+
+    def test_whitespace_only_markdown_refuses(self):
+        path = self.out()
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.render("   \n\t\n", path)
+        self.assertFalse(os.path.exists(path))
+
+    def test_markdown_that_flattens_to_nothing_refuses(self):
+        path = self.out()
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.render("![headshot](photo.png)\n", path)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_missing_destination_directory_is_a_named_refusal(self):
+        path = os.path.join(self.tmp, "nope", "cv.docx")
+        with self.assertRaises(docx.DestinationError):
+            docx.render("# Ali\n", path)
+
+    def test_an_unwritable_destination_directory_is_a_named_refusal(self):
+        locked = os.path.join(self.tmp, "locked")
+        os.mkdir(locked, 0o500)
+        self.addCleanup(os.chmod, locked, 0o700)
+        try:
+            with self.assertRaises(docx.DestinationError):
+                docx.render("# Ali\n", os.path.join(locked, "cv.docx"))
+        except AssertionError:
+            if os.geteuid() == 0:
+                self.skipTest("running as root: directory permissions do not apply")
+            raise
+
+    def test_a_failed_render_leaves_no_temp_file_behind(self):
+        path = os.path.join(self.tmp, "nope", "cv.docx")
+        with self.assertRaises(docx.DestinationError):
+            docx.render("# Ali\n", path)
+        self.assertEqual(os.listdir(self.tmp), [])
+
+    def test_every_refusal_is_a_docx_error(self):
+        for cls in (
+            docx.UnverifiedClaimError,
+            docx.EmptyDocumentError,
+            docx.DestinationError,
+        ):
+            self.assertTrue(issubclass(cls, docx.DocxError))
+
+
+class TestRenderTextFidelity(DocxTempDirCase):
+    def test_ampersand_and_angle_brackets_round_trip_exactly(self):
+        # Proves the escaping order. Escaping "&" last would produce
+        # "&amp;lt;" and the reader would see the entity on the page.
+        path = self.out()
+        docx.render("a & b < c\n", path)
+        body = self.document_xml(path)
+        self.assertIn("a &amp; b &lt; c", body)
+        root = ElementTree.fromstring(body)
+        texts = [
+            node.text
+            for node in root.iter(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+            )
+        ]
+        self.assertIn("a & b < c", texts)
+
+    def test_a_literal_entity_in_the_source_is_not_unescaped(self):
+        path = self.out()
+        docx.render("AT&T and R&D\n", path)
+        self.assertIn("AT&amp;T and R&amp;D", self.document_xml(path))
+
+    def test_non_ascii_survives(self):
+        path = self.out()
+        docx.render("# Renée — 日本語 — Ångström\n", path)
+        body = self.document_xml(path)
+        for fragment in ("Renée", "—", "日本語", "Ångström"):
+            self.assertIn(fragment, body)
+
+    def test_a_single_heading_and_nothing_else_renders(self):
+        path = self.out()
+        result = docx.render("# Ali Sadikin\n", path)
+        self.assertEqual(result["blocks"], 1)
+        self.assertIn("Ali Sadikin", self.document_xml(path))
+
+    def test_five_hundred_blocks_all_reach_the_document(self):
+        path = self.out()
+        markdown = "\n\n".join("para %d" % i for i in range(500))
+        result = docx.render(markdown, path)
+        self.assertEqual(result["blocks"], 500)
+        self.assertEqual(self.document_xml(path).count("<w:p>"), 500)
+
+    def test_no_markdown_syntax_reaches_the_document(self):
+        path = self.out()
+        docx.render(read_fixture(TAILORED_CV), path)
+        root = ElementTree.fromstring(self.document_xml(path))
+        text = " ".join(
+            node.text or ""
+            for node in root.iter(
+                "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}t"
+            )
+        )
+        for marker in ("**", "`", "## ", "](", "|---"):
+            self.assertNotIn(marker, text)
+
+    def test_a_control_character_never_reaches_the_xml(self):
+        # XML 1.0 forbids them: one stray byte makes the file unopenable
+        # rather than merely ugly.
+        path = self.out()
+        docx.render("# Ali\x07 Sadikin\n", path)
+        body = self.document_xml(path)
+        self.assertNotIn("\x07", body)
+        ElementTree.fromstring(body)
+
+    def test_the_messy_cv_renders_end_to_end(self):
+        path = self.out()
+        result = docx.render(read_fixture(MESSY_CV), path)
+        with zipfile.ZipFile(path) as archive:
+            self.assertIsNone(archive.testzip())
+        ElementTree.fromstring(self.document_xml(path))
+        self.assertGreater(result["blocks"], 10)
 
 
 if __name__ == "__main__":
