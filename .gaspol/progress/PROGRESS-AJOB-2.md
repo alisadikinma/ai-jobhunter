@@ -110,13 +110,13 @@
 - [x] No placeholder/TODO comments in new code
 - [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
-### [ ] Phase F: does it actually open?
-- [ ] Write failing test for the presence of `docs/evals/docx-rendering.md` and its declaring at least one case per target application. Expected error: `AssertionError: missing docs/evals/docx-rendering.md`
-- [ ] Run tests, confirm it fails for that reason
-- [ ] Write `docs/evals/docx-rendering.md` with one case each for **Microsoft Word**, **Google Docs** and **LibreOffice**: open the generated file, confirm headings render as headings, bullets as bullets, and that no markdown syntax is visible. Each case names the exact file to open and what a pass looks like
-- [ ] Generate a sample `.docx` from a real tailored CV into `docs/evals/samples/` and commit it, so the manual check has a fixed artifact rather than one the checker must first produce
-- [ ] Run tests, confirm all pass
-- [ ] **Hand the manual check to the owner.** Do NOT tick it. Record in the ledger under `## Utang terbuka`: `Word / Google Docs / LibreOffice open-check: NOT RUN — needs Ali, cannot be verified from the session`
+### [x] Phase F: does it actually open?
+- [x] Write failing test for the presence of `docs/evals/docx-rendering.md` and its declaring at least one case per target application. Expected error: `AssertionError: missing docs/evals/docx-rendering.md`
+- [x] Run tests, confirm it fails for that reason
+- [x] Write `docs/evals/docx-rendering.md` with one case each for **Microsoft Word**, **Google Docs** and **LibreOffice**: open the generated file, confirm headings render as headings, bullets as bullets, and that no markdown syntax is visible. Each case names the exact file to open and what a pass looks like
+- [x] Generate a sample `.docx` from a real tailored CV into `docs/evals/samples/` and commit it, so the manual check has a fixed artifact rather than one the checker must first produce
+- [x] Run tests, confirm all pass
+- [x] **Hand the manual check to the owner.** Do NOT tick it. Record in the ledger under `## Utang terbuka`: `Word / Google Docs / LibreOffice open-check: NOT RUN — needs Ali, cannot be verified from the session`
 - [ ] Commit: "test(docx): eval cases for the one thing a program cannot check"
 - [ ] `python3 -m compileall -q scripts tests` passes
 - [ ] `python3 -m unittest discover -s tests -t .` passes
@@ -148,3 +148,4 @@
 - 2026-09-19 Phase C selesai — `flatten` + `find_tables` + `strip_html`, 355 lulus / 0 gagal. Dua cacat baru muncul saat dijalankan pada CV berantakan nyata: (1) `ats._TAG_RE` = `<[^>]+>` memakan tengah kalimat "p95 < 200ms dan > 1k rps" — kurung sudut di luar tag asli sekarang disembunyikan dulu di balik sentinel, `ats._clean_description` tetap yang menghapus tag; (2) tabel satu kolom tidak terdeteksi karena pola pemisah menuntut minimal dua sel. Mutation check: buang proteksi non-tag / buang pad "N/A" / buang padding baris pendek — ketiganya gagal test. Commit `feat(docx): flatten what an ATS parses badly, refuse nothing`. — NEXT: Phase D
 - 2026-09-19 Phase D selesai — `render` + lima bagian OOXML + tulis atomik, 385 lulus / 0 gagal. Dua cacat ketemu, dua-duanya dari menjalankan bukan membaca: (1) `tempfile.mkstemp` di luar guard, folder tak bisa ditulis melempar `PermissionError` telanjang — sekarang `DestinationError`; (2) file hasil dibaca balik lewat extractor dokumen nyata menunjukkan tabel skill 3 baris jadi SATU kalimat panjang — baris tabel sekarang jadi bullet, tiap baris satu blok. Bullet pakai glyph harfiah, bukan numbering.xml. Timestamp zip dikunci supaya byte hasil render sama tiap kali. Commit `feat(docx): write the OOXML parts, atomically`. — NEXT: Phase E
 - 2026-09-19 Phase E selesai — subcommand `render-docx` + wiring `skills/tailor/SKILL.md` + `CLAUDE.md`, 402 lulus / 0 gagal. `--out` sama dengan `--in` ditolak (dibanding lewat path absolut) supaya .docx tidak menimpa markdown sumbernya. Mutation check manifest: tulis `--alow-unverified` di SKILL.md → test flag gagal; salah eja nama subcommand → test subcommand gagal. Ditambah test eksplisit bahwa guard benar-benar mengumpulkan `render-docx` dan ketiga flag-nya — guard ini dua kali ketahuan hampa di AJOB-1. Commit `feat(cli): render-docx, wired into tailor`. — NEXT: Phase F
+- 2026-09-19 Phase F selesai — `docs/evals/docx-rendering.md` (kasus Word / Google Docs / LibreOffice) + sampel tetap `docs/evals/samples/tailored-cv-sample.docx`, 409 lulus / 0 gagal. Sampel di-commit, bukan dibuat saat dibutuhkan, dan ada test yang membuat ulang lalu membandingkan byte per byte — render reproducible karena timestamp zip dikunci. Cek buka-file manual TIDAK dicentang: tetap utang terbuka milik Ali. Commit `test(docx): eval cases for the one thing a program cannot check`. — NEXT: verifikasi akhir (gaspol-verify + plan-verifier)
