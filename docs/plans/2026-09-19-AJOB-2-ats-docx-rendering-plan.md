@@ -157,7 +157,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 
 ## Amendments, 2026-09-19 (post-implementation, owner-approved)
 
-Fifteen points where the pinned text above no longer matches the code. Every
+Seventeen points where the pinned text above no longer matches the code. Every
 one was found by RUNNING the code — on a real CV, through a real document
 extractor, or by an adversarial review — and each is approved. They are
 recorded here rather than silently left to drift, because this document is
@@ -271,6 +271,32 @@ the contract.
     formatting is dropped); the old wording described the opposite
     transformation, forty times for a forty-item list. The blockquote branch
     now reports the same constructs every other path does.
+
+16. **Backslash escapes are scanned around, not hidden behind a sentinel.**
+    Amendment 15 hid them behind an in-band `\\x00N\\x00` marker, and author
+    text carrying that shape collided with it: `\\x0099999\\x00 and \\_x\\_`
+    raised a bare `IndexError` — the CLI contract says a refusal is JSON and
+    never a traceback — and `\\x000\\x00 and \\*y\\*` came back as `* and *y*`,
+    the author's own `0` overwritten by an unrelated escaped character.
+    `_strip_emphasis` now scans escapes in one pass and splices, the shape
+    `strip_inline` already uses for code spans.
+
+17. **Whether a line is CODE is carried from where it is known, and the code
+    boundary inside a list is the content column plus four.** Amendment 15
+    re-derived code-ness with `_CODE_RE.fullmatch`, whose premise ("a line
+    that is entirely one code span") is false: `_CODE_RE` spans interior
+    backticks, so any line that merely STARTS and ENDS with a code span
+    matched. A skills line — `` `React` - see [portfolio](url) - and `Node` ``
+    — skipped every prose pass and printed raw link syntax and live html
+    tags on the page, notes empty. `_flatten_blocks` now returns
+    `(line_number, text, is_code)` triples. Amendment 15 also ended a list
+    item on a blank line, which read an ordinary continuation paragraph as
+    code and printed the author's `**bold**` markers; the boundary is now
+    CommonMark's — code inside a list item starts four columns past the
+    item's content. A nested list MARKER moves that column, which this
+    repository's own `tests/fixtures/messy_cv.md` line 19 caught. And a
+    wrapped item no longer closes its ordered run, so "one note per run" now
+    holds for the case a tailored CV actually writes.
 
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally

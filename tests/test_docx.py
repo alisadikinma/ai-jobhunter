@@ -1718,6 +1718,173 @@ class TestNestedCodeSpansCannotHideAMarker(unittest.TestCase):
         self.assertTrue(os.path.exists(destination))
 
 
+class TestTheSecondInvisibleSweepIsNecessary(unittest.TestCase):
+    """`_unmask` sweeps invisible characters twice, and only one was pinned.
+
+    Mutating the sweep that runs AFTER NFKC and after tag removal left the
+    whole suite green — an unguarded line inside the gate. NFKC decomposes a
+    spacing diacritic into a space plus a combining mark, and that mark is
+    born after the first sweep has already run.
+    """
+
+    # Each of these is `Sk`/`Lm`, not invisible itself; NFKC is what turns it
+    # into something that hides a marker. Chosen from a sweep of all
+    # 1,114,112 codepoints for the ones ONLY the second pass catches.
+    BORN_INVISIBLE_UNDER_NFKC = (
+        "\u00b4",  # ACUTE ACCENT
+        "\u00a8",  # DIAERESIS
+        "\u02d8",  # BREVE
+        "\u0384",  # GREEK TONOS
+        "\u037a",  # GREEK YPOGEGRAMMENI
+    )
+
+    def test_each_one_is_refused(self):
+        for character in self.BORN_INVISIBLE_UNDER_NFKC:
+            markdown = "# CV\n\n- ARR $9M [veri%sfikasi]\n" % character
+            destination = os.path.join(tempfile.mkdtemp(), "out.docx")
+            with self.assertRaises(
+                docx.UnverifiedClaimError, msg=repr(character)
+            ):
+                docx.render(markdown, destination)
+            self.assertFalse(os.path.exists(destination), repr(character))
+
+    def test_the_projection_reads_as_the_marker_with_a_stray_space(self):
+        # NFKC turns the diacritic into a space plus a combining mark. The
+        # mark goes; the space stays. On the page a human reads
+        # "[veri fikasi]" — the marker with a gap in it, which is why the
+        # gate must tolerate whitespace between the letters.
+        for character in self.BORN_INVISIBLE_UNDER_NFKC:
+            projection = docx._unmask("[veri%sfikasi]" % character)
+            self.assertEqual(projection, "[veri fikasi]", repr(character))
+            self.assertIn(
+                "verifikasi", projection.replace(" ", "").lower(), repr(character)
+            )
+
+
+class TestRoundEightFollowups(unittest.TestCase):
+    """Round 8. Two of these are costs round 7's own fixes brought in."""
+
+    def blocks(self, markdown):
+        text, notes = docx.flatten(markdown)
+        return docx.parse_blocks(text), notes
+
+    # --- the code-line skip matched far more than a code line ------------
+
+    def test_a_prose_line_between_two_code_spans_is_not_treated_as_code(self):
+        # `_CODE_RE` spans interior backticks, so ANY line that starts and
+        # ends with a code span fullmatched, and every prose pass was skipped
+        # for it: raw link syntax and live html tags printed on the page.
+        blocks, notes = self.blocks(
+            "`React` - see [portfolio](https://ali.dev) - and `Node`\n"
+        )
+        self.assertEqual(
+            blocks[0]["text"], "React - see portfolio (https://ali.dev) - and Node"
+        )
+        self.assertTrue(any("link rewritten" in n for n in notes), notes)
+
+    def test_a_skills_line_of_code_spans_still_has_its_tags_stripped(self):
+        blocks, notes = self.blocks("`p95` <b>bold</b> and <i>tag</i> `rps`\n")
+        self.assertEqual(blocks[0]["text"], "p95 bold and tag rps")
+        self.assertTrue(any("inline html stripped" in n for n in notes), notes)
+
+    def test_an_image_between_two_code_spans_is_removed(self):
+        blocks, notes = self.blocks("`p95` ![headshot](photo.png) done `rps`\n")
+        self.assertNotIn("![", blocks[0]["text"])
+        self.assertTrue(any("image removed" in n for n in notes), notes)
+
+    def test_fenced_code_is_still_left_alone(self):
+        # The skip must keep working where it was actually meant to.
+        blocks, notes = self.blocks(
+            "```\nList<String> parse(Vec<T> x)\n```\n"
+        )
+        self.assertEqual(blocks[0]["text"], "List<String> parse(Vec<T> x)")
+        self.assertEqual([n for n in notes if "html" in n], [], notes)
+
+    def test_a_link_inside_fenced_code_stays_literal(self):
+        blocks, _notes = self.blocks("```\nsee [docs](http://x.dev)\n```\n")
+        self.assertEqual(blocks[0]["text"], "see [docs](http://x.dev)")
+
+    # --- the blank-line reset turned continuation prose into code --------
+
+    def test_a_list_continuation_paragraph_is_prose_not_code(self):
+        # Four spaces under a "- " item is the list's content column plus
+        # two: a continuation paragraph. Reading it as code left the
+        # author's `**` and `*` printed on the page.
+        blocks, _notes = self.blocks(
+            "- Led the migration\n\n    Cut **cost** by 30% and raised *margin*.\n"
+        )
+        rendered = " ".join(b["text"] for b in blocks)
+        self.assertIn("Cut cost by 30%", rendered)
+        self.assertNotIn("**", rendered)
+        self.assertNotIn("*margin*", rendered)
+
+    def test_real_code_under_a_list_item_is_still_code(self):
+        # Content column (2) plus four is where CommonMark puts code inside
+        # a list item, and that must still survive intact.
+        blocks, notes = self.blocks(
+            "- Built the parser\n\n      def __init__(self):\n"
+            "          return a*b*c\n"
+        )
+        rendered = " ".join(b["text"] for b in blocks)
+        self.assertIn("__init__", rendered)
+        self.assertIn("a*b*c", rendered)
+        self.assertTrue(any("indented code" in n for n in notes), notes)
+
+    def test_code_after_a_paragraph_is_still_code_at_four_spaces(self):
+        _blocks, notes = self.blocks("Here:\n\n    total = a*b*c\n")
+        self.assertTrue(any("indented code" in n for n in notes), notes)
+
+    # --- "one note per run" did not hold for the common wrapped case -----
+
+    def test_a_reference_style_link_inside_code_stays_literal(self):
+        # `[x][y]` in a shell snippet is a test expression, not a link.
+        blocks, notes = self.blocks(
+            "```\nif [ x ][ y ]; then :; fi\n```\n\n[y]: https://x.dev\n"
+        )
+        self.assertEqual(blocks[0]["text"], "if [ x ][ y ]; then :; fi")
+        self.assertEqual(
+            [n for n in notes if "reference-style link" in n], [], notes
+        )
+
+    def test_tab_indented_code_under_a_list_item_is_code(self):
+        # A tab is four columns. Counting it as one character put this line
+        # below the list's content column and read it as wrapped prose.
+        blocks, notes = self.blocks(
+            "- Built the parser\n\n\t\tdef f(): return a*b*c\n"
+        )
+        self.assertIn("a*b*c", " ".join(b["text"] for b in blocks))
+        self.assertTrue(any("indented code" in n for n in notes), notes)
+
+    def test_a_twice_nested_bullet_is_a_bullet_not_code(self):
+        # From this repository's own messy fixture. An indented bullet is
+        # still a LIST ITEM, so it must move the content column; treating it
+        # as its parent's wrapped text left the column at 2 and read the
+        # level below it as code.
+        blocks, notes = self.blocks(
+            "- Rebuilt the ingest pipeline\n"
+            "    - cut latency from 40 minutes to 3\n"
+            "        - and removed two vendor dependencies\n"
+        )
+        self.assertEqual([b["kind"] for b in blocks], ["bullet"] * 3)
+        self.assertEqual([n for n in notes if "indented code" in n], [], notes)
+
+    def test_the_messy_fixture_reports_no_indented_code(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        markdown = open(
+            os.path.join(here, "fixtures", "messy_cv.md"), encoding="utf-8"
+        ).read()
+        _text, notes = docx.flatten(markdown)
+        self.assertEqual([n for n in notes if "indented code" in n], [], notes)
+
+    def test_five_wrapped_ordered_items_are_one_note(self):
+        markdown = "".join(
+            "%d. item %d that wraps onto\n   a second line\n" % (n, n)
+            for n in range(1, 6)
+        )
+        _blocks, notes = self.blocks(markdown)
+        self.assertEqual(len([n for n in notes if "ordered list" in n]), 1)
+
+
 class TestRoundSevenFollowups(unittest.TestCase):
     """What round 7's two audits found beyond the gate bypass."""
 

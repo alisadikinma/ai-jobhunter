@@ -845,8 +845,14 @@ def flatten(markdown):
     notes.extend(block_notes)
     # The block pass drops and inserts lines, so position is no longer the
     # author's line number. Every line carries its own from here on.
-    lines = [text for _origin, text in pairs]
-    origins = [origin for origin, _text in pairs]
+    lines = [text for _origin, text, _code in pairs]
+    origins = [origin for origin, _text, _code in pairs]
+    # Whether a line is code is recorded where it is KNOWN, not re-derived
+    # from its shape later. Re-deriving it with `_CODE_RE.fullmatch` matched
+    # any line that merely STARTS and ENDS with a code span — a skills line
+    # like "`React` - see [portfolio](url) - and `Node`" skipped every prose
+    # pass and printed raw link syntax on the page.
+    code_lines = [is_code for _origin, _text, is_code in pairs]
 
     # Tables first, and line-wise: a table is the one construct that spans
     # more than one line, so every later transformation can be per-line.
@@ -863,7 +869,7 @@ def flatten(markdown):
             start, stop = table_starts[index]
             rows = _flatten_table(lines, start, stop)
             for row in rows:
-                numbered.append((origins[index], row))
+                numbered.append((origins[index], row, False))
             if rows:
                 notes.append(
                     "line %d: table flattened to %d line(s)"
@@ -876,16 +882,16 @@ def flatten(markdown):
             continue
         if index in consumed:
             continue
-        numbered.append((origins[index], line))
+        numbered.append((origins[index], line, code_lines[index]))
 
     out = []
-    for number, line in numbered:
-        if _CODE_RE.fullmatch(line):
-            # A line that is entirely one code span is code, and every pass
-            # below rewrites PROSE. Running them over it deleted the
-            # candidate's own characters: `List<String> parse(Vec<T> x)`
-            # arrived as `List parse(Vec x)`, and `&#96;` decoded into a real
-            # backtick that unbalanced the span it sat in.
+    for number, line, is_code in numbered:
+        if is_code:
+            # Every pass below rewrites PROSE. Running them over a code
+            # line deleted the candidate's own characters:
+            # `List<String> parse(Vec<T> x)` arrived as `List parse(Vec x)`,
+            # and `&#96;` decoded into a real backtick that unbalanced the
+            # span it sat in.
             out.append(line)
             continue
 
@@ -1301,6 +1307,12 @@ def _is_paragraph_line(text):
     return not (_BULLET_RE.match(text) or _ORDERED_RE.match(text))
 
 
+def _leading_columns(text):
+    """How far the text is indented, counting a tab as four columns."""
+    blank = text[: len(text) - len(text.lstrip(" \t"))]
+    return len(blank.expandtabs(4))
+
+
 def _note_subset_constructs(content, number, notes, previous_was_paragraph):
     """Report what `parse_blocks` changes but has no notes list to say so.
 
@@ -1350,6 +1362,7 @@ def _flatten_blocks(lines):
     in_fence = False
     in_indented_code = False
     last_was_list_item = False
+    list_content_indent = 0
     previous_was_paragraph = False
     # One note per RUN of ordered items, not one per item: a forty-item list
     # produced forty identical lines on stderr, which is noise, not a report.
@@ -1382,8 +1395,8 @@ def _flatten_blocks(lines):
             # consecutive text lines are one paragraph by markdown's own
             # rules, and "def solve(x): return x" is not what was written.
             stripped = line.strip()
-            out.append((number, _as_code_span(stripped) if stripped else ""))
-            out.append((number, ""))
+            out.append((number, _as_code_span(stripped) if stripped else "", True))
+            out.append((number, "", False))
             continue
 
         if _REFERENCE_DEF_RE.match(line):
@@ -1402,7 +1415,7 @@ def _flatten_blocks(lines):
                 "line %d: footnote marker [^%s] dropped, its text kept"
                 % (number, footnote.group(1))
             )
-            out.append((number, footnote.group(2).strip()))
+            out.append((number, footnote.group(2).strip(), False))
             continue
 
         quoted = _BLOCKQUOTE_RE.match(line)
@@ -1418,40 +1431,53 @@ def _flatten_blocks(lines):
             previous_was_paragraph = _note_subset_constructs(
                 content, number, notes, previous_was_paragraph
             )
-            out.append((number, content))
+            out.append((number, content, False))
             continue
 
-        if not line.strip():
-            # A blank line ends a list item. Without this, an indented code
-            # block that merely FOLLOWS a list was taken for that item still
-            # wrapping: `def __init__` reached the page as `def init` and
-            # `a*b*c` as `abc`, with nothing on stderr.
-            last_was_list_item = False
-
         indented = _INDENTED_CODE_RE.match(line)
-        if indented and not last_was_list_item:
-            # An indented run that does NOT sit under a list item is an
-            # indented code block. Under a list item the same indentation is
-            # a wrapped bullet, which `parse_blocks` joins on purpose, so the
-            # two are told apart by what came before rather than by shape.
+        continues_a_list_item = last_was_list_item and line[:1].isspace()
+        # Under a list item, indentation alone does not mean code: that is
+        # where the item's own wrapped text lives. CommonMark puts code
+        # inside a list item four columns past the item's CONTENT, so that
+        # is the line drawn here. Below it the line is the item still
+        # wrapping; at or above it the line is code.
+        #
+        # Deciding this with a blank line instead — "a blank ends the item,
+        # so anything indented after it is code" — read a perfectly ordinary
+        # continuation paragraph as code and printed the author's `**bold**`
+        # markers on the page.
+        deep_enough = _leading_columns(line) >= list_content_indent + 4
+        if indented and (not continues_a_list_item or deep_enough):
             if not in_indented_code:
                 in_indented_code = True
                 notes.append("line %d: indented code dedented" % number)
             code = indented.group(1)
-            out.append((number, _as_code_span(code) if code.strip() else ""))
-            out.append((number, ""))
+            out.append((number, _as_code_span(code) if code.strip() else "", True))
+            out.append((number, "", False))
             continue
         if line.strip():
             in_indented_code = False
-            if not (indented and last_was_list_item):
-                # An indented line UNDER a list item is that bullet still
+            marker = _BULLET_RE.match(line) or _ORDERED_RE.match(line)
+            if marker:
+                # An indented line carrying a list MARKER is a nested item,
+                # not its parent's wrapped text, so it moves the content
+                # column. Leaving the column where the outer item put it
+                # read the level below a twice-nested bullet as code — which
+                # this repository's own messy fixture has on line 19.
+                #
+                # The column is where the item's own text starts, marker and
+                # all: "- " puts it at 2, "    - " at 6, "10. " at 4.
+                last_was_list_item = True
+                list_content_indent = len(
+                    line[: marker.start(len(marker.groups()))].expandtabs(4)
+                )
+            elif not continues_a_list_item:
+                # An indented line UNDER a list item is that item still
                 # wrapping, so the list context has to survive it. Clearing
                 # it here meant the second continuation line of a bullet fell
                 # out of the list and was read as code — Amendment 2's defect,
                 # back again, one line further down.
-                last_was_list_item = bool(
-                    _BULLET_RE.match(line) or _ORDERED_RE.match(line)
-                )
+                last_was_list_item = False
 
         # Spec 5: everything outside the supported subset is flattened or
         # dropped WITH a line on stderr. These change the document and said
@@ -1461,13 +1487,16 @@ def _flatten_blocks(lines):
             if ordered_from is None:
                 ordered_from = number
             ordered_to = number
-        elif line.strip():
+        elif line.strip() and not continues_a_list_item:
+            # A wrapped item does not end its run. Closing on it turned the
+            # one-note-per-run fix back into one note per item for exactly
+            # the lists a tailored CV writes — every item wrapping.
             close_ordered_run()
         previous_was_paragraph = _note_subset_constructs(
             line, number, notes, previous_was_paragraph
         )
 
-        out.append((number, line))
+        out.append((number, line, False))
 
     close_ordered_run()
     if in_fence:
@@ -1486,9 +1515,11 @@ def _resolve_reference_links(pairs, targets):
     """
     notes = []
     out = []
-    for number, line in pairs:
-        if not _REFERENCE_LINK_RE.search(line):
-            out.append((number, line))
+    for number, line, is_code in pairs:
+        if is_code or not _REFERENCE_LINK_RE.search(line):
+            # A reference link inside code is code: `[x][y]` in a shell
+            # snippet is a test expression, not a link to resolve.
+            out.append((number, line, is_code))
             continue
 
         resolved = []
@@ -1512,5 +1543,5 @@ def _resolve_reference_links(pairs, targets):
                 "line %d: reference-style link had no definition, "
                 "text kept without its url" % number
             )
-        out.append((number, rewritten))
+        out.append((number, rewritten, is_code))
     return out, notes
