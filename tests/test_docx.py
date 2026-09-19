@@ -13,6 +13,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unicodedata
 import unittest.mock
 import xml.etree.ElementTree as ElementTree
 import zipfile
@@ -308,24 +309,54 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
         markdown = "| Skill | Note |\n|---|---|\n| Python | grew 40% [verifikasi] |\n"
         self.assertEqual(len(docx.unverified_findings(markdown)), 1)
 
-    def test_every_character_the_writer_deletes_is_normalised_by_the_gate(self):
+    def test_every_character_the_writer_deletes_is_invisible_to_the_gate(self):
         """The structural guard. Two character sets drifted, and the gap was
-        a hole through both layers of the gate.
+        a hole through both layers.
 
         `escape` deletes XML-illegal control characters, and it runs AFTER
-        the last check. So "[veri\\x01fikasi]" matched no pattern, the writer
-        deleted the \\x01, and a clean "[verifikasi]" appeared in the shipped
-        document. Any character the writer removes must already have been
-        removed from the text the gate reads — checked over every codepoint
-        rather than over the handful somebody thought to list.
+        the last check, so "[veri\\x01fikasi]" matched nothing, the writer
+        removed the \\x01, and a clean "[verifikasi]" appeared in the shipped
+        document. Every character the writer removes must already be gone
+        from the text the gate reads.
         """
         missed = [
             hex(code)
             for code in range(0x11000)
             if docx._ILLEGAL_XML_RE.match(chr(code))
-            and not docx._INVISIBLE_RE.match(chr(code))
+            and docx._remove_invisible(chr(code)) != ""
         ]
         self.assertEqual(missed, [])
+
+    def test_no_invisible_codepoint_can_hide_inside_the_marker(self):
+        """Swept, not sampled.
+
+        Hand-written ranges missed 183 codepoints — C1 controls, variation
+        selectors, the tag block, musical formatting. Unicode's own `Cc`/`Cf`
+        categories are the definition; a list maintained by hand drifts every
+        time Unicode grows.
+
+        The eight exceptions are the characters `str.splitlines` treats as
+        line breaks. They cannot be caught per line, because the marker is
+        already in two pieces by the time a line exists — `render`'s second
+        pass rejoins the blocks and catches them, which
+        `test_a_line_breaking_character_is_caught_when_the_blocks_rejoin`
+        pins.
+        """
+        line_breaks = {0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x85}
+        missed = [
+            hex(code)
+            for code in range(0x11000)
+            if unicodedata.category(chr(code)) in ("Cc", "Cf")
+            and code not in line_breaks
+            and not docx.unverified_findings("- ARR [veri%sfikasi]" % chr(code))
+        ]
+        self.assertEqual(missed, [])
+
+    def test_an_invisible_codepoint_outside_the_bmp_is_caught_too(self):
+        for code in (0xE0001, 0xE0020, 0x1D173):
+            with self.subTest(code=hex(code)):
+                markdown = "- ARR [veri%sfikasi]\n" % chr(code)
+                self.assertEqual(len(docx.unverified_findings(markdown)), 1)
 
     def test_a_control_character_inside_the_marker_does_not_hide_it(self):
         for code in ("\x01", "\x02", "\x1f", "\x7f"):
@@ -1049,6 +1080,29 @@ class TestRenderRefusals(DocxTempDirCase):
         with self.assertRaises(docx.DestinationError):
             docx.render("# Ali\n", path)
         self.assertTrue(os.path.isdir(path))
+
+    def test_a_line_breaking_character_is_caught_when_the_blocks_rejoin(self):
+        """`splitlines` breaks on more than \\n.
+
+        A vertical tab, a form feed, a file separator or U+0085 inside the
+        marker puts it in two pieces before any line exists, so no per-line
+        check can see it. `render` joins the rendered blocks with no
+        separator as well as with newlines, which puts it back together.
+        """
+        for code in (0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x85):
+            with self.subTest(code=hex(code)):
+                path = self.out("break-%x.docx" % code)
+                markdown = "# CV\n\n- ARR [veri%sfikasi]\n" % chr(code)
+                with self.assertRaises(docx.UnverifiedClaimError):
+                    docx.render(markdown, path)
+                self.assertFalse(os.path.exists(path))
+
+    def test_ordinary_adjacent_blocks_do_not_raise_a_false_alarm(self):
+        # The no-separator join is only safe because it takes one block
+        # ending mid-marker and the next beginning mid-marker to fool it.
+        path = self.out()
+        docx.render(read_fixture(TAILORED_CV), path)
+        self.assertTrue(os.path.exists(path))
 
     def test_the_second_gate_holds_when_the_first_one_is_blinded(self):
         """The belt, tested without the braces.

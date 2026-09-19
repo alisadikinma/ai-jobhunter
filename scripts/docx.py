@@ -112,10 +112,20 @@ _ITALIC_UNDERSCORE_RE = re.compile(
 # the gate can only ever do that. `_ILLEGAL_XML_RE` is therefore a SUBSET of
 # this pattern by construction, and a test pins it over every codepoint.
 _XML_ILLEGAL_CLASS = r"\x00-\x08\x0b\x0c\x0e-\x1f"
-_INVISIBLE_RE = re.compile(
-    r"[" + _XML_ILLEGAL_CLASS + r"\x7f\u00ad\u200b-\u200f\u2028-\u202e"
-    r"\u2060-\u206f\ufeff]"
-)
+
+# Unicode's own categories, not a hand-written list of ranges. A sweep of
+# every format and control codepoint found 183 the hand-written ranges missed
+# — C1 controls, variation selectors, the tag block, musical formatting — and
+# any list maintained by hand will drift again the next time Unicode grows.
+# `Cc` is control, `Cf` is format; both render as nothing or as a boundary.
+_INVISIBLE_CATEGORIES = frozenset(("Cc", "Cf"))
+
+
+def _remove_invisible(text):
+    """Drop every character that renders as nothing to a reader."""
+    return "".join(
+        ch for ch in text if unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
+    )
 
 
 def strip_inline(text):
@@ -326,7 +336,7 @@ def _unmask(line):
     # Cyrillic "а" into a Latin "a"; see the limit stated below.
     text = unicodedata.normalize("NFKC", text)
     text = _HTML_TAG_RE.sub("", text)
-    text = _INVISIBLE_RE.sub("", text)
+    text = _remove_invisible(text)
     return strip_inline(text)
 
 
@@ -824,7 +834,15 @@ def render(markdown, path, allow_unverified=False, source=None):
     # anticipates the transformations that exist today; this catches any that
     # arrive later, on the only string that matters — the one the employer
     # reads. A gate defended in one place is a gate one refactor from gone.
-    residual = unverified_findings("\n".join(block["text"] for block in blocks))
+    # Joined two ways. A character that `splitlines` treats as a line break —
+    # a vertical tab, a form feed, U+2028 — splits "[verifikasi]" across two
+    # blocks, and neither half matches anything. Concatenating without a
+    # separator puts the marker back together. It cannot raise a false alarm
+    # unless one block ends mid-marker and the next begins mid-marker.
+    rendered = [block["text"] for block in blocks]
+    residual = unverified_findings("\n".join(rendered)) or unverified_findings(
+        "".join(rendered)
+    )
     if residual and not allow_unverified:
         raise UnverifiedClaimError(
             residual, "%s (marker survived into the rendered text)" % label
