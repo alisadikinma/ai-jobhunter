@@ -293,8 +293,24 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     def _cli_subcommands(self):
         """The subcommand names argparse itself reports, parsed from --help.
 
-        Identified by the ` ...` trailer, which argparse puts after the
-        subparser metavar and after nothing else.
+        Identified by the ` ...` trailer that argparse puts after the
+        subparser metavar.
+
+        Not quite "and after nothing else": a TOP-LEVEL argument combining
+        `choices` with `nargs` in `('*', '+')` renders its own `{...} ...`
+        group, and it lands before the subparser metavar, so leftmost-match
+        takes it:
+
+            usage: jobhunter [-h] [--tag [{remote,onsite} ...]] {…} ...
+            -> 'remote,onsite'
+
+        Left as a known limit rather than fixed. Driven end to end with that
+        return value forced, coverage was byte-identical — 8 commands, 18
+        flags — because the only consumer of this list is the `name not in
+        real` half of a condition whose other half already rescues every
+        flag-bearing mention. A wrong list can drop the existence check for a
+        name that is already correct; it cannot let a documentation error
+        ship. This CLI also has no top-level arguments besides `-h`.
 
         Two earlier attempts both degraded SILENTLY, which is worth writing
         down because the shape keeps recurring. Searching for the first

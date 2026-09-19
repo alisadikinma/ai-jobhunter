@@ -279,6 +279,16 @@ tertutup, dan perbaikan saya justru memburukkan satu kasus:
 Regex baru keras pada tiga teks rusak, termasuk CLI tanpa subcommand sama sekali — yang versi saya
 sebelumnya laporkan sukses. Enam bentuk serangan diuji ulang, semua menggigit; pipe ke `jq` tetap hijau.
 
+Putaran 5 (adjudikasi, scope `34987ac..HEAD`): **CLEAN**. Empat FOUND, nol PARTIAL/MISSING/DIVERGED.
+Tabel 9 sel di docstring direproduksi persis oleh dua pihak; 10 bentuk mutasi diuji, 8 menggigit dan
+2 yang memang batas model sengaja tidak. Ketahuan juga bahwa di `34987ac` pola fenced menangkap
+`queue` terpotong dari `queue_purge`, dan `assertIn("queue", help_text)` lolos karena `queue`
+substring `queue-list` — subcommand fiktif akan lolos hijau. Tertutup oleh kelas nama yang menerima `_`.
+Dua catatan non-blocking ditutup di `8efce29`+1: batas `choices`+`nargs='*'` dicatat di docstring
+(dibuktikan nol dampak: cakupan tetap 8 perintah / 18 flag walau daftar subcommand dipalsukan total).
+
+**Gate plan-verifier: LULUS.**
+
 
 ## Regression tests
 
