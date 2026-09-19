@@ -777,6 +777,50 @@ class TestFlattenTables(unittest.TestCase):
         self.assertEqual(len(blocks), 3)
         self.assertEqual({b["kind"] for b in blocks}, {"bullet"})
 
+    def test_a_gfm_separator_with_one_dash_is_a_table(self):
+        """GFM requires one dash per cell; this demanded three.
+
+        `| :-: |` — the ordinary way to centre a column, and what a model
+        writes — was not a table at all: `find_tables` skipped it, `flatten`
+        never touched it, and every row collapsed into one paragraph with
+        the raw pipes still in it. The fix shipped without this test.
+        """
+        for separator in ("| :-: | ---: |", "|--|--|", "| - | - |", "|-|-|"):
+            with self.subTest(separator=separator):
+                markdown = "| Skill | Years |\n%s\n| Python | 8 |\n" % separator
+                flat, notes = docx.flatten(markdown)
+                self.assertNotIn("|", flat, separator)
+                self.assertIn("Skill: Python", flat)
+                self.assertTrue(notes, "a table was flattened with no note")
+
+    def test_a_horizontal_rule_is_still_not_a_table_separator(self):
+        # The looser pattern also matches a bare "---", which is a rule and,
+        # under a line holding a pipe, a setext underline. The pipe
+        # requirement on the separator line is what keeps them apart.
+        flat, notes = docx.flatten("Ran `a | b` daily\n---\nNext section\n")
+        self.assertEqual(notes, [])
+        self.assertIn("a | b", flat)
+
+    def test_an_escaped_pipe_stays_inside_its_cell(self):
+        """Splitting on it made two cells and put " — " inside a sentence.
+
+        The cell "used `a \\| b` pipelines" became "used `a \\" and "b
+        pipelines", the second unlabelled, with the cell joiner sitting in
+        the middle of the candidate's own words.
+        """
+        markdown = (
+            "| Tool | Notes |\n| --- | --- |\n"
+            "| awk | used `a \\| b` pipelines |\n"
+        )
+        flat, _notes = docx.flatten(markdown)
+        self.assertIn("used `a | b` pipelines", flat)
+        self.assertNotIn("\\", flat)
+
+    def test_an_escaped_pipe_at_the_end_of_a_row_is_not_an_outer_pipe(self):
+        markdown = "| Expr |\n| --- |\n| a \\| |\n"
+        flat, _notes = docx.flatten(markdown)
+        self.assertIn("Expr: a |", flat)
+
     def test_a_table_note_names_the_original_line_number(self):
         markdown = "intro\n\n| Skill | Years |\n|---|---|\n| Python | 8 |\n"
         _flat, notes = docx.flatten(markdown)
@@ -810,10 +854,26 @@ class TestFlattenImagesAndLinks(unittest.TestCase):
         flat, _notes = docx.flatten("[](https://example.com)\n")
         self.assertEqual(flat.strip(), "https://example.com")
 
-    def test_a_reference_style_link_is_left_as_written_and_noted(self):
+    def test_a_reference_style_link_is_resolved_from_its_definition(self):
+        markdown = "Spoke at [PyCon][pycon] once\n\n[pycon]: https://pycon.org\n"
+        flat, notes = docx.flatten(markdown)
+        self.assertIn("PyCon (https://pycon.org)", flat)
+        self.assertNotIn("[pycon]", flat)
+        self.assertTrue(any("resolved" in note for note in notes))
+
+    def test_a_reference_link_with_no_definition_keeps_its_text(self):
+        # Printing "[PyCon][pycon-ref]" on the page helps nobody. The text
+        # survives, the brackets do not, and the note says the url was lost.
         flat, notes = docx.flatten("Spoke at [PyCon][pycon-ref] once\n")
-        self.assertIn("[PyCon][pycon-ref]", flat)
-        self.assertTrue(any("reference-style" in note for note in notes))
+        self.assertEqual(flat.strip(), "Spoke at PyCon once")
+        self.assertTrue(any("no definition" in note for note in notes))
+
+    def test_a_reference_definition_is_dropped_and_its_url_noted(self):
+        flat, notes = docx.flatten("text\n\n[1]: https://example.com/report\n")
+        self.assertNotIn("https://example.com/report", flat)
+        self.assertTrue(
+            any("https://example.com/report" in note for note in notes)
+        )
 
     def test_an_image_is_removed_before_it_can_be_read_as_a_link(self):
         flat, _notes = docx.flatten("![alt](x.png)\n")
@@ -1216,6 +1276,29 @@ class TestRenderRefusals(DocxTempDirCase):
                     "%s: the override was silent" % name,
                 )
 
+    def test_a_bullet_that_held_only_a_marker_does_not_leave_an_orphan(self):
+        # The strip empties the block, and an empty ListParagraph renders as
+        # a lone bullet glyph with nothing beside it.
+        path = self.out()
+        result = docx.render(
+            "# CV\n\n- [verifikasi]\n- Grew ARR to $9M\n",
+            path,
+            allow_unverified=True,
+        )
+        texts = re.findall(r"<w:t[^>]*>([^<]*)</w:t>", self.document_xml(path))
+        self.assertEqual(texts, ["CV", "\u2022 Grew ARR to $9M"])
+        self.assertTrue(
+            any("nothing but a marker" in note for note in result["notes"])
+        )
+
+    def test_a_document_of_nothing_but_markers_refuses(self):
+        # The emptiness check runs after the strip, so this cannot write a
+        # blank page under the override.
+        path = self.out()
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.render("- [verifikasi]\n", path, allow_unverified=True)
+        self.assertFalse(os.path.exists(path))
+
     def test_an_override_that_removed_nothing_adds_no_note(self):
         path = self.out()
         result = docx.render("# CV\n\n- clean claim\n", path, allow_unverified=True)
@@ -1438,6 +1521,127 @@ class TestRenderTextFidelity(DocxTempDirCase):
             self.assertIsNone(archive.testzip())
         ElementTree.fromstring(self.document_xml(path))
         self.assertGreater(result["blocks"], 10)
+
+
+
+class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
+    """Spec 5: anything outside the subset is flattened or dropped WITH a
+    line on stderr.
+
+    Eleven constructs were transformed with an empty `notes` list, while
+    `skills/tailor/SKILL.md` told the model to report what changed. Four of
+    them destroyed content in ordinary CVs; the rest printed raw markdown
+    onto the page, which also fails the Phase F eval's "no markdown syntax
+    is visible".
+    """
+
+    CONSTRUCTS = {
+        "ordered list": "1. Cut p95 latency.\n2. Led migration.\n",
+        "plus bullet": "+ Shipped billing v2\n",
+        "setext h1": "Ali Sadikin\n===========\n",
+        "setext h2": "Experience\n----------\n",
+        "blockquote": "> Ali rebuilt our billing pipeline.\n",
+        "fenced code": "```python\ndef solve(x):\n    return x\n```\n",
+        "indented code": "Ran it:\n\n    def solve(x):\n\nNext.\n",
+        "task list": "- [x] Shipped billing v2\n",
+        "footnote definition": "[^1]: Source: internal dashboard\n",
+        "reference definition": "text\n\n[1]: https://example.com\n",
+        "bracketed link text": "See [ref [1]](https://example.com)\n",
+    }
+
+    def rendered_text(self, markdown):
+        flat, notes = docx.flatten(markdown)
+        blocks = docx.parse_blocks(flat)
+        return " ".join(b["text"] for b in blocks), notes
+
+    def test_no_construct_leaves_raw_markdown_in_the_document(self):
+        leaks = ("```", "[^", "](", "|---", "[x]", "[ ]", "===")
+        for name, markdown in self.CONSTRUCTS.items():
+            with self.subTest(construct=name):
+                text, _notes = self.rendered_text(markdown)
+                for leak in leaks:
+                    self.assertNotIn(leak, text, "%s leaked %r" % (name, leak))
+                self.assertFalse(
+                    text.lstrip().startswith(">"), "%s leaked a quote marker" % name
+                )
+
+    def test_every_construct_that_changes_is_reported(self):
+        # The four that are handled entirely inside `parse_blocks` change
+        # block STRUCTURE rather than text, and are covered by the
+        # structural tests below; the rest must each produce a note.
+        noted = (
+            "blockquote",
+            "fenced code",
+            "indented code",
+            "footnote definition",
+            "reference definition",
+        )
+        for name in noted:
+            with self.subTest(construct=name):
+                _text, notes = self.rendered_text(self.CONSTRUCTS[name])
+                self.assertTrue(notes, "%s was transformed silently" % name)
+
+    def test_an_ordered_list_is_one_block_per_item_with_its_number(self):
+        blocks = docx.parse_blocks(
+            docx.flatten("1. Cut p95 latency.\n2. Led migration.\n3. Mentored 6.\n")[0]
+        )
+        self.assertEqual(len(blocks), 3)
+        self.assertEqual(blocks[0]["text"], "1. Cut p95 latency.")
+        self.assertEqual(blocks[2]["text"], "3. Mentored 6.")
+
+    def test_a_setext_underline_becomes_a_heading_not_a_suffix(self):
+        blocks = docx.parse_blocks(docx.flatten("Ali Sadikin\n===========\n")[0])
+        self.assertEqual(
+            blocks, [{"kind": "heading", "level": 1, "text": "Ali Sadikin"}]
+        )
+
+    def test_a_dashed_setext_underline_keeps_the_heading(self):
+        blocks = docx.parse_blocks(docx.flatten("Experience\n----------\n")[0])
+        self.assertEqual(
+            blocks, [{"kind": "heading", "level": 2, "text": "Experience"}]
+        )
+
+    def test_a_rule_with_nothing_above_it_is_still_a_rule(self):
+        blocks = docx.parse_blocks(docx.flatten("before\n\n---\n\nafter\n")[0])
+        self.assertEqual([b["kind"] for b in blocks], ["paragraph", "paragraph"])
+
+    def test_a_task_checkbox_does_not_print(self):
+        blocks = docx.parse_blocks(
+            docx.flatten("- [x] Shipped v2\n- [ ] Migrate v3\n")[0]
+        )
+        self.assertEqual(
+            [b["text"] for b in blocks], ["Shipped v2", "Migrate v3"]
+        )
+
+    def test_a_plus_marker_is_a_bullet(self):
+        blocks = docx.parse_blocks(docx.flatten("+ Shipped billing v2\n")[0])
+        self.assertEqual(blocks, [{"kind": "bullet", "text": "Shipped billing v2"}])
+
+    def test_fenced_code_keeps_its_lines_apart(self):
+        flat, _notes = docx.flatten("```\ndef solve(x):\n    return x\n```\n")
+        self.assertNotIn("`", flat)
+        self.assertEqual(len(docx.parse_blocks(flat)), 2)
+
+    def test_a_blockquote_keeps_its_words(self):
+        text, _notes = self.rendered_text("> Ali rebuilt our billing pipeline.\n")
+        self.assertEqual(text, "Ali rebuilt our billing pipeline.")
+
+    def test_a_footnote_definition_keeps_the_sentence(self):
+        text, _notes = self.rendered_text("[^1]: Source: internal dashboard\n")
+        self.assertEqual(text, "Source: internal dashboard")
+
+    def test_a_link_whose_text_holds_brackets_is_rewritten(self):
+        text, _notes = self.rendered_text("See [ref [1]](https://example.com)\n")
+        self.assertEqual(text, "See ref [1] (https://example.com)")
+
+    def test_a_wrapped_bullet_is_still_a_continuation_not_code(self):
+        # Four-space indentation under a list item is a wrapped bullet, and
+        # only the absence of a list item above makes it a code block.
+        blocks = docx.parse_blocks(
+            docx.flatten("- Led a team of 4 through a\n    vendor migration\n")[0]
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual(blocks[0]["kind"], "bullet")
 
 
 if __name__ == "__main__":

@@ -70,12 +70,29 @@ _EMPTY_HEADING_RE = re.compile(r"^#{1,3}\s*$")
 # bullet to column 0. A nested bullet that somehow reached here and was read
 # as a paragraph would print its own "- " marker into the document, which is
 # exactly the leaked-markdown failure the eval cases look for.
-_BULLET_RE = re.compile(r"^\s*[-*]\s+(.*)$")
-_EMPTY_BULLET_RE = re.compile(r"^\s*[-*]\s*$")
+_BULLET_RE = re.compile(r"^\s*[-*+]\s+(.*)$")
+_EMPTY_BULLET_RE = re.compile(r"^\s*[-*+]\s*$")
+
+# An ordered list. Its items became one run-on paragraph with "1." "2." "3."
+# still in the text — the identical defect that a three-row table had, and
+# which was fixed there by making each row its own block. The number is kept
+# in the text because order is the point of writing an ordered list, and the
+# glyph is dropped for these so the line does not read "• 1. ".
+_ORDERED_RE = re.compile(r"^\s*(\d{1,3})[.)]\s+(.*)$")
+
+# A task-list checkbox. "[x] " renders as literal brackets on the page.
+_TASK_RE = re.compile(r"^\[([ xX])\]\s+")
 
 # A horizontal rule is a separator, not content. Rendered as text it would put
 # a literal "---" in the middle of a CV.
 _RULE_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
+
+# A setext underline. "===" was matched by nothing, so it was joined to the
+# line above as a soft break and the candidate's NAME rendered as
+# "Ali Sadikin ===========". The "---" form was swallowed by `_RULE_RE`,
+# which silently demoted the heading above it to a paragraph.
+_SETEXT_H1_RE = re.compile(r"^\s*={2,}\s*$")
+_SETEXT_H2_RE = re.compile(r"^\s*-{2,}\s*$")
 
 # Inline emphasis is stripped, never rendered: Word carries weight in the run
 # properties, so leaving the asterisks in would print them.
@@ -238,6 +255,27 @@ def parse_blocks(markdown):
             open_bullet = None
             continue
 
+        # Setext underlines, before the rule check. A "---" under text is a
+        # heading underline; the same line with nothing above it is a
+        # horizontal rule. `_RULE_RE` used to swallow both, silently demoting
+        # the heading above it to a paragraph, while "===" matched nothing at
+        # all and got joined on as a soft break — rendering the candidate's
+        # name as "Ali Sadikin ===========".
+        setext = None
+        if _SETEXT_H1_RE.match(line):
+            setext = 1
+        elif _SETEXT_H2_RE.match(line):
+            setext = 2
+        if setext and paragraph_lines:
+            text = strip_inline(" ".join(paragraph_lines)).strip()
+            paragraph_lines.clear()
+            open_bullet = None
+            if text:
+                blocks.append(
+                    {"kind": "heading", "level": setext, "text": text}
+                )
+            continue
+
         # Checked before the bullet rule: `---` also matches "a dash followed
         # by dashes", and a horizontal rule read as a bullet would print one.
         if _RULE_RE.match(line):
@@ -270,9 +308,30 @@ def parse_blocks(markdown):
             flush_paragraph()
             open_bullet = None
             text = strip_inline(bullet.group(1)).strip()
+            # A task-list checkbox prints as literal "[x] " on the page.
+            text = _TASK_RE.sub("", text).strip()
             if text:
                 blocks.append({"kind": "bullet", "text": text})
                 open_bullet = blocks[-1]
+            continue
+
+        ordered = _ORDERED_RE.match(line)
+        if ordered:
+            # Its own block, so three items do not become one run-on
+            # sentence — the same defect a three-row table had. The number
+            # stays in the text, because order is the point of writing an
+            # ordered list, and no bullet glyph is added so the line does
+            # not read "• 1. ".
+            flush_paragraph()
+            open_bullet = None
+            text = strip_inline(ordered.group(2)).strip()
+            if text:
+                blocks.append(
+                    {
+                        "kind": "paragraph",
+                        "text": "%s. %s" % (ordered.group(1), text),
+                    }
+                )
             continue
 
         if _EMPTY_BULLET_RE.match(line):
@@ -497,8 +556,23 @@ def unverified_findings(markdown):
 
 # --- repairing what an ATS reads badly -----------------------------------
 
-_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
-_REFERENCE_LINK_RE = re.compile(r"\[[^\]]*\]\[[^\]]*\]")
+# The link text may itself contain brackets — "[ref [1]](url)" is ordinary
+# in a CV citing a source. `[^\]]*` stopped at the inner "]" and matched
+# nothing, so the whole construct reached the page as raw markdown.
+_INLINE_LINK_RE = re.compile(r"\[((?:[^\[\]]|\[[^\[\]]*\])*)\]\(([^)]*)\)")
+_REFERENCE_LINK_RE = re.compile(r"\[([^\]]*)\]\[([^\]]*)\]")
+
+# `[1]: https://example.com` — link plumbing, not prose. Collected so the
+# reference links that point at it can be resolved, then dropped.
+_REFERENCE_DEF_RE = re.compile(r"^\s{0,3}\[([^\]^][^\]]*)\]:\s*(\S+)\s*$")
+
+# `[^1]: Source: internal dashboard` — a footnote's text. The marker is
+# plumbing; the sentence after it is the candidate's own writing.
+_FOOTNOTE_DEF_RE = re.compile(r"^\s{0,3}\[\^([^\]]+)\]:\s*(.*)$")
+
+_BLOCKQUOTE_RE = re.compile(r"^\s{0,3}>\s?(.*)$")
+_FENCE_RE = re.compile(r"^\s{0,3}(?:`{3,}|~{3,})\s*(\w*)\s*$")
+_INDENTED_CODE_RE = re.compile(r"^(?: {4}|\t)(.*)$")
 _LEADING_WS_RE = re.compile(r"^[ \t]*")
 
 # `ats._clean_description` returns the literal "N/A" for any result shorter
@@ -673,6 +747,11 @@ def flatten(markdown):
     """
     lines = (markdown or "").splitlines()
     notes = []
+
+    # Block constructs that span lines, and the link plumbing, come first:
+    # everything after them can be decided one line at a time.
+    lines, block_notes = _flatten_blocks(lines)
+    notes.extend(block_notes)
 
     # Tables first, and line-wise: a table is the one construct that spans
     # more than one line, so every later transformation can be per-line.
@@ -982,6 +1061,16 @@ def render(markdown, path, allow_unverified=False, source=None):
 
     if allow_unverified:
         stripped = _strip_markers(blocks)
+        # A bullet whose only content WAS the marker is now empty, and an
+        # empty ListParagraph renders as a lone "•" on the page. The block
+        # carried nothing else, so it goes.
+        emptied = [block for block in blocks if not block["text"].strip()]
+        if emptied:
+            blocks = [block for block in blocks if block["text"].strip()]
+            notes.append(
+                "%d block(s) held nothing but a marker and were dropped"
+                % len(emptied)
+            )
         if stripped:
             # The claim stays; the marker does not. An override is a decision
             # to send the claim, never a decision to print the word
@@ -992,6 +1081,8 @@ def render(markdown, path, allow_unverified=False, source=None):
                 "(--allow-unverified)" % stripped
             )
 
+    # Checked after the marker strip, so a document that held nothing but
+    # markers refuses rather than writing an empty page.
     if not blocks:
         raise EmptyDocumentError(
             "refused to render %s: the markdown holds no headings, "
@@ -1095,3 +1186,141 @@ def _strip_markers(blocks):
         block["text"] = cleaned
         changed += 1
     return changed
+
+
+def _flatten_blocks(lines):
+    """Blockquotes, code, footnotes and reference definitions.
+
+    Every one of these previously reached the document as raw markdown —
+    a leading ">", a row of backticks, "[^1]:", "[1]:" — with no note. Spec
+    5 requires that anything outside the supported subset is flattened or
+    dropped WITH a line on stderr, and `skills/tailor/SKILL.md` tells the
+    model to report what changed. It was being handed an empty list.
+
+    Returns `(lines, notes)`. Each output line keeps the text of its source;
+    the caller re-numbers nothing, because these transformations are all
+    one-line-in, one-line-out or a drop.
+    """
+    notes = []
+
+    # Reference definitions are collected before anything else, so the links
+    # that point at them can be resolved instead of passed through.
+    targets = {}
+    for line in lines:
+        match = _REFERENCE_DEF_RE.match(line)
+        if match:
+            targets[match.group(1).strip().lower()] = match.group(2)
+
+    out = []
+    in_fence = False
+    in_indented_code = False
+    last_was_list_item = False
+    for index, line in enumerate(lines):
+        number = index + 1
+
+        fence = _FENCE_RE.match(line)
+        if fence:
+            # The delimiters are dropped; the code between them is kept, one
+            # line per block, so it is not run together into a sentence.
+            in_fence = not in_fence
+            notes.append(
+                "line %d: code fence %s, delimiters dropped"
+                % (number, "opened" if in_fence else "closed")
+            )
+            continue
+        if in_fence:
+            # A blank line after each, so `parse_blocks` does not join them:
+            # consecutive text lines are one paragraph by markdown's own
+            # rules, and "def solve(x): return x" is not what was written.
+            out.append(line.strip())
+            out.append("")
+            continue
+
+        if _REFERENCE_DEF_RE.match(line):
+            match = _REFERENCE_DEF_RE.match(line)
+            notes.append(
+                "line %d: reference definition dropped (%s)"
+                % (number, match.group(2))
+            )
+            continue
+
+        footnote = _FOOTNOTE_DEF_RE.match(line)
+        if footnote:
+            # The marker is plumbing; the sentence after it is the
+            # candidate's own writing and is kept.
+            notes.append(
+                "line %d: footnote marker [^%s] dropped, its text kept"
+                % (number, footnote.group(1))
+            )
+            out.append(footnote.group(2).strip())
+            continue
+
+        quoted = _BLOCKQUOTE_RE.match(line)
+        if quoted and line.lstrip().startswith(">"):
+            notes.append("line %d: blockquote marker dropped" % number)
+            out.append(quoted.group(1).strip())
+            continue
+
+        indented = _INDENTED_CODE_RE.match(line)
+        if indented and not last_was_list_item:
+            # An indented run that does NOT sit under a list item is an
+            # indented code block. Under a list item the same indentation is
+            # a wrapped bullet, which `parse_blocks` joins on purpose, so the
+            # two are told apart by what came before rather than by shape.
+            if not in_indented_code:
+                in_indented_code = True
+                notes.append("line %d: indented code dedented" % number)
+            out.append(indented.group(1))
+            out.append("")
+            continue
+        if line.strip():
+            in_indented_code = False
+            last_was_list_item = bool(
+                _BULLET_RE.match(line) or _ORDERED_RE.match(line)
+            )
+        out.append(line)
+
+    if in_fence:
+        notes.append("unclosed code fence: its text was kept as ordinary lines")
+
+    out, link_notes = _resolve_reference_links(out, targets)
+    notes.extend(link_notes)
+    return out, notes
+
+
+def _resolve_reference_links(lines, targets):
+    """`[text][ref]` becomes `text (url)` when its definition was found.
+
+    Left as written when it was not — but noted either way, which is what it
+    was missing.
+    """
+    notes = []
+    out = []
+    for index, line in enumerate(lines):
+        if not _REFERENCE_LINK_RE.search(line):
+            out.append(line)
+            continue
+
+        resolved = []
+
+        def replace(match):
+            text, key = match.group(1), match.group(2).strip().lower()
+            url = targets.get(key or text.strip().lower())
+            resolved.append(bool(url))
+            if url:
+                return "%s (%s)" % (text, url)
+            return text
+
+        rewritten = _REFERENCE_LINK_RE.sub(replace, line)
+        if all(resolved):
+            notes.append("line %d: reference-style link resolved" % (index + 1))
+        else:
+            # Its definition is missing from the document. The text is kept
+            # and the brackets dropped — printing "[PyCon][pycon-ref]" on the
+            # page helps nobody — but the lost URL is named.
+            notes.append(
+                "line %d: reference-style link had no definition, "
+                "text kept without its url" % (index + 1)
+            )
+        out.append(rewritten)
+    return out, notes
