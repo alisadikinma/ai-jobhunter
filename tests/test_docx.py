@@ -308,6 +308,46 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
         markdown = "| Skill | Note |\n|---|---|\n| Python | grew 40% [verifikasi] |\n"
         self.assertEqual(len(docx.unverified_findings(markdown)), 1)
 
+    def test_every_character_the_writer_deletes_is_normalised_by_the_gate(self):
+        """The structural guard. Two character sets drifted, and the gap was
+        a hole through both layers of the gate.
+
+        `escape` deletes XML-illegal control characters, and it runs AFTER
+        the last check. So "[veri\\x01fikasi]" matched no pattern, the writer
+        deleted the \\x01, and a clean "[verifikasi]" appeared in the shipped
+        document. Any character the writer removes must already have been
+        removed from the text the gate reads — checked over every codepoint
+        rather than over the handful somebody thought to list.
+        """
+        missed = [
+            hex(code)
+            for code in range(0x11000)
+            if docx._ILLEGAL_XML_RE.match(chr(code))
+            and not docx._INVISIBLE_RE.match(chr(code))
+        ]
+        self.assertEqual(missed, [])
+
+    def test_a_control_character_inside_the_marker_does_not_hide_it(self):
+        for code in ("\x01", "\x02", "\x1f", "\x7f"):
+            with self.subTest(code=repr(code)):
+                markdown = "- ARR [veri%sfikasi]\n" % code
+                self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_a_soft_hyphen_inside_the_marker_does_not_hide_it(self):
+        # Invisible in Word, so the line reads as the marker on the page.
+        self.assertEqual(
+            len(docx.unverified_findings("- ARR [veri\u00adfikasi]\n")), 1
+        )
+
+    def test_fullwidth_forms_of_the_marker_do_not_hide_it(self):
+        # NFKC folds these; they are indistinguishable from the marker.
+        self.assertEqual(
+            len(docx.unverified_findings("- ARR \uff3bverifikasi\uff3d\n")), 1
+        )
+        self.assertEqual(
+            len(docx.unverified_findings("- ARR [\uff56erifikasi]\n")), 1
+        )
+
     def test_a_homoglyph_is_a_known_and_stated_limit(self):
         # Cyrillic "а" for Latin "a". Closing this needs a confusables table,
         # which is not in the standard library, and it is not something
@@ -901,6 +941,41 @@ class TestRenderRefusals(DocxTempDirCase):
         )
         body = self.document_xml(path)
         self.assertIn("Grew ARR, then doubled it", body)
+
+    def test_the_override_strips_every_spelling_the_gate_catches(self):
+        """Substituting on the raw text covered only the literal spellings.
+
+        A marker written as html entities survived the strip, printed
+        "verifikasi" onto the page, and reported nothing in `notes` — the
+        override went silent, which is the one thing it promised not to do.
+        """
+        spellings = {
+            "bare": "- Grew ARR [verifikasi]",
+            "bold": "- Grew ARR [**verifikasi**]",
+            "underscore": "- Grew ARR [__verifikasi__]",
+            "code span": "- Grew ARR [`verifikasi`]",
+            "with reason": "- Grew ARR [Assumption: from memory]",
+            "entities": "- Grew ARR &#91;verifikasi&#93;",
+            "double entities": "- Grew ARR &amp;#91;verifikasi&amp;#93;",
+            "hex entity": "- Grew ARR &#x5B;verifikasi&#x5D;",
+            "control char": "- Grew ARR [veri\x01fikasi]",
+            "zero width": "- Grew ARR [veri\u200bfikasi]",
+            "fullwidth": "- Grew ARR \uff3bverifikasi\uff3d",
+        }
+        for name, line in spellings.items():
+            with self.subTest(spelling=name):
+                path = self.out("%s.docx" % name.replace(" ", "-"))
+                result = docx.render(
+                    "# CV\n\n%s\n" % line, path, allow_unverified=True
+                )
+                body = self.document_xml(path)
+                self.assertNotIn("verifikasi", body.lower(), name)
+                self.assertNotIn("assumption", body.lower(), name)
+                self.assertIn("Grew ARR", body, name)
+                self.assertTrue(
+                    any("marker(s) removed" in note for note in result["notes"]),
+                    "%s: the override was silent" % name,
+                )
 
     def test_an_override_that_removed_nothing_adds_no_note(self):
         path = self.out()

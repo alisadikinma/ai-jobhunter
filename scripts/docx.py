@@ -23,6 +23,7 @@ import os
 import re
 import sys
 import tempfile
+import unicodedata
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -98,10 +99,23 @@ _ITALIC_UNDERSCORE_RE = re.compile(
     r"(?<![A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"
 )
 
-# Zero-width and other invisible formatting characters. They render as
-# nothing, so "[verifi<ZWSP>kasi]" reads to a human as the marker while
-# matching no pattern at all.
-_INVISIBLE_RE = re.compile(r"[\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
+# Characters that are not there as far as a reader is concerned: zero-width
+# and bidi formatting, the soft hyphen, and every control character the XML
+# writer deletes on its way out.
+#
+# That last group is why this constant and `_ILLEGAL_XML_RE` are defined
+# together. They were two different sets, and the gap between them was a hole
+# straight through both layers of the gate: "[veri\x01fikasi]" matched no
+# pattern here, and then `escape` — which runs AFTER the last check, inside
+# `document_xml` — deleted the \x01 and reassembled a clean "[verifikasi]"
+# in the shipped document. A character-removing transformation downstream of
+# the gate can only ever do that. `_ILLEGAL_XML_RE` is therefore a SUBSET of
+# this pattern by construction, and a test pins it over every codepoint.
+_XML_ILLEGAL_CLASS = r"\x00-\x08\x0b\x0c\x0e-\x1f"
+_INVISIBLE_RE = re.compile(
+    r"[" + _XML_ILLEGAL_CLASS + r"\x7f\u00ad\u200b-\u200f\u2028-\u202e"
+    r"\u2060-\u206f\ufeff]"
+)
 
 
 def strip_inline(text):
@@ -293,11 +307,12 @@ def _unmask(line):
     `[verifi<ZWSP>kasi]` reads to a human as the marker while matching no
     pattern.
 
-    Known limit, stated rather than hidden: a homoglyph — Cyrillic "а" for
-    Latin "a" — is not caught. Closing it needs a confusables table, which is
-    not in the standard library, and it is an evasion nobody writes by
-    accident. The gate is built against mistakes, not against an author
-    deliberately smuggling a claim past themselves.
+    Known limit, stated rather than hidden: a homoglyph from another script —
+    Cyrillic "а" for Latin "a" — is not caught. NFKC folds compatibility
+    forms, not confusables, and a confusables table is not in the standard
+    library. It is an evasion nobody writes by accident. The gate is built
+    against mistakes, not against an author deliberately smuggling a claim
+    past themselves.
     """
     text = line
     previous = None
@@ -306,6 +321,10 @@ def _unmask(line):
     while text != previous:
         previous = text
         text = html.unescape(text)
+    # Compatibility normalisation folds the fullwidth forms — "［verifikasi］"
+    # is indistinguishable from the marker on the page. It does NOT fold a
+    # Cyrillic "а" into a Latin "a"; see the limit stated below.
+    text = unicodedata.normalize("NFKC", text)
     text = _HTML_TAG_RE.sub("", text)
     text = _INVISIBLE_RE.sub("", text)
     return strip_inline(text)
@@ -708,7 +727,9 @@ _ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 
 # XML 1.0 forbids most control characters outright — a stray one makes the
 # document unopenable rather than merely ugly.
-_ILLEGAL_XML_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+# Built from the same class `_INVISIBLE_RE` contains, so the writer can never
+# delete a character the gate did not already normalise away.
+_ILLEGAL_XML_RE = re.compile(r"[" + _XML_ILLEGAL_CLASS + r"]")
 
 
 def escape(text):
@@ -905,7 +926,16 @@ def _strip_markers(blocks):
     """
     changed = 0
     for block in blocks:
-        cleaned = _UNVERIFIED_RE.sub("", block["text"])
+        text = block["text"]
+        # Substituting on the raw text removed only the spellings that happen
+        # to be literal there. A marker written as html entities survived the
+        # strip, printed the word "verifikasi" onto the page, and reported
+        # nothing — the override went silent, which is the one thing it
+        # promised not to do. Collapsing to the projection first makes the
+        # removal cover exactly what the gate detects, by construction.
+        if not _UNVERIFIED_RE.search(text) and _UNVERIFIED_RE.search(_unmask(text)):
+            text = _unmask(text)
+        cleaned = _UNVERIFIED_RE.sub("", text)
         if cleaned == block["text"]:
             continue
         cleaned = _DOUBLE_SPACE_RE.sub(" ", cleaned)
