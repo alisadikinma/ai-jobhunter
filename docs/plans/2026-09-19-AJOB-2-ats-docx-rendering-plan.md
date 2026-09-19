@@ -157,7 +157,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 
 ## Amendments, 2026-09-19 (post-implementation, owner-approved)
 
-Seven points where the pinned text above no longer matches the code. Every
+Nine points where the pinned text above no longer matches the code. Every
 one was found by RUNNING the code — on a real CV, through a real document
 extractor, or by an adversarial review — and each is approved. They are
 recorded here rather than silently left to drift, because this document is
@@ -193,10 +193,14 @@ the contract.
    `` `cat a | sed -e *` `` literal; a BARE `__init__` still becomes `init`,
    which is what markdown renders it as.
 9. **The gate's projection NFKC-normalises and removes every character the
-   XML writer deletes.** `_ILLEGAL_XML_RE` is a subset of `_INVISIBLE_RE` by
-   construction, pinned by a test over every codepoint: a character the
-   writer removes after the last check can otherwise reassemble a marker the
-   gate cleared, which is exactly what `[veri\x01fikasi]` did.
+   XML writer deletes.** Every character `escape` deletes is already gone
+   from the projection `_remove_invisible` produces, pinned by a test: a
+   character the writer removes after the last check can otherwise
+   reassemble a marker the gate cleared, which is exactly what
+   `[veri\x01fikasi]` did. Invisibility is Unicode's
+   `Default_Ignorable_Code_Point`, covered by the categories that contain it
+   plus the four Hangul fillers — defining it as `Cc`/`Cf` alone let all
+   sixteen variation selectors ship a readable marker.
 
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally

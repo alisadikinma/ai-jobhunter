@@ -113,18 +113,37 @@ _ITALIC_UNDERSCORE_RE = re.compile(
 # this pattern by construction, and a test pins it over every codepoint.
 _XML_ILLEGAL_CLASS = r"\x00-\x08\x0b\x0c\x0e-\x1f"
 
-# Unicode's own categories, not a hand-written list of ranges. A sweep of
-# every format and control codepoint found 183 the hand-written ranges missed
-# — C1 controls, variation selectors, the tag block, musical formatting — and
-# any list maintained by hand will drift again the next time Unicode grows.
-# `Cc` is control, `Cf` is format; both render as nothing or as a boundary.
-_INVISIBLE_CATEGORIES = frozenset(("Cc", "Cf"))
+# What Unicode calls Default_Ignorable_Code_Point — characters a renderer is
+# expected to show as nothing. `unicodedata` does not expose that property,
+# so it is covered by the categories that contain it rather than by a
+# hand-written range list, which is the thing that keeps going wrong here.
+#
+# `Cc` control, `Cf` format, `Cn` unassigned (the reserved ignorable blocks
+# live there, and a codepoint nobody has defined cannot be meaningful text),
+# and `Mn` nonspacing mark. `Mn` is the one that matters most and the one an
+# earlier version missed: every variation selector is `Mn`, as are the
+# combining grapheme joiner and U+E0100's block. Removing marks from a
+# PROJECTION is safe in the only direction that counts — deleting characters
+# can reveal a marker that was hidden, never invent one that was not written.
+_INVISIBLE_CATEGORIES = frozenset(("Cc", "Cf", "Cn", "Mn"))
+
+# The Hangul fillers are `Lo`, an enormous category that also holds every CJK
+# ideograph, so these four are named rather than swept in.
+_INVISIBLE_LETTERS = frozenset("\u115f\u1160\u3164\uffa0")
 
 
 def _remove_invisible(text):
-    """Drop every character that renders as nothing to a reader."""
+    """Drop every character that renders as nothing to a reader.
+
+    Used on the gate's projection only, never on text that reaches the
+    document — a CV that writes "e" plus a combining acute still prints
+    "é".
+    """
     return "".join(
-        ch for ch in text if unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
+        ch
+        for ch in text
+        if ch not in _INVISIBLE_LETTERS
+        and unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
     )
 
 
@@ -333,9 +352,10 @@ def _unmask(line):
     Tags are removed with no separator on purpose. That is stricter than the
     html cleaner, which substitutes a space — `[verif<i>ikasi</i>]` rejoins
     into the marker here and is refused, rather than being caught by luck.
-    Zero-width characters go the same way: they render as nothing, so
-    `[verifi<ZWSP>kasi]` reads to a human as the marker while matching no
-    pattern.
+    Characters that render as nothing go the same way, whether they are
+    zero-width spaces, control characters, variation selectors or the Hangul
+    fillers: `[verifi<ZWSP>kasi]` and `[veri<VS1>fikasi]` both read to a
+    human as the marker while matching no pattern of their own.
 
     Known limit, stated rather than hidden: a homoglyph from another script —
     Cyrillic "а" for Latin "a" — is not caught. NFKC folds compatibility
@@ -536,8 +556,11 @@ def _flatten_table(lines, start, stop):
     out = []
     for row_line in lines[start + 2 : stop]:
         cells = _split_row(row_line)
-        if len(cells) < len(headers):
-            cells = cells + [""] * (len(headers) - len(cells))
+        # Only the headers are padded. Padding the cells was inert — `zip`
+        # stops at the shorter list and the filter below drops empty cells
+        # anyway — and an inert line reads as load-bearing to the next person.
+        # A short row is still never dropped: `filled` decides that, and the
+        # branch below keeps a row even when every cell is empty.
         padded_headers = headers + [""] * (len(cells) - len(headers))
 
         # The label is the header of the first NON-EMPTY cell, not simply the

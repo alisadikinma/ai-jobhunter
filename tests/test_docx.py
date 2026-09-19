@@ -327,30 +327,65 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
         ]
         self.assertEqual(missed, [])
 
-    def test_no_invisible_codepoint_can_hide_inside_the_marker(self):
-        """Swept, not sampled.
+    # Unicode's Default_Ignorable_Code_Point ranges, transcribed from the
+    # UCD. This list is the ORACLE: it comes from the standard, not from
+    # `docx._INVISIBLE_CATEGORIES`, so it can disagree with the code.
+    #
+    # The test it replaced swept the codepoints whose category the code
+    # itself removes, which is the implementation's predicate restated. It
+    # passed while 267 named codepoints put a live marker into a document:
+    # widening the code could not fail it, and narrowing the code was the
+    # only thing it could see. A guard that takes its oracle from the code it
+    # guards cannot tell you the code's definition is too small.
+    DEFAULT_IGNORABLE = (
+        (0x00AD, 0x00AD),
+        (0x034F, 0x034F),
+        (0x061C, 0x061C),
+        (0x115F, 0x1160),
+        (0x17B4, 0x17B5),
+        (0x180B, 0x180F),
+        (0x200B, 0x200F),
+        (0x202A, 0x202E),
+        (0x2060, 0x206F),
+        (0x3164, 0x3164),
+        (0xFE00, 0xFE0F),
+        (0xFEFF, 0xFEFF),
+        (0xFFA0, 0xFFA0),
+        (0xFFF0, 0xFFF8),
+        (0x1BCA0, 0x1BCA3),
+        (0x1D173, 0x1D17A),
+        (0xE0000, 0xE0FFF),
+    )
 
-        Hand-written ranges missed 183 codepoints — C1 controls, variation
-        selectors, the tag block, musical formatting. Unicode's own `Cc`/`Cf`
-        categories are the definition; a list maintained by hand drifts every
-        time Unicode grows.
-
-        The eight exceptions are the characters `str.splitlines` treats as
-        line breaks. They cannot be caught per line, because the marker is
-        already in two pieces by the time a line exists — `render`'s second
-        pass rejoins the blocks and catches them, which
-        `test_a_line_breaking_character_is_caught_when_the_blocks_rejoin`
-        pins.
-        """
-        line_breaks = {0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x85}
+    def test_no_default_ignorable_codepoint_can_hide_inside_the_marker(self):
         missed = [
             hex(code)
-            for code in range(0x11000)
-            if unicodedata.category(chr(code)) in ("Cc", "Cf")
-            and code not in line_breaks
-            and not docx.unverified_findings("- ARR [veri%sfikasi]" % chr(code))
+            for first, last in self.DEFAULT_IGNORABLE
+            for code in range(first, last + 1)
+            if not docx.unverified_findings("- ARR [veri%sfikasi]" % chr(code))
         ]
         self.assertEqual(missed, [])
+
+    def test_the_variation_selectors_are_caught(self):
+        # Named separately because three documents once claimed these were
+        # covered while all sixteen shipped a readable marker. They are
+        # category Mn, which the old Cc/Cf definition never looked at.
+        for code in list(range(0xFE00, 0xFE10)) + [0xE0100, 0xE01EF]:
+            with self.subTest(code=hex(code)):
+                markdown = "- ARR [veri%sfikasi]\n" % chr(code)
+                self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_the_hangul_fillers_are_caught(self):
+        for code in (0x115F, 0x1160, 0x3164, 0xFFA0):
+            with self.subTest(code=hex(code)):
+                markdown = "- ARR [veri%sfikasi]\n" % chr(code)
+                self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_a_combining_accent_still_reaches_the_document(self):
+        # The projection removes marks; the document must not. A CV writing
+        # "e" plus a combining acute has to print "é".
+        blocks = docx.parse_blocks("- Rene\u0301e shipped the migration\n")
+        self.assertEqual(blocks[0]["text"], "Rene\u0301e shipped the migration")
 
     def test_an_invisible_codepoint_outside_the_bmp_is_caught_too(self):
         for code in (0xE0001, 0xE0020, 0x1D173):
