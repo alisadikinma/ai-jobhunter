@@ -91,24 +91,24 @@
 - [x] No placeholder/TODO comments in new code
 - [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
-### [ ] Phase E: CLI subcommand and skill wiring
-- [ ] Write failing test for `main(["render-docx", "--in", md_path, "--out", docx_path])` exiting 0 and printing JSON carrying `{"out": ..., "blocks": <int>, "notes": [...]}`. Expected error: `SystemExit: 1` with `{"error": "UsageError", "message": "argument command: invalid choice: 'render-docx'"}`
-- [ ] Run tests, confirm it fails for that reason
-- [ ] Add `cmd_render_docx` and its subparser: `--in` (required), `--out` (required), `--allow-unverified` (`store_true`, help text stating it is an opt-in escape from a safety gate and never a config default)
-- [ ] Emit `notes` on stdout as part of the JSON **and** on stderr as human lines — stdout is the parsed channel, stderr is the one a person reads
-- [ ] Extend `skills/tailor/SKILL.md`: the command block, what a refusal looks like, and the rule that `--allow-unverified` is Ali's decision per run, never the skill's
-- [ ] Update `CLAUDE.md`: add `render-docx` to the subcommand list and `scripts/docx.py` to the Layout table
-- [ ] Add tests: `render-docx` on markdown containing `[verifikasi]` returns exit 1 with `{"error": "UnverifiedClaimError"}` and **writes no file** (assert `os.path.exists(out) is False`); the same input with `--allow-unverified` exits 0 and writes the file; a missing `--in` is a `UsageError`
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(cli): render-docx, wired into tailor"
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t .` passes
-- [ ] `tests/test_manifest.py` collects `render-docx` and all three of its flags — run `_documented_commands()` and assert they appear, since that guard was twice found vacuous in AJOB-1
-- [ ] Mutation check: document `--alow-unverified` in `skills/tailor/SKILL.md`, confirm the manifest test FAILS, revert
-- [ ] A refused render leaves no file on disk, asserted not assumed
-- [ ] `CLAUDE.md` lists `render-docx` and `scripts/docx.py`
-- [ ] No placeholder/TODO comments in new code
-- [ ] detect-stack: no stack markers for this project — verification is plan-declared only
+### [x] Phase E: CLI subcommand and skill wiring
+- [x] Write failing test for `main(["render-docx", "--in", md_path, "--out", docx_path])` exiting 0 and printing JSON carrying `{"out": ..., "blocks": <int>, "notes": [...]}`. Expected error: `SystemExit: 1` with `{"error": "UsageError", "message": "argument command: invalid choice: 'render-docx'"}`
+- [x] Run tests, confirm it fails for that reason
+- [x] Add `cmd_render_docx` and its subparser: `--in` (required), `--out` (required), `--allow-unverified` (`store_true`, help text stating it is an opt-in escape from a safety gate and never a config default)
+- [x] Emit `notes` on stdout as part of the JSON **and** on stderr as human lines — stdout is the parsed channel, stderr is the one a person reads
+- [x] Extend `skills/tailor/SKILL.md`: the command block, what a refusal looks like, and the rule that `--allow-unverified` is Ali's decision per run, never the skill's
+- [x] Update `CLAUDE.md`: add `render-docx` to the subcommand list and `scripts/docx.py` to the Layout table
+- [x] Add tests: `render-docx` on markdown containing `[verifikasi]` returns exit 1 with `{"error": "UnverifiedClaimError"}` and **writes no file** (assert `os.path.exists(out) is False`); the same input with `--allow-unverified` exits 0 and writes the file; a missing `--in` is a `UsageError`
+- [x] Run tests, confirm all pass
+- [x] Commit: "feat(cli): render-docx, wired into tailor"
+- [x] `python3 -m compileall -q scripts tests` passes
+- [x] `python3 -m unittest discover -s tests -t .` passes
+- [x] `tests/test_manifest.py` collects `render-docx` and all three of its flags — run `_documented_commands()` and assert they appear, since that guard was twice found vacuous in AJOB-1
+- [x] Mutation check: document `--alow-unverified` in `skills/tailor/SKILL.md`, confirm the manifest test FAILS, revert
+- [x] A refused render leaves no file on disk, asserted not assumed
+- [x] `CLAUDE.md` lists `render-docx` and `scripts/docx.py`
+- [x] No placeholder/TODO comments in new code
+- [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
 ### [ ] Phase F: does it actually open?
 - [ ] Write failing test for the presence of `docs/evals/docx-rendering.md` and its declaring at least one case per target application. Expected error: `AssertionError: missing docs/evals/docx-rendering.md`
@@ -147,3 +147,4 @@
 - 2026-09-19 Phase B selesai — `ats_lint` + `unverified_findings` + `UnverifiedClaimError`, 318 lulus / 0 gagal. Mutation check: buang separuh `[Assumption]` → 1 test gagal; buang `re.I` → 3 gagal; buang syarat baris pemisah tabel → MASIH HIJAU pada percobaan pertama karena test pipa-literal cuma satu baris, dan satu baris tak pernah bisa jadi tabel. Ditambal 3 kasus multi-baris, mutasi yang sama sekarang gagal ketiganya. Commit `feat(docx): refuse to render a claim the candidate never verified`. — NEXT: Phase C
 - 2026-09-19 Phase C selesai — `flatten` + `find_tables` + `strip_html`, 355 lulus / 0 gagal. Dua cacat baru muncul saat dijalankan pada CV berantakan nyata: (1) `ats._TAG_RE` = `<[^>]+>` memakan tengah kalimat "p95 < 200ms dan > 1k rps" — kurung sudut di luar tag asli sekarang disembunyikan dulu di balik sentinel, `ats._clean_description` tetap yang menghapus tag; (2) tabel satu kolom tidak terdeteksi karena pola pemisah menuntut minimal dua sel. Mutation check: buang proteksi non-tag / buang pad "N/A" / buang padding baris pendek — ketiganya gagal test. Commit `feat(docx): flatten what an ATS parses badly, refuse nothing`. — NEXT: Phase D
 - 2026-09-19 Phase D selesai — `render` + lima bagian OOXML + tulis atomik, 385 lulus / 0 gagal. Dua cacat ketemu, dua-duanya dari menjalankan bukan membaca: (1) `tempfile.mkstemp` di luar guard, folder tak bisa ditulis melempar `PermissionError` telanjang — sekarang `DestinationError`; (2) file hasil dibaca balik lewat extractor dokumen nyata menunjukkan tabel skill 3 baris jadi SATU kalimat panjang — baris tabel sekarang jadi bullet, tiap baris satu blok. Bullet pakai glyph harfiah, bukan numbering.xml. Timestamp zip dikunci supaya byte hasil render sama tiap kali. Commit `feat(docx): write the OOXML parts, atomically`. — NEXT: Phase E
+- 2026-09-19 Phase E selesai — subcommand `render-docx` + wiring `skills/tailor/SKILL.md` + `CLAUDE.md`, 402 lulus / 0 gagal. `--out` sama dengan `--in` ditolak (dibanding lewat path absolut) supaya .docx tidak menimpa markdown sumbernya. Mutation check manifest: tulis `--alow-unverified` di SKILL.md → test flag gagal; salah eja nama subcommand → test subcommand gagal. Ditambah test eksplisit bahwa guard benar-benar mengumpulkan `render-docx` dan ketiga flag-nya — guard ini dua kali ketahuan hampa di AJOB-1. Commit `feat(cli): render-docx, wired into tailor`. — NEXT: Phase F
