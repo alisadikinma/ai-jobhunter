@@ -92,7 +92,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 ```
 
 Run it with `--help`, or a subcommand with `--help`, to see the options. Every
-subcommand prints JSON on stdout. A refusal prints
+subcommand prints JSON on stdout — except `keywords-report --markdown`, which
+prints the markdown report itself so it can be redirected to a file. A refusal prints
 `{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
 it, do not retry it blindly.
 
@@ -115,7 +116,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
 When a single posting cannot be normalised the rest of the board still comes
 through, and the postings that did not make it are listed in the `skipped` key
 of the JSON **on stdout** — each entry naming the posting and the field that
-moved. stderr carries only a one-line count. Read `skipped`; a board that came
+moved. stderr carries only counts — `ats-fetch` writes two lines, one for the fetch
+and one for the normalisation. Read `skipped`; a board that came
 back short says so there, not in the log. Pass the rows through a file with
 `@path` rather than inline — a board is megabytes.
 

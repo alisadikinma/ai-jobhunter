@@ -41,7 +41,7 @@ these exact names, nothing renamed and nothing extra standing in for them:
 | `fit_score` | int 0-100 | absent or `None` means unscored |
 | `score_reasons` | dict | one entry per rubric dimension; the salary entry is **absent**, never `0`, when the posting states no salary |
 | `work_authorization` | `"open"` / `"unclear"` / `"closed"` | see the gate below |
-| `suggested_variant` | str | a key from the user's `variants.toml` |
+| `suggested_variant` | str | a key from the user's `variants.toml`. Omit it and `promote` falls back to `unclassified`, which the user then sees in their own tracker as the tag `variant:unclassified` — so choose one. |
 | `skills` | ordered list of str | drives the skill tags `/ai-jobhunter:promote` builds; only the first 8 survive its tag cap |
 
 ## `work_authorization` — a gate, not a weighted dimension
@@ -118,7 +118,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 ```
 
 Run it with `--help`, or a subcommand with `--help`, to see the options. Every
-subcommand prints JSON on stdout. A refusal prints
+subcommand prints JSON on stdout — except `keywords-report --markdown`, which
+prints the markdown report itself so it can be redirected to a file. A refusal prints
 `{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
 it, do not retry it blindly.
 

@@ -201,7 +201,57 @@ exactly these names.
 4. Add tests for: file missing (raise a named error that tells the user to run `/ai-jobhunter:profile`), malformed TOML, unknown top-level key (warn, do not fail), `min_salary_usd` absent vs `0`, a relative `linkedin_pdf` path resolving against the config file's own directory
 4b. Implement `resolve_profile_sources(cfg)` returning an ordered list of `(tier, path_or_url)`. **Project directories are allow-listed:** only names in `profile_sources.projects.allowed` are returned, joined onto `projects.root`. The function never lists the root directory to discover candidates
 4c. Add tests for the allow-list: a directory present on disk but absent from `allowed` is **not** returned; an `allowed` name that does not exist raises a named error rather than being skipped silently; an `allowed` entry containing `..` or an absolute path is rejected; an empty `allowed` returns no project sources; `allowed` names are matched exactly, with no glob expansion
-5. Write `templates/config.toml` containing the commented example from spec §4 verbatim
+5. Write `templates/config.toml` with exactly this content. It is reproduced here
+   rather than delegated to the spec, because this plan claims to be executable with
+   no other context and "copy it from §4" is not content:
+
+```toml
+[profile_sources]
+# Every entry is a runtime path or URL. Nothing here is bundled with the plugin.
+sites        = ["https://example.com/", "https://example-product.com/"]
+linkedin_pdf = "./linkedin-profile.pdf"  # user exports this manually
+local        = ["/path/to/notes/identity/"]  # markdown the candidate owns
+precedence   = ["local-primary", "local", "project", "linkedin-pdf", "site"]
+primary      = "/path/to/notes/identity/profile-card.md"  # wins inside its own tier
+
+# Current-work evidence. ALLOW-LIST ONLY: a directory listed here is read; anything
+# not listed is never opened. There is no "read everything except…" mode.
+[profile_sources.projects]
+root    = "/path/to/notes/projects/"
+allowed = ["project-a", "project-b"]   # exact directory names, no globs
+
+[targets]
+geo = ["US-remote", "global-remote"]
+min_salary_usd = 0                      # 0 means unset, not "pays zero"
+companies = []                          # ATS slugs for direct polling
+
+[budgets]
+firecrawl_credits_per_run = 150         # hard cap; the run aborts at the ceiling
+jobsync_requests_per_run = 50           # stays under the 60/hour MCP limit
+
+[tracking]
+# Declared, validated, and currently read by nothing: the promote skill checks
+# for the jobsync MCP tools at run time rather than consulting this key. Kept
+# because it states the intent, but it changes no behaviour today.
+jobsync_mcp = "required"
+```
+
+5b. The five precedence tiers are exactly these, each resolving from one config field.
+   An unknown tier raises `PrecedenceError` rather than resolving to zero sources — a
+   single typo would otherwise drop a whole class of source silently:
+
+   | tier | field it reads |
+   |---|---|
+   | `local-primary` | `profile_sources.primary` |
+   | `local` | `profile_sources.local` |
+   | `project` | `profile_sources.projects.allowed`, joined onto `projects.root` |
+   | `linkedin-pdf` | `profile_sources.linkedin_pdf` |
+   | `site` | `profile_sources.sites` |
+
+5c. Name the error classes exactly, because five SKILL.md quote them to the model
+   verbatim and an invented name makes that prose false:
+   `ConfigError` (base), `ConfigMissingError`, `ProjectSourceError`,
+   `PrecedenceError`, `BudgetTypeError`, `SalaryTypeError`.
 6. Run tests, confirm all pass
 7. Commit: "feat(config): TOML config loader with explicit budget defaults"
 
@@ -335,6 +385,13 @@ Two consequences for the implementation:
 3. Implement `to_add_job(row)` (field mapping per the contract table above), `to_match_text(row)` (the `SCORES: match=<n> recommendation=<...>` first line plus a markdown body that names the work-authorization bucket), `build_tags(row)` (1 visa tag + 1 variant tag + up to 8 skill tags, hard-capped at 10), `chunk(rows, 10)`, `plan_budget(rows, limit)` returning what fits and what waits, and `match_quality(row)` implementing spec §8's two posting-text rules: a posting under `FULL_MATCH_MIN_WORDS = 150` words returns `"provisional"` (promote it, but say in `matchText` that the match is *Provisional*), and a title-only row — one whose cleaned `jobDescription` is the `N/A` sentinel — raises `TitleOnlyError` and is never promoted at all, because jobsync cannot produce a match without the posting text
 4. Add tests for: a row missing `jobDescription` (emits `"N/A"`), `workplaceType` given as `On-site` and as `REMOTE`, `fit_score` exactly 80 / 79 / 65 / 64 / 50 / 49 / 0 / 100 at each recommendation boundary, 11 skill tags (must truncate to 8 skill tags and keep both the visa and variant tags), a batch of exactly 10 and of 11, a budget of 0, and a `matchText` body under 20 characters (must be padded by the real body, never shipped short), a posting of exactly 149 and exactly 150 words (provisional vs full), and a title-only row (must raise `TitleOnlyError`, never promote)
 5. Run tests, confirm all pass
+5b. Name the error classes exactly — `skills/promote/SKILL.md` quotes them to the
+   model: `PromoteError` (base), `ScoreMissingError`, `AuthorizationClosedError`,
+   `TitleOnlyError`, `WorkplaceTypeError`, `FieldMissingError`.
+5c. A row with no `suggested_variant` gets `DEFAULT_VARIANT = "unclassified"`, which
+   reaches the user's own tracker as the tag `variant:unclassified` and as the
+   "Suggested variant:" line in `matchText`. It is a visible value, so it is named
+   here rather than invented at the keyboard.
 6. Commit: "feat(promote): jobsync payload mapping with tag cap and request budget"
 
 **Completeness ladder:**

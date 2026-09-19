@@ -14,6 +14,7 @@ file under `docs/evals/fixtures/` parses as JSON and is non-empty.
 import glob
 import json
 import os
+import sys
 import re
 import unittest
 
@@ -162,16 +163,92 @@ class TestFixturesParseAndAreNonEmpty(unittest.TestCase):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)
             self.assertIsInstance(data, dict, f"{path}: top level is not a JSON object")
-            for field in ("board", "date_retrieved", "company", "job_title", "job_description"):
+            # Contract spelling, not the snake_case these fixtures shipped
+            # with — see TestFixturesMatchThePinnedRowContract for why.
+            for field in ("source", "dateRetrieved", "company", "jobTitle", "jobDescription"):
                 self.assertIn(field, data, f"{path}: missing {field!r}")
                 self.assertTrue(
                     str(data[field]).strip(), f"{path}: {field!r} is empty"
                 )
             self.assertGreater(
-                len(data["job_description"]),
+                len(data["jobDescription"]),
                 100,
                 f"{path}: job_description looks too short to be a real posting",
             )
+
+
+class TestFixturesMatchThePinnedRowContract(unittest.TestCase):
+    """The fixtures shipped with snake_case keys (`job_description`,
+    `job_title`, `job_url`, `workplace_type`) while the pinned Scored-row
+    contract — what `ats.normalize_*` emits and what `promote.to_add_job`
+    reads — is camelCase.
+
+    `docs/evals/tailoring.md` and `scoring.md` both say to run a skill
+    against a fixture "as if it were the matching row in
+    .jobhunter/queue/jobs.jsonl". Run that way, every fixture was a
+    title-only row:
+
+        refused [{"error": "TitleOnlyError",
+                  "message": "Refusing to promote a title-only row ..."}]
+
+    Nothing caught it because these evals are judgement evals that have
+    never been executed; this test covers the part of them that IS
+    deterministic — the shape of their inputs.
+    """
+
+    REQUIRED = ("company", "jobTitle", "jobUrl", "jobDescription")
+    FORBIDDEN = (
+        "job_description",
+        "job_title",
+        "job_url",
+        "workplace_type",
+        "job_type",
+        "date_retrieved",
+    )
+
+    def _fixtures(self):
+        pattern = os.path.join(os.path.dirname(SCORING_MD), "fixtures", "*.json")
+        paths = sorted(glob.glob(pattern))
+        self.assertTrue(paths, f"no fixtures found at {pattern}")
+        return paths
+
+    def test_every_fixture_carries_the_contract_fields(self):
+        for path in self._fixtures():
+            with open(path, "r", encoding="utf-8") as f:
+                row = json.load(f)
+            for key in self.REQUIRED:
+                self.assertIn(key, row, f"{os.path.basename(path)} has no {key!r}")
+
+    def test_no_fixture_uses_the_snake_case_spelling(self):
+        for path in self._fixtures():
+            with open(path, "r", encoding="utf-8") as f:
+                row = json.load(f)
+            for key in self.FORBIDDEN:
+                self.assertNotIn(
+                    key,
+                    row,
+                    f"{os.path.basename(path)} uses {key!r}; the pinned row "
+                    "contract is camelCase, and a skill reading this fixture "
+                    "as a queue row would not see the field at all",
+                )
+
+    def test_a_fixture_is_promotable_once_scored(self):
+        """The end the prose actually promises: a fixture plus the scoring
+        fields is a row `promote` accepts."""
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+        import promote
+
+        with open(self._fixtures()[0], "r", encoding="utf-8") as f:
+            row = json.load(f)
+        row.update(
+            fit_score=80,
+            score_reasons={"skill_match": "strong"},
+            work_authorization="unclear",
+            suggested_variant="genai_agents",
+            skills=["python"],
+        )
+        self.assertIn(promote.match_quality(row), ("full", "provisional"))
+        self.assertEqual(promote.to_add_job(row)["jobTitle"], row["jobTitle"])
 
 
 if __name__ == "__main__":

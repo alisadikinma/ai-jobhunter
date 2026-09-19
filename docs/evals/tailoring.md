@@ -148,7 +148,7 @@ CV unchanged."
   row whose `jobDescription` field has been emptied) stops and reports that
   it cannot proceed, rather than falling back to a generic document. This
   sub-case does not need a fixture file — it is tested by removing the
-  `job_description` field from a copy of any fixture before the run.
+  `jobDescription` field from a copy of any fixture before the run.
 
 ---
 

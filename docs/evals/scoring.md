@@ -27,7 +27,7 @@ read `3/3` reads `2/3` or lower.
 All fixtures are real postings pulled from live Greenhouse (Stripe) and
 Ashby (Ramp) API payloads on 2026-09-19, saved verbatim under
 `docs/evals/fixtures/`. None of the text below is written by this eval —
-every quoted phrase is copied from the fixture JSON's `job_description`
+every quoted phrase is copied from the fixture JSON's `jobDescription`
 field.
 
 | # | File | Company | Title |
@@ -97,7 +97,7 @@ work... without sponsorship").
 **Fixture:** `02-stripe-abuse-research-engineer-remote-silent.json`
 
 A genuine US-remote posting (`location: "Remote from the US"`,
-`workplace_type: "Remote"`) that never mentions sponsorship, visa,
+`workplaceType: "Remote"`) that never mentions sponsorship, visa,
 citizenship, or authorization anywhere in its ~4,850-character description
 (verified by grep against the saved fixture — zero matches for `sponsor`,
 `visa`, `citizen`, `authoriz`, `right to work`).

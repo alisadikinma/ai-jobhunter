@@ -297,7 +297,18 @@ def _resolve_project_sources(cfg):
     """
     projects = cfg["profile_sources"]["projects"]
     root = projects.get("root")
-    allowed = projects.get("allowed") or []
+    raw_allowed = projects.get("allowed") or []
+    if isinstance(raw_allowed, str):
+        # `allowed = "notes"` — the brackets forgotten — would otherwise be
+        # exploded into ["n","o","t","e","s"] and refused by naming a
+        # directory the author never wrote. It fails closed either way; this
+        # only makes the diagnosis match the mistake.
+        raise ProjectSourceError(
+            "profile_sources.projects.allowed must be a list of directory "
+            f"names, not a single string: got {raw_allowed!r}. Write "
+            f'allowed = ["{raw_allowed}"].'
+        )
+    allowed = list(raw_allowed)
 
     if allowed and not (isinstance(root, str) and root.strip()):
         raise ProjectSourceError(
@@ -346,7 +357,31 @@ def _require_no_escaping_links(root, full_path, name):
     the old guard whitelisted it explicitly (`target != real_root`).
     """
     real_entry = os.path.realpath(full_path)
-    for dirpath, dirnames, filenames in os.walk(full_path, followlinks=False):
+
+    def _unreadable(exc):
+        """Refuse rather than skip a subtree that cannot be enumerated.
+
+        `os.walk`'s default `onerror=None` DISCARDS every `OSError` from
+        `scandir`, so a directory the guard cannot list is a directory whose
+        links are never inspected — and the function returns as though it had
+        checked them. Measured with `allowed/sub` at mode 0o311 (traversable,
+        not listable) holding `sub/out -> ../../client-work`: the guard said
+        ALLOWED and the planted file was readable through the entry it
+        returned. If the allow-listed directory itself is unlistable, the
+        loop body never runs at all.
+
+        A guard that goes quiet instead of failing is this ticket's own
+        recurring defect, so an un-inspectable subtree is a refusal.
+        """
+        raise ProjectSourceError(
+            f"Allow-listed project directory {name!r} contains something that "
+            f"could not be inspected: {exc}. The allow-list cannot vouch for a "
+            "subtree it was unable to read."
+        ) from exc
+
+    for dirpath, dirnames, filenames in os.walk(
+        full_path, followlinks=False, onerror=_unreadable
+    ):
         for entry in list(dirnames) + list(filenames):
             candidate = os.path.join(dirpath, entry)
             if not os.path.islink(candidate):

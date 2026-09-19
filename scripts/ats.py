@@ -273,6 +273,16 @@ def normalize_greenhouse(path):
         payload = json.load(f)
     if not isinstance(payload, dict) or "jobs" not in payload:
         raise MissingFieldError(SOURCE_GREENHOUSE, "jobs")
+    # Lever checks its container type; these two checked only that the key
+    # existed. `{"jobs": 5}` then reached the loop and surfaced
+    # `TypeError: 'int' object is not iterable` as a refusal — a crash
+    # wearing a refusal's clothes, which the skills are told to report
+    # rather than retry.
+    if not isinstance(payload["jobs"], (list, tuple)):
+        raise AtsError(
+            f"Greenhouse payload key 'jobs' is "
+            f"{type(payload['jobs']).__name__}, not a list of postings."
+        )
 
     rows, skipped = _normalize_all(
         SOURCE_GREENHOUSE, payload["jobs"], _normalize_greenhouse_job
@@ -374,6 +384,16 @@ def normalize_ashby(path, company):
         payload = json.load(f)
     if not isinstance(payload, dict) or "jobs" not in payload:
         raise MissingFieldError(SOURCE_ASHBY, "jobs")
+    # Lever checks its container type; these two checked only that the key
+    # existed. `{"jobs": 5}` then reached the loop and surfaced
+    # `TypeError: 'int' object is not iterable` as a refusal — a crash
+    # wearing a refusal's clothes, which the skills are told to report
+    # rather than retry.
+    if not isinstance(payload["jobs"], (list, tuple)):
+        raise AtsError(
+            f"Ashby payload key 'jobs' is "
+            f"{type(payload['jobs']).__name__}, not a list of postings."
+        )
 
     def normalize_one(job):
         # The non-dict case is `_normalize_all`'s, for every board at once.

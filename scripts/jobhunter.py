@@ -17,7 +17,10 @@ copies of the same wiring and five spellings to keep in step across six
 SKILL.md files.
 
 Every subcommand prints JSON on stdout and nothing else, so a caller can read
-the result without parsing prose. Errors go to stderr with a non-zero exit
+the result without parsing prose. The single exception is
+`keywords-report --markdown`, which prints the markdown report itself.
+Logging goes to stderr; a log line on stdout made `json.load` fail on a
+real `ats-fetch`. Errors go to stderr with a non-zero exit
 status; a `PromoteError`, `ProjectSourceError` or any other named refusal is
 reported as `{"error": "<class>", "message": "..."}` rather than a traceback,
 because a refusal is an outcome the skill has to report, not a crash.
@@ -131,7 +134,16 @@ def cmd_queue_list(args):
         rows = list(jobq.iter_unscored(rows))
     if args.unpromoted:
         rows = list(jobq.iter_unpromoted(rows))
-    _emit({"count": len(rows), "rows": rows})
+    # Carry `row_key` on each listed row. `score` and `promote` both write
+    # back with `queue-update --updates {row_key: {...}}`, and their SKILL.md
+    # says the key "comes back with it from queue-list" — which was simply
+    # false: the emitted rows were the raw JSONL objects and nothing added
+    # one, leaving `queue-key --row` the only way to get it, one subprocess
+    # per row. This is a view, not a stored field; the queue file is
+    # untouched, exactly as `promote-prepare` already reports `row_key`
+    # beside each payload.
+    listed = [dict(row, row_key=jobq.row_key(row)) for row in rows]
+    _emit({"count": len(listed), "rows": listed})
 
 
 def cmd_queue_update(args):

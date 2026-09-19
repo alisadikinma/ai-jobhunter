@@ -24,7 +24,7 @@ skill layer driven by a private FastAPI backend; this one carries no backend of 
 
 ### 2. Architecture
 
-Five skills, no UI of its own.
+Six skills, no UI of its own.
 
 | Slash command | Responsibility |
 |---|---|
@@ -84,6 +84,9 @@ firecrawl_credits_per_run = 150         # hard cap; the run aborts at the ceilin
 jobsync_requests_per_run = 50           # stays under the 60/hour MCP limit
 
 [tracking]
+# Declared, validated, and currently read by nothing: the promote skill checks
+# for the jobsync MCP tools at run time rather than consulting this key. Kept
+# because it states the intent, but it changes no behaviour today.
 jobsync_mcp = "required"
 ```
 

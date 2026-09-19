@@ -194,10 +194,8 @@ def coverage(jd_text, cv_text, top_n=DEFAULT_TOP_N):
     covered = [term for term, _count in ranked if term in cv_terms]
     missing = [term for term, _count in ranked if term not in cv_terms]
 
-    # `top_n=None` means "no limit" explicitly. A non-positive number is a
-    # mistake, not a request for everything — silently returning all 688
-    # terms because someone typed `--top 0` is the opposite of what they
-    # asked for.
+    # `top_n=None` means "no limit" explicitly; a non-positive number was
+    # already refused at the top of this function.
     limit = top_n
     return {
         "covered": covered[:limit] if limit else covered,

@@ -73,6 +73,71 @@ class TestStdoutIsAlwaysParseableJson(unittest.TestCase):
         self.assertEqual(len(parsed["skipped"]), 1)
 
 
+class TestACleanBoardStillReturnsRows(unittest.TestCase):
+    """The happy path had no test at all, so breaking it stayed green.
+
+    `_Rows` used to be returned only when something was skipped:
+
+        return rows if not skipped else _Rows(rows, skipped)
+
+    Restoring that line leaves all 244 tests passing and turns every clean
+    board — the overwhelmingly common case — into a refusal, because
+    `jobhunter.py` reads `rows.skipped` unconditionally:
+
+        {"error": "AttributeError",
+         "message": "'list' object has no attribute 'skipped'"}
+
+    Every other CLI test plants a stray entry first, so none of them ever
+    exercised a payload with zero skipped postings.
+    """
+
+    def test_greenhouse(self):
+        self._assert_clean("greenhouse", {"jobs": [_greenhouse_job()]}, [])
+
+    def test_lever(self):
+        self._assert_clean("lever", [_lever_job()], ["--company", "Acme"])
+
+    def test_ashby(self):
+        self._assert_clean("ashby", {"jobs": [_ashby_job()]}, ["--company", "Acme"])
+
+    def _assert_clean(self, board, payload, extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "board.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            code, parsed, err, _text = run(
+                ["ats-normalize", "--board", board, "--path", path] + extra
+            )
+        self.assertEqual(code, 0, f"{board} refused a clean board: {err}")
+        self.assertEqual(len(parsed["rows"]), 1)
+        self.assertEqual(parsed["skipped"], [])
+
+
+class TestAScalarJobsKeyIsANamedRefusal(unittest.TestCase):
+    """Lever checked its container type; Greenhouse and Ashby checked only
+    that the key existed, so `{"jobs": 5}` reached the loop and surfaced
+    `TypeError: 'int' object is not iterable` — a crash wearing a refusal's
+    clothes, which the skills are told to report rather than retry."""
+
+    def test_greenhouse(self):
+        self._assert_named("greenhouse", {"jobs": 5}, [])
+
+    def test_ashby(self):
+        self._assert_named("ashby", {"jobs": 5}, ["--company", "Acme"])
+
+    def _assert_named(self, board, payload, extra):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "board.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+            code, _parsed, err, _text = run(
+                ["ats-normalize", "--board", board, "--path", path] + extra
+            )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "AtsError")
+        self.assertIn("not a list of postings", json.loads(err)["message"])
+
+
 class TestOneBadPostingNeverDiscardsTheBoard(unittest.TestCase):
     """The non-dict guard existed on Ashby only.
 
@@ -241,6 +306,35 @@ class TestQueueListUnpromoted(unittest.TestCase):
             )
         self.assertEqual(parsed["count"], 1)
         self.assertEqual(parsed["rows"][0]["company"], "B")
+
+    def test_each_listed_row_carries_its_row_key(self):
+        """Two SKILL.md tell the model the key "comes back with it from
+        queue-list". It did not — the rows were the raw JSONL objects, so the
+        only route to a key was one `queue-key` subprocess per row."""
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = os.path.join(tmp, "queue.jsonl")
+            row = {"company": "A", "jobTitle": "Eng", "jobUrl": "https://x/a"}
+            with open(queue, "w", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
+            _code, parsed, _err, _text = run(["queue-list", "--queue", queue])
+            _c2, key_payload, _e2, _t2 = run(
+                ["queue-key", "--row", json.dumps(row)]
+            )
+        self.assertIn("row_key", parsed["rows"][0])
+        self.assertEqual(parsed["rows"][0]["row_key"], key_payload["row_key"])
+
+    def test_listing_does_not_write_row_key_into_the_queue_file(self):
+        """It is a view. Storing it would put a derived value in the file the
+        key is derived FROM."""
+        with tempfile.TemporaryDirectory() as tmp:
+            queue = os.path.join(tmp, "queue.jsonl")
+            row = {"company": "A", "jobTitle": "Eng", "jobUrl": "https://x/a"}
+            with open(queue, "w", encoding="utf-8") as f:
+                f.write(json.dumps(row) + "\n")
+            before = open(queue, "rb").read()
+            run(["queue-list", "--queue", queue])
+            after = open(queue, "rb").read()
+        self.assertEqual(before, after)
 
 
 class TestPromotePrepareValidatesBeforeBudgeting(unittest.TestCase):

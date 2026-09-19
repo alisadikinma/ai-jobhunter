@@ -9,7 +9,7 @@ Compiles `.jobhunter/profile/master-cv.md` and `.jobhunter/profile/variants.toml
 from every source the user names in `.jobhunter/config.toml`. This is the only
 skill in this plugin that runs without an existing config — its own job is to
 read the config's `profile_sources` section and, on a first run, help the user
-create it from `templates/config.toml` if it is missing.
+create it from `${CLAUDE_PLUGIN_ROOT}/templates/config.toml` if it is missing.
 
 Every value used here — site URLs, the LinkedIn PDF path, local notes
 directories, the allow-listed project directory names, the identity-card
@@ -19,7 +19,8 @@ individual is bundled with this plugin.
 ## Inputs
 
 - `.jobhunter/config.toml` — read with `config-show` (see the commands below). If missing, this
-  skill guides the user through creating one from `templates/config.toml`
+  skill guides the user through creating one from
+  `${CLAUDE_PLUGIN_ROOT}/templates/config.toml`
   rather than stopping with the named error the other five skills use.
 - `config.resolve_profile_sources(cfg)` — returns the ordered
   `[(tier, path_or_url), ...]` list this skill walks, in precedence order.
@@ -143,7 +144,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 ```
 
 Run it with `--help`, or a subcommand with `--help`, to see the options. Every
-subcommand prints JSON on stdout. A refusal prints
+subcommand prints JSON on stdout — except `keywords-report --markdown`, which
+prints the markdown report itself so it can be redirected to a file. A refusal prints
 `{"error": "<class>", "message": "..."}` on stderr and exits non-zero — report
 it, do not retry it blindly.
 

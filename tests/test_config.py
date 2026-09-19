@@ -570,6 +570,30 @@ class TestNestedLinksCannotEscapeTheAllowList(unittest.TestCase):
                 config.resolve_profile_sources(self._cfg(root))
             self.assertIn("leading outside it", str(ctx.exception))
 
+    def test_a_subtree_that_cannot_be_listed_is_refused_not_skipped(self):
+        """`os.walk`'s default `onerror=None` discards every OSError from
+        `scandir`, so a directory the guard cannot enumerate is a directory
+        whose links are never inspected — and the walk returns as though it
+        had checked them. Measured before the fix: the guard said ALLOWED and
+        the planted file was readable through the entry it handed back.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            sub = os.path.join(root, "allowed", "sub")
+            os.makedirs(sub)
+            secret = os.path.join(root, "client-work")
+            os.makedirs(secret)
+            with open(os.path.join(secret, "nda.md"), "w", encoding="utf-8") as f:
+                f.write("client pricing")
+            os.symlink(secret, os.path.join(sub, "out"))
+            os.chmod(sub, 0o311)  # traversable, not listable
+            try:
+                with self.assertRaises(config.ProjectSourceError) as ctx:
+                    config.resolve_profile_sources(self._cfg(root))
+                self.assertIn("could not be inspected", str(ctx.exception))
+            finally:
+                os.chmod(sub, 0o755)
+
     def test_a_deeply_nested_escaping_link_is_still_caught(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = os.path.join(tmp, "root")
@@ -580,6 +604,24 @@ class TestNestedLinksCannotEscapeTheAllowList(unittest.TestCase):
             os.symlink(outside, os.path.join(deep, "escape"))
             with self.assertRaises(config.ProjectSourceError):
                 config.resolve_profile_sources(self._cfg(root))
+
+    def test_allowed_given_as_a_bare_string_says_so(self):
+        """`allowed = "notes"` — brackets forgotten — was exploded into
+        ["n","o","t","e","s"] and refused by naming a directory the author
+        never wrote. It failed closed either way; this makes the diagnosis
+        match the mistake."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            cfg = {
+                "profile_sources": {
+                    "precedence": ["project"],
+                    "projects": {"root": root, "allowed": "allowed"},
+                }
+            }
+            with self.assertRaises(config.ProjectSourceError) as ctx:
+                config.resolve_profile_sources(cfg)
+            self.assertIn("not a single string", str(ctx.exception))
 
     def test_returned_paths_are_resolved(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -290,6 +290,31 @@ Dua catatan non-blocking ditutup di `8efce29`+1: batas `choices`+`nargs='*'` dic
 **Gate plan-verifier: LULUS.**
 
 
+## gaspol-review Tier 1 putaran 4 (2026-09-19)
+
+Dua lane konkuren, scope `50a17fb..HEAD`. Lane kode: 3 blocking. Lane plan-artifact: 2 Critical,
+4 Important, 7 Minor. Semua direproduksi sebelum diperbaiki.
+
+| # | Temuan | Tindakan |
+|---|---|---|
+| K1 | **Perbaikan `_Rows` putaran 3 tidak punya tes.** Mengembalikannya membuat **setiap board bersih** jadi `{"error":"AttributeError"}` — jalur paling umum — dan 244 tes tetap hijau. Semua tes CLI menanam entri nyasar dulu, jadi tak satu pun pernah menguji payload tanpa skipped | `TestACleanBoardStillReturnsRows`, 3 board; uji mutasi: 3 gagal |
+| K2 | `os.walk` tanpa `onerror` membuang tiap `OSError` dari `scandir`. Subtree yang tak bisa di-list = subtree yang link-nya tak pernah diperiksa, dan penjaga melapor bersih. Diukur mode 0o311: verdict LOLOS, file rahasia terbaca | `onerror=_unreadable` → refusal; uji mutasi: 1 gagal |
+| K3 | Lever cek tipe container-nya; Greenhouse dan Ashby tidak. `{"jobs": 5}` jadi `TypeError: 'int' object is not iterable` — crash berbaju refusal | `AtsError` bernama; uji mutasi: 2 gagal |
+| C1 | Keenam SKILL.md klaim "Every subcommand prints JSON on stdout". `keywords-report --markdown` tidak — dan `tailor` sendiri yang menjalankannya. Plan sudah tahu pengecualian ini; prosanya tidak | Pengecualian ditulis di keenam skill + docstring CLI |
+| C2 | `score/SKILL.md` bilang `row_key` ikut kembali dari `queue-list`. Tidak — barisnya objek JSONL mentah. Itu satu-satunya kalimat yang memberitahu `score` cara memperoleh kunci untuk tulis-balik wajibnya | `queue-list` kini membawa `row_key` (view, bukan field tersimpan) + 2 tes |
+| I1 | Plan mengaku self-contained tapi mendelegasikan `templates/config.toml` ke spec §4; lima tier presedensi, peta field, dan `PrecedenceError` nol sebutan | config.toml disalin verbatim ke plan + tabel tier + daftar error class |
+| I2 | Empat error class dikutip verbatim di prosa SKILL.md tapi nol di plan | Dinamai di Phase B dan Phase E |
+| I3 | **Ketujuh fixture eval pakai `snake_case`** sementara kontrak baris `camelCase`. Dijalankan sesuai instruksi eval sendiri ("perlakukan sebagai baris antrean"), semuanya jadi `TitleOnlyError` | 7 fixture dipetakan ke kontrak + 3 tes bentuk + prosa eval |
+| I4 | `DEFAULT_VARIANT = "unclassified"` sampai ke tracker user sebagai `variant:unclassified`, nol sebutan di artefak mana pun | Dinamai di plan dan `score/SKILL.md` |
+| M1 | spec bilang "Five skills", ada enam | Diperbaiki |
+| M2 | `discover` bilang stderr satu baris; `ats-fetch` menulis dua | Diperbaiki |
+| M3 | `profile/SKILL.md` menyebut `templates/config.toml` tanpa root, padahal aturannya sendiri melarang path telanjang | Dijangkarkan ke `${CLAUDE_PLUGIN_ROOT}` |
+| M4 | `tracking.jobsync_mcp` didokumentasikan, divalidasi, dibaca nol konsumen | Dinyatakan apa adanya di config.toml, spec, dan plan |
+| M7 | README menyajikan empat jaminan setara; tiga didukung kode, satu cuma prosa model | Dibedakan eksplisit |
+| + | Tiga salinan kontrak config bisa hanyut tanpa ketahuan | `TestConfigTemplateMatchesTheSpec`, diuji mutasi di kedua sisi |
+
+Tidak ditemukan: bypass daftar putih kedelapan. Sepuluh skenario diuji lane kode, semua ditolak.
+
 ## Regression tests
 
 Each line below was proven by running the round-3 tests against the pre-fix tree
@@ -332,3 +357,4 @@ design-artifact: approved — https://claude.ai/artifact/HjE6YSXbX9Ptu8fvqnfiYG
 - 2026-09-19 audit plan-verifier BLOCKING (3 MISSING / 3 PARTIAL / 1 DIVERGED) ditutup di `8442773` — 183 lulus / 0 gagal, naik dari 157 — NEXT: tutup AJOB-1, lalu AJOB-2 (render DOCX/PDF ramah-ATS)
 - 2026-09-19 gaspol-review Tier 1 putaran 2 ditutup di `bf9ac50` — 225 lulus / 0 gagal, naik dari 157 di akhir Fase G — NEXT: review ulang putaran 3
 - 2026-09-19 gaspol-review Tier 1 putaran 3 — 10 temuan, tiga di antaranya bypass daftar putih (kelima, keenam, ketujuh), semua dibuktikan dengan membaca file rahasia yang ditanam. Satu test lama justru mengkodekan lubangnya sebagai perilaku benar. Diperbaiki di `b88f813`; 239 lulus / 0 gagal; kedua penjaga baru diuji mutasi — NEXT: gaspol-review putaran 4 (scope `50a17fb..HEAD`)
+- 2026-09-19 plan-verifier 5 putaran → CLEAN di `5a2abbf`; gaspol-review Tier 1 putaran 4 → 3 blocking + 2 Critical artefak, semua direproduksi dan ditutup; 258 lulus / 0 gagal — NEXT: gaspol-review putaran 5 (scope `5a2abbf..HEAD`)

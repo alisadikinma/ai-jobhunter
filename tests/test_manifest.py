@@ -368,5 +368,48 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
                 )
 
 
+class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
+    """`templates/config.toml` and the spec's §4 block are the same text.
+
+    The plan instructs "write templates/config.toml containing the commented
+    example from spec §4 verbatim", and the plan now embeds it too. Three
+    copies of one contract drift, and a config key documented in one place
+    and absent from another is exactly the kind of gap four review rounds
+    kept finding by hand. This checks it in 3 milliseconds.
+    """
+
+    def _template(self):
+        path = pathlib.Path(REPO_ROOT) / "templates" / "config.toml"
+        return path.read_text().strip()
+
+    def _toml_blocks(self, path):
+        text = pathlib.Path(path).read_text()
+        return [
+            block.strip()
+            for block in re.findall(r"```toml\n(.*?)```", text, re.S)
+            if "profile_sources" in block
+        ]
+
+    def test_the_spec_carries_the_template_verbatim(self):
+        blocks = self._toml_blocks(
+            pathlib.Path(REPO_ROOT).glob("docs/plans/*-spec.md").__next__()
+        )
+        self.assertIn(
+            self._template(),
+            blocks,
+            "templates/config.toml and the spec's §4 TOML block have drifted",
+        )
+
+    def test_the_plan_carries_the_template_verbatim(self):
+        blocks = self._toml_blocks(
+            pathlib.Path(REPO_ROOT).glob("docs/plans/*-plan.md").__next__()
+        )
+        self.assertIn(
+            self._template(),
+            blocks,
+            "templates/config.toml and the plan's embedded copy have drifted",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -80,3 +80,9 @@ was never an application.
   allow-listed in `profile_sources.projects.allowed`.
 - It will not render a claim your own source material flags as unverified
   (`[verifikasi]` / `[Assumption]`) into any document meant to go outward.
+
+The first three are properties of the code: there is no submit path, no mail
+path, and `scripts/config.py` refuses any project directory outside the
+allow-list. The fourth is an instruction the model follows, checked by the
+judgement evals in `docs/evals/profile.md` rather than by a test — a weaker
+guarantee than the three above it, and worth knowing which is which.
