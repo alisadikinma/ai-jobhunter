@@ -28,7 +28,7 @@ Python 3 **standard library only** — no pip, no pytest, no PyYAML. Tests are
 `unittest`; config is TOML via `tomllib`.
 
 ```bash
-python3 -m unittest discover -s tests -t .   # unit  (409 tests)
+python3 -m unittest discover -s tests -t .   # unit  (424 tests)
 python3 -m compileall -q scripts tests       # static
 ```
 
@@ -54,7 +54,7 @@ prints the report. Logging goes to stderr. A refusal is
 
 | Path | What it holds |
 | --- | --- |
-| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, nine subcommands |
+| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, ten subcommands |
 | `scripts/config.py` | TOML loader + `resolve_profile_sources`; owns the allow-list |
 | `scripts/jobq.py` | local JSONL queue — `load`, `append_rows`, `row_key`, `iter_unscored`, `iter_unpromoted`, `update_rows` |
 | `scripts/ats.py` | `fetch` (the only network call, GET) + `normalize_{greenhouse,lever,ashby}` |

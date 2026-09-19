@@ -117,25 +117,25 @@
 - [x] Generate a sample `.docx` from a real tailored CV into `docs/evals/samples/` and commit it, so the manual check has a fixed artifact rather than one the checker must first produce
 - [x] Run tests, confirm all pass
 - [x] **Hand the manual check to the owner.** Do NOT tick it. Record in the ledger under `## Utang terbuka`: `Word / Google Docs / LibreOffice open-check: NOT RUN — needs Ali, cannot be verified from the session`
-- [ ] Commit: "test(docx): eval cases for the one thing a program cannot check"
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t .` passes
-- [ ] `docs/evals/docx-rendering.md` exists and names all three applications
-- [ ] A sample `.docx` is committed under `docs/evals/samples/`
-- [ ] The manual open-check is recorded as **NOT RUN** in the ledger, not ticked
-- [ ] No placeholder/TODO comments in new code
-- [ ] detect-stack: no stack markers for this project — verification is plan-declared only
+- [x] Commit: "test(docx): eval cases for the one thing a program cannot check"
+- [x] `python3 -m compileall -q scripts tests` passes
+- [x] `python3 -m unittest discover -s tests -t .` passes
+- [x] `docs/evals/docx-rendering.md` exists and names all three applications
+- [x] A sample `.docx` is committed under `docs/evals/samples/`
+- [x] The manual open-check is recorded as **NOT RUN** in the ledger, not ticked
+- [x] No placeholder/TODO comments in new code
+- [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
 ## Phase log
 
 | Phase | Status | Commit |
 |---|---|---|
-| A — parse blok markdown | TODO | — |
-| B — gerbang klaim tak terverifikasi | TODO | — |
-| C — perataan ATS | TODO | — |
-| D — penulis OOXML | TODO | — |
-| E — subcommand CLI + wiring skill | TODO | — |
-| F — apakah benar-benar bisa dibuka | TODO | — |
+| A — parse blok markdown | SELESAI | `5c3ecfa` |
+| B — gerbang klaim tak terverifikasi | SELESAI | `e201085` |
+| C — perataan ATS | SELESAI | `1021366` |
+| D — penulis OOXML | SELESAI | `6b6f620` |
+| E — subcommand CLI + wiring skill | SELESAI | `b858ab7` |
+| F — apakah benar-benar bisa dibuka | SELESAI | `c2d202d` |
 
 ## Utang terbuka
 

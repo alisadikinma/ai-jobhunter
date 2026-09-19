@@ -318,12 +318,31 @@ class TestDocxRenderingEval(unittest.TestCase):
             self.assertEqual(handle.read(), fresh_bytes)
 
     def test_the_manual_open_check_is_recorded_as_not_run(self):
-        """The ledger must carry the debt, not a tick nobody earned."""
+        """The ledger must carry the debt, not a tick nobody earned.
+
+        Scoped to the open-debt section on purpose. Searching the whole file
+        for "NOT RUN" was vacuous: the string also appears twice inside the
+        copied plan checklist, so deleting the one entry this test exists to
+        protect left the suite green.
+        """
         ledger = os.path.join(
             REPO_ROOT, ".gaspol", "progress", "PROGRESS-AJOB-2.md"
         )
         text = _read(ledger)
-        self.assertIn("NOT RUN", text)
+        # Anchored to a heading at the start of a line: the phrase also
+        # appears INSIDE Phase F's checklist prose, and splitting on the
+        # first occurrence read the checklist instead of the section.
+        heading = re.search(r"^## Utang terbuka$", text, re.MULTILINE)
+        self.assertIsNotNone(heading, "ledger has no '## Utang terbuka' section")
+        section = text[heading.end() :].split("\n## ", 1)[0]
+        self.assertIn("NOT RUN", section)
+        # The ledger names the applications in its own shorthand ("Word /
+        # Google Docs / LibreOffice"), so the debt is matched on the shortest
+        # spelling that still identifies each one. The eval document itself
+        # is held to the full names, by `test_it_declares_a_case_for_each_
+        # target_application`.
+        for application in ("Word", "Google Docs", "LibreOffice"):
+            self.assertIn(application, section)
 
 
 if __name__ == "__main__":

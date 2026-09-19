@@ -609,6 +609,46 @@ class TestRenderDocx(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(err)["error"], "DestinationError")
 
+    def test_out_differing_only_by_case_refuses_on_a_case_insensitive_filesystem(self):
+        """macOS's default APFS is case-insensitive — this project's platform.
+
+        Compared as strings, `cv.md` and `CV.MD` are two files; on disk they
+        are one. The render overwrote the tailored markdown with a ZIP, and
+        the source the whole `tailor` pipeline produced was gone with no
+        backup and no warning.
+
+        On a case-SENSITIVE filesystem the two really are different files and
+        refusing would be wrong, so the assertion follows what the filesystem
+        itself reports rather than demanding a refusal unconditionally.
+        """
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        shouty = os.path.join(self.tmp, "CV.MD")
+        case_insensitive = os.path.exists(shouty)
+
+        code, _parsed, err, _text = run(
+            ["render-docx", "--in", source, "--out", shouty]
+        )
+        if case_insensitive:
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "DestinationError")
+        else:
+            self.assertEqual(code, 0)
+        # Either way, the source markdown must still be markdown.
+        with open(source, "rb") as handle:
+            self.assertNotEqual(handle.read()[:2], b"PK")
+
+    def test_the_same_file_helper_reports_a_hard_link_as_the_same_file(self):
+        # The case-only test is a no-op on a case-sensitive filesystem, so
+        # `samefile` semantics are asserted directly too, through a link,
+        # which behaves the same everywhere.
+        source = self.write_markdown("# CV\n")
+        link = os.path.join(self.tmp, "linked.md")
+        os.link(source, link)
+        self.assertTrue(jobhunter._same_file(source, link))
+        self.assertFalse(
+            jobhunter._same_file(source, os.path.join(self.tmp, "absent.docx"))
+        )
+
     def test_a_missing_output_directory_is_a_named_refusal(self):
         source = self.write_markdown("# CV\n")
         out = os.path.join(self.tmp, "nope", "cv.docx")

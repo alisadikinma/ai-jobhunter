@@ -18,6 +18,7 @@ Three functions, in the order `render` calls them:
 - `parse_blocks` — the supported markdown subset, as a flat block list.
 """
 
+import html
 import os
 import re
 import sys
@@ -206,7 +207,7 @@ def parse_blocks(markdown):
 # capitalises inconsistently, but the inner spelling is not loosened: matching
 # `[ verifikasi ]` or `[verifikasi-nanti]` would refuse on text that only
 # resembles the marker, and a gate that cries wolf gets bypassed by habit.
-_UNVERIFIED_RE = re.compile(r"\[(?:verifikasi|assumption)\]", re.I)
+_UNVERIFIED_RE = re.compile(r"\[(?:verifikasi|assumption)\b[^\]]*\]", re.I)
 
 _IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]*)\)")
 
@@ -233,6 +234,37 @@ _TABLE_SEP_RE = re.compile(
 # A bullet indented four or more spaces (or by a tab) is nested at least two
 # levels deep. One level of nesting survives flattening; deeper does not.
 _DEEP_BULLET_RE = re.compile(r"^(?: {4,}|\t+)\s*[-*]\s")
+
+
+def _unmask(line):
+    """The line as it will READ once every later stage has had its turn.
+
+    The gate used to run on the raw markdown only, while `strip_inline` and
+    the html cleaner ran afterwards — so a marker could reassemble itself
+    downstream of the check. Three spellings got a claim into a shipped CV
+    with the gate reporting clean:
+
+        - Grew ARR to $9M [**verifikasi**]      emphasis stripped later
+        - Cut spend 35% [`verifikasi`]          code span stripped later
+        - <b>Impact</b> revenue &#91;verifikasi&#93;   entities decoded later
+
+    Linting this projection as well as the raw line closes all three, and
+    closes the ones nobody has thought of yet: any future transformation that
+    removes characters can only make a marker MORE visible here, never less.
+
+    Tags are removed with no separator on purpose. That is stricter than the
+    html cleaner, which substitutes a space — `[verif<i>ikasi</i>]` rejoins
+    into the marker here and is refused, rather than being caught by luck.
+    """
+    text = line
+    previous = None
+    # To a fixed point, because `&amp;#91;` decodes to `&#91;` and then to
+    # `[`. One pass would leave the second spelling readable.
+    while text != previous:
+        previous = text
+        text = html.unescape(text)
+    text = _HTML_TAG_RE.sub("", text)
+    return strip_inline(text)
 
 
 def _is_table_row(line):
@@ -296,7 +328,7 @@ def ats_lint(markdown):
         # One finding per line even when the line carries two markers: the
         # unit of the refusal is the claim's line, and two findings pointing
         # at one line read as two separate problems.
-        if _UNVERIFIED_RE.search(line):
+        if _UNVERIFIED_RE.search(line) or _UNVERIFIED_RE.search(_unmask(line)):
             add(index, "unverified-claim")
         if _IMAGE_RE.search(line):
             add(index, "image")
@@ -702,6 +734,17 @@ def render(markdown, path, allow_unverified=False, source=None):
 
     flattened, notes = flatten(markdown)
     blocks = parse_blocks(flattened)
+
+    # The last word, on the text that will actually be written. `_unmask`
+    # anticipates the transformations that exist today; this catches any that
+    # arrive later, on the only string that matters — the one the employer
+    # reads. A gate defended in one place is a gate one refactor from gone.
+    residual = unverified_findings("\n".join(block["text"] for block in blocks))
+    if residual and not allow_unverified:
+        raise UnverifiedClaimError(
+            residual, "%s (marker survived into the rendered text)" % label
+        )
+
     if not blocks:
         raise EmptyDocumentError(
             "refused to render %s: the markdown holds no headings, "

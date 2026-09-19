@@ -13,11 +13,13 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import xml.etree.ElementTree as ElementTree
 import zipfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+import ats  # noqa: E402
 import docx  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
@@ -230,6 +232,63 @@ class TestAtsLintRefusesUnverifiedClaims(unittest.TestCase):
         self.assertEqual(len(findings), 1)
         self.assertEqual(findings[0]["line"], 6)
         self.assertEqual(findings[0]["text"], "- increased revenue 40% [verifikasi]")
+
+
+class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
+    """Markers that reassemble themselves downstream of the check.
+
+    Every one of these shipped a claim into a rendered CV while
+    `unverified_findings` reported clean, because `strip_inline` and the html
+    cleaner run AFTER the gate did. The gate now lints the projection of the
+    line as it will finally read, so removing characters can only make a
+    marker more visible, never less.
+    """
+
+    def test_emphasis_around_the_marker_does_not_hide_it(self):
+        findings = docx.unverified_findings("- Grew ARR to $9M [**verifikasi**]\n")
+        self.assertEqual([f["line"] for f in findings], [1])
+
+    def test_a_code_span_around_the_marker_does_not_hide_it(self):
+        self.assertEqual(len(docx.unverified_findings("- x [`verifikasi`]\n")), 1)
+
+    def test_italics_around_the_marker_do_not_hide_it(self):
+        self.assertEqual(len(docx.unverified_findings("- x [*verifikasi*]\n")), 1)
+
+    def test_html_entities_spelling_the_brackets_do_not_hide_it(self):
+        markdown = "- <b>Impact</b> revenue &#91;verifikasi&#93;\n"
+        self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_double_escaped_entities_do_not_hide_it(self):
+        # "&amp;#91;" decodes to "&#91;" and only then to "[". One pass would
+        # leave the second spelling readable.
+        markdown = "- <b>x</b> &amp;#91;verifikasi&amp;#93;\n"
+        self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_a_tag_splitting_the_marker_does_not_hide_it(self):
+        self.assertEqual(len(docx.unverified_findings("- x [verif<i>ikasi</i>]\n")), 1)
+
+    def test_the_finding_still_names_the_original_line_and_text(self):
+        # The projection is for detection only. What the author is shown must
+        # be the line they wrote, at the number they wrote it on.
+        markdown = "# CV\n\n- Grew ARR [**verifikasi**]\n"
+        finding = docx.unverified_findings(markdown)[0]
+        self.assertEqual(finding["line"], 3)
+        self.assertEqual(finding["text"], "- Grew ARR [**verifikasi**]")
+
+    def test_an_assumption_marker_carrying_a_reason_is_matched(self):
+        # "[Assumption: figure from memory]" is far likelier to be written
+        # than the bare marker, and it is the outward document being linted.
+        markdown = "- Grew ARR to $9M [Assumption: figure from memory]\n"
+        self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_a_verifikasi_marker_carrying_a_note_is_matched(self):
+        self.assertEqual(
+            len(docx.unverified_findings("- x [verifikasi nanti]\n")), 1
+        )
+
+    def test_a_bracketed_word_that_is_not_a_marker_is_still_not_matched(self):
+        self.assertEqual(docx.unverified_findings("- shipped [v2] of the API\n"), [])
+        self.assertEqual(docx.unverified_findings("- x [ Assumption ]\n"), [])
 
 
 class TestAtsLintUnverifiedEdgeCases(unittest.TestCase):
@@ -582,16 +641,55 @@ class TestFlattenOverARealMessyCV(unittest.TestCase):
 
 
 class TestHtmlStrippingIsNotReimplemented(unittest.TestCase):
-    def test_the_module_delegates_to_ats_clean_description(self):
-        source = read_fixture(os.path.join(FIXTURES, "..", "..", "scripts", "docx.py"))
-        self.assertIn("ats._clean_description", source)
+    """Behavioural, not textual.
 
-    def test_there_is_no_second_tag_substitution_in_the_module(self):
-        # A second stripper would drift from `ats`'s, and the two would
-        # disagree about what an ATS sees.
-        source = read_fixture(os.path.join(FIXTURES, "..", "..", "scripts", "docx.py"))
-        self.assertNotIn("_TAG_RE.sub", source)
-        self.assertNotIn("html.unescape", source)
+    The first version of this guard asserted the literal token `_TAG_RE.sub`
+    was absent from the module source. A real second stripper — a fresh
+    `re.compile(r"<[^>]+>")` under any other name — left the whole suite
+    green. That is this repository's documented recurring defect: a guard
+    that checks a spelling instead of the property it claims to enforce.
+
+    These replace it by making the delegation observable. If the module ever
+    stops routing html through `ats._clean_description`, the substituted
+    function's output stops appearing in the result, and these fail.
+    """
+
+    def test_flatten_routes_html_through_ats_clean_description(self):
+        marker = "SENTINEL-FROM-THE-SUBSTITUTE" + "x" * 10
+
+        def substitute(raw):
+            return marker
+
+        with unittest.mock.patch.object(ats, "_clean_description", substitute):
+            flat, _notes = docx.flatten("<b>Skills</b>\n")
+        self.assertIn(marker, flat)
+
+    def test_strip_html_routes_through_ats_clean_description(self):
+        seen = []
+        original = ats._clean_description
+
+        def spy(raw):
+            seen.append(raw)
+            return original(raw)
+
+        with unittest.mock.patch.object(ats, "_clean_description", spy):
+            docx.strip_html("<b>Product engineer</b>, Amsterdam")
+        self.assertTrue(seen, "strip_html never called ats._clean_description")
+
+    def test_a_line_without_html_is_not_sent_through_the_cleaner_at_all(self):
+        # Delegating is right; delegating a line that has no tag is not. The
+        # cleaner collapses whitespace and unescapes entities, and an
+        # ordinary CV line should reach the document exactly as written.
+        seen = []
+        original = ats._clean_description
+
+        def spy(raw):
+            seen.append(raw)
+            return original(raw)
+
+        with unittest.mock.patch.object(ats, "_clean_description", spy):
+            docx.flatten("Keeps p95 < 200ms and > 1k rps.\n")
+        self.assertEqual(seen, [])
 
 
 THE_FIVE_PARTS = [
@@ -761,10 +859,41 @@ class TestRenderRefusals(DocxTempDirCase):
             raise
 
     def test_a_failed_render_leaves_no_temp_file_behind(self):
-        path = os.path.join(self.tmp, "nope", "cv.docx")
+        # The destination must fail at `os.replace`, not before it. Pointing
+        # at a missing directory made this test vacuous: `render` refused at
+        # the `isdir` check, no temp file was ever created, and deleting
+        # either `_remove_quietly` call left the whole suite green. A
+        # directory sitting at the --out path gets all the way into
+        # `_write_archive` and fails on the rename.
+        path = os.path.join(self.tmp, "cv.docx")
+        os.mkdir(path)
         with self.assertRaises(docx.DestinationError):
             docx.render("# Ali\n", path)
-        self.assertEqual(os.listdir(self.tmp), [])
+        leftovers = [name for name in os.listdir(self.tmp) if name != "cv.docx"]
+        self.assertEqual(leftovers, [], "a .docx.tmp was left behind")
+
+    def test_a_render_that_fails_at_the_rename_leaves_the_destination_alone(self):
+        path = os.path.join(self.tmp, "cv.docx")
+        os.mkdir(path)
+        with self.assertRaises(docx.DestinationError):
+            docx.render("# Ali\n", path)
+        self.assertTrue(os.path.isdir(path))
+
+    def test_the_second_gate_holds_when_the_first_one_is_blinded(self):
+        """The belt, tested without the braces.
+
+        `_unmask` catches every bypass known today, which makes the final
+        pass over the rendered text unfalsifiable by ordinary input — delete
+        it and the suite stays green. So blind the first layer deliberately
+        and check the second still refuses. Without this, the defence in
+        depth is one refactor from being deleted as dead code.
+        """
+        path = self.out()
+        with unittest.mock.patch.object(docx, "_unmask", lambda line: line):
+            with self.assertRaises(docx.UnverifiedClaimError) as caught:
+                docx.render("# CV\n\n- Grew ARR [**verifikasi**]\n", path)
+        self.assertIn("survived into the rendered text", str(caught.exception))
+        self.assertFalse(os.path.exists(path))
 
     def test_every_refusal_is_a_docx_error(self):
         for cls in (
@@ -818,8 +947,11 @@ class TestRenderTextFidelity(DocxTempDirCase):
         self.assertEqual(self.document_xml(path).count("<w:p>"), 500)
 
     def test_no_markdown_syntax_reaches_the_document(self):
+        # The messy fixture, not the clean one: `](` and `|---` never appear
+        # in tailored_cv.md, so two of these five assertions could not fail
+        # against it.
         path = self.out()
-        docx.render(read_fixture(TAILORED_CV), path)
+        docx.render(read_fixture(MESSY_CV), path)
         root = ElementTree.fromstring(self.document_xml(path))
         text = " ".join(
             node.text or ""

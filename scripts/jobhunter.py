@@ -169,6 +169,28 @@ def cmd_keywords_report(args):
     _emit(report)
 
 
+def _same_file(source, destination):
+    """Whether two paths name the same file, asking the filesystem when it exists.
+
+    A string compare of the absolute paths is not enough on macOS, whose
+    default APFS is case-insensitive: `--in cv.md --out CV.MD` compared as
+    two different files and the render then overwrote the tailored markdown
+    with a ZIP. The source the whole `tailor` pipeline produced was gone,
+    with no backup and no warning.
+
+    `samefile` needs the destination to exist, so the string compare stays
+    for the ordinary case where it does not.
+    """
+    if os.path.abspath(source) == os.path.abspath(destination):
+        return True
+    if not os.path.exists(destination):
+        return False
+    try:
+        return os.path.samefile(source, destination)
+    except OSError:
+        return False
+
+
 def cmd_render_docx(args):
     """Render a tailored CV or cover letter to an ATS-readable `.docx`.
 
@@ -176,7 +198,7 @@ def cmd_render_docx(args):
     skill parses, and as human lines on stderr, which is the channel a person
     reads. A transformation nobody is told about is one nobody checks.
     """
-    if os.path.abspath(args.input_path) == os.path.abspath(args.out):
+    if _same_file(args.input_path, args.out):
         raise docx.DestinationError(
             "refusing to write the .docx over its own source markdown (%s). "
             "Give --out a different path." % args.input_path
