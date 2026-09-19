@@ -250,27 +250,35 @@ def _as_code_span(text):
 def _strip_emphasis(text):
     """Bold before italic: `**x**` would otherwise read as italic around `*x*`.
 
-    Backslash escapes are hidden first and restored last, without their
-    backslash. `a \\*literal\\* star` used to reach the page as
-    `a \\literal\\ star`: the emphasis pattern ate the asterisks the author
-    had explicitly escaped and left the backslashes behind, which is both
-    halves of the transformation backwards.
+    Backslash-escaped punctuation is scanned around, not substituted behind a
+    sentinel. The sentinel version used an in-band `\\x00N\\x00` marker, and
+    author text carrying that same shape either crashed with a bare
+    `IndexError` — the CLI contract says a refusal is JSON and never a
+    traceback — or had its own characters overwritten by an unrelated escaped
+    one: `\\x000\\x00 and \\*y\\*` came back as `* and *y*`. This is the same
+    scan-and-splice `strip_inline` already uses for code spans, and nothing
+    the author can write collides with it.
     """
-    escaped = []
+    out = []
+    position = 0
+    for match in _ESCAPED_RE.finditer(text):
+        out.append(_strip_emphasis_run(text[position : match.start()]))
+        # The character, without its backslash. `a \\*literal\\* star` used to
+        # reach the page as `a \\literal\\ star`: the emphasis pattern ate the
+        # asterisks the author had explicitly escaped and left the
+        # backslashes behind, which is both halves of it backwards.
+        out.append(match.group(1))
+        position = match.end()
+    out.append(_strip_emphasis_run(text[position:]))
+    return "".join(out)
 
-    def hide(match):
-        escaped.append(match.group(1))
-        return "\x00%d\x00" % (len(escaped) - 1)
 
-    text = _ESCAPED_RE.sub(hide, text)
+def _strip_emphasis_run(text):
+    """One stretch of text with no escape in it."""
     text = _BOLD_RE.sub(r"\1", text)
     text = _BOLD_UNDERSCORE_RE.sub(r"\1", text)
     text = _ITALIC_RE.sub(r"\1", text)
     text = _ITALIC_UNDERSCORE_RE.sub(r"\1", text)
-    if escaped:
-        text = re.sub(
-            r"\x00(\d+)\x00", lambda m: escaped[int(m.group(1))], text
-        )
     return text
 
 

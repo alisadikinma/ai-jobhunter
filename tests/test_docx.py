@@ -1824,6 +1824,30 @@ class TestRoundSevenFollowups(unittest.TestCase):
         with self.assertRaises(docx.UnverifiedClaimError):
             docx.render("# CV\n\n- ARR \\[verifikasi\\]\n", destination)
 
+    def test_a_nul_in_the_text_cannot_collide_with_an_escape(self):
+        """The escape hiding used an in-band `\\x00N\\x00` sentinel.
+
+        Author text carrying that shape either crashed with a bare
+        `IndexError` — the CLI contract says a refusal is JSON and never a
+        traceback — or had its own characters replaced by an unrelated
+        escaped one.
+        """
+        self.assertEqual(
+            docx.strip_inline("\x0099999\x00 and \\_x\\_"),
+            "\x0099999\x00 and _x_",
+        )
+        self.assertEqual(
+            docx.strip_inline("\x000\x00 and \\*y\\*"),
+            "\x000\x00 and *y*",
+        )
+
+    def test_a_document_carrying_that_shape_renders_without_a_traceback(self):
+        destination = os.path.join(tempfile.mkdtemp(), "out.docx")
+        docx.render(
+            "# CV\n\n- Budget \x0099999\x00 and \\_x\\_\n", destination
+        )
+        self.assertTrue(os.path.exists(destination))
+
     def test_real_emphasis_is_still_stripped(self):
         blocks, _notes = self.blocks("Shipped **on time** and *early*\n")
         self.assertEqual(blocks[0]["text"], "Shipped on time and early")
