@@ -309,7 +309,7 @@ Two consequences for the implementation:
 7. Commit: "feat(keywords): JD-vs-CV coverage report"
 
 **Completeness ladder:**
-- Happy path: covered and missing terms, ranked by JD frequency. The report is truncated to `DEFAULT_TOP_N = 40` terms per list unless `--top` says otherwise — an untruncated report ran to 699 lines and 12.3 KB, which is not a thing a candidate reads before applying. Both headings state the full count so the truncation is never silent..
+- Happy path: covered and missing terms, ranked by JD frequency. The report is truncated to `DEFAULT_TOP_N = 40` terms per list unless `--top` says otherwise — an untruncated report ran to 699 lines and 12.3 KB, which is not a thing a candidate reads before applying. Both headings state the full count so the truncation is never silent.
 - Error paths: empty or whitespace-only input on either side (return an empty report with a stated reason, never divide by zero).
 - Edge cases: substring false positives, hyphenation, casing, repeats, non-ASCII, a CV longer than the JD and the reverse.
 - Observability: the rendered report states how many terms were extracted and how many survived stopword removal.

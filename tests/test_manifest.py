@@ -190,11 +190,37 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     # The set was {""}, assertTrue passed on a non-empty set and
     # assertIn("", help_text) passed trivially — a guard that would have
     # accepted a completely fictional subcommand.
+    # Two ways a skill names a command, and the guard has to read both.
+    #
+    # A fenced block anchors on the script path:
+    #     python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-list \\
+    #       --queue .jobhunter/queue/jobs.jsonl --unscored
+    #
+    # Prose names it in backticks, with no path at all:
+    #     `queue-list --unpromoted`: a row already in jobsync costs two requests
+    #
+    # Anchoring only on `jobhunter.py` left the second style unread, and
+    # `--unpromoted` — the flag the previous round used as its own mutation
+    # subject — is documented ONLY that way. Typos planted in both prose
+    # mentions left the suite green.
+    _FENCED_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)(.*)')
+    _INLINE_RE = re.compile(r"`([a-z][a-z0-9-]+)((?:\s+--?[a-z][a-z0-9-]*[^`]*?)?)`")
+
     # The tail captures the REST of the logical line, not a run of adjacent
     # flags: `--queue .jobhunter/queue/jobs.jsonl --unscored` puts a value
     # between the two flags, so a repetition group stops after the first one
-    # and collected exactly one flag per command.
-    _COMMAND_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)(.*)')
+    # and collected exactly one flag per command. But "rest of the line"
+    # over-reads once a shell operator appears — `… --queue q.jsonl | jq
+    # --raw-output` attributed `--raw-output` to `queue-list`. No current
+    # SKILL.md does that, and over-capture can only ADD a false assertion,
+    # never drop a real one; still, piping a board to `jq` is an obvious
+    # future edit and it would fail the build for no reason.
+    #
+    # `>` is deliberately NOT a stop character. Including it cut the tail at
+    # the placeholder `<slug>`, silently dropping `--dest` and `--company`
+    # from `ats-fetch` — trading one blind spot for another. A redirection
+    # introduces no flags, so there is nothing to stop for.
+    _TAIL_END_RE = re.compile(r"[|`]|(?<=\s)#")
 
     @staticmethod
     def _join_continuations(text):
@@ -214,19 +240,42 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         """
         return re.sub(r"\\\s*\n\s*", " ", text)
 
+    @classmethod
+    def _flags_in(cls, tail):
+        """Long flags in `tail`, stopping at the first shell operator."""
+        stop = cls._TAIL_END_RE.search(tail)
+        if stop:
+            tail = tail[: stop.start()]
+        return re.findall(r"--[a-z][a-z0-9-]*", tail)
+
     def _documented_commands(self):
-        """Map each documented subcommand to the long flags shown with it."""
+        """Map each documented subcommand to the long flags shown with it.
+
+        Only names that are real subcommands are kept from the inline form:
+        prose is full of backticked identifiers, and every one of them would
+        otherwise be asserted to exist in the CLI.
+        """
+        real = set(self._cli_subcommands())
         commands = {}
         for skill_md in sorted(pathlib.Path(SKILLS_DIR).glob("*/SKILL.md")):
             joined = self._join_continuations(skill_md.read_text())
             for line in joined.splitlines():
-                match = self._COMMAND_RE.search(line)
-                if not match:
-                    continue
-                name, tail = match.group(1), match.group(2)
-                flags = commands.setdefault(name, set())
-                flags.update(re.findall(r"--[a-z][a-z0-9-]*", tail))
+                for match in self._FENCED_RE.finditer(line):
+                    name, tail = match.group(1), match.group(2)
+                    commands.setdefault(name, set()).update(self._flags_in(tail))
+                for match in self._INLINE_RE.finditer(line):
+                    name, tail = match.group(1), match.group(2)
+                    if name not in real:
+                        continue
+                    commands.setdefault(name, set()).update(self._flags_in(tail))
         return commands
+
+    def _cli_subcommands(self):
+        """The subcommand names argparse itself reports, parsed from --help."""
+        help_text = self._cli_help()
+        match = re.search(r"\{([a-z0-9,-]+)\}", help_text)
+        assert match, f"could not read the subcommand list out of:\n{help_text}"
+        return match.group(1).split(",")
 
     def test_every_documented_subcommand_exists_in_the_cli(self):
         help_text = self._cli_help()

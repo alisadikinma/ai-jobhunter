@@ -245,6 +245,15 @@ Dijalankan ulang karena plan bertambah Phase E.5. Verdict: BLOCKING — 1 DROPPE
 
 Tidak ditemukan: bypass daftar putih kedelapan. Enam bentuk serangan baru diuji, semua ditolak.
 
+Putaran 2 audit itu (scope `c30b464..HEAD`): 4 dari 5 tertutup dan direproduksi. Sisa satu PARTIAL —
+penjaga flag punya lubang berbentuk sama, satu gaya di sebelahnya: ia hanya membaca blok fenced
+ber-`jobhunter.py`, sedangkan `--unpromoted` justru **hanya** didokumentasikan sebagai prosa backtick.
+Typo ditanam di dua prosa itu, suite tetap hijau. Diperbaiki: `_INLINE_RE` membaca gaya backtick
+(disaring ke nama subcommand asli saja), tail berhenti di `|` dan backtick. `>` sengaja BUKAN
+pemberhenti — memasukkannya memotong tail di placeholder `<slug>` dan diam-diam membuang `--dest`
+dan `--company`, yaitu menukar satu titik buta dengan titik buta lain. Cakupan 0/18 → 16/18 → 18/18,
+8 perintah. Empat bentuk serangan menggigit, pipe ke `jq` tidak memicu gagal palsu.
+
 ## Regression tests
 
 Each line below was proven by running the round-3 tests against the pre-fix tree
