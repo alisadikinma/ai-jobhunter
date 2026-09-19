@@ -37,21 +37,21 @@
 - [x] No placeholder/TODO comments in new code
 - [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
-### [ ] Phase B: the unverified-claim gate
-- [ ] Write failing test for `docx.ats_lint("- revenue up 40% [verifikasi]\n")` returning one finding with `reason == "unverified-claim"` and `line == 1`. Expected error: `AttributeError: module 'docx' has no attribute 'ats_lint'`
-- [ ] Run tests, confirm it fails for that reason
-- [ ] Implement `ats_lint(markdown)` returning findings per the Lint finding contract. Detect `[verifikasi]` and `[Assumption]` **case-insensitively**, anywhere on the line. Also detect and report (without refusing) `table`, `image`, `deep-nesting`, `html`
-- [ ] Implement `UnverifiedClaimError(Exception)` carrying `.findings`, with a message naming the file, the line number and the offending text, e.g. `cv.md:14 — "increased revenue 40% [verifikasi]"`
-- [ ] Add tests for the enumerated edge cases: marker in a heading, marker inside a fenced code block (**still refuses** — a CV has no reason to carry code fences, and a marker there is far more likely a real claim than a deliberate literal), `[VERIFIKASI]` uppercase, `[ Assumption ]` with inner spaces (**not** a match — the convention is exact, and loosening it invites false positives), two markers on one line (one finding, not two), a marker on the last line with no trailing newline, and markdown with no markers at all (empty finding list)
-- [ ] Run tests, confirm all pass
-- [ ] Commit: "feat(docx): refuse to render a claim the candidate never verified"
-- [ ] `python3 -m compileall -q scripts tests` passes
-- [ ] `python3 -m unittest discover -s tests -t .` passes
-- [ ] A markdown file carrying `[verifikasi]` produces a finding whose `line` matches the real 1-based line number, proven against a multi-line fixture
-- [ ] `[ Assumption ]` with inner spaces produces no finding
-- [ ] Mutation check: delete the `[Assumption]` half of the pattern and confirm a test fails — a guard that guards only half of what it claims is this repository's documented recurring defect
-- [ ] No placeholder/TODO comments in new code
-- [ ] detect-stack: no stack markers for this project — verification is plan-declared only
+### [x] Phase B: the unverified-claim gate
+- [x] Write failing test for `docx.ats_lint("- revenue up 40% [verifikasi]\n")` returning one finding with `reason == "unverified-claim"` and `line == 1`. Expected error: `AttributeError: module 'docx' has no attribute 'ats_lint'`
+- [x] Run tests, confirm it fails for that reason
+- [x] Implement `ats_lint(markdown)` returning findings per the Lint finding contract. Detect `[verifikasi]` and `[Assumption]` **case-insensitively**, anywhere on the line. Also detect and report (without refusing) `table`, `image`, `deep-nesting`, `html`
+- [x] Implement `UnverifiedClaimError(Exception)` carrying `.findings`, with a message naming the file, the line number and the offending text, e.g. `cv.md:14 — "increased revenue 40% [verifikasi]"`
+- [x] Add tests for the enumerated edge cases: marker in a heading, marker inside a fenced code block (**still refuses** — a CV has no reason to carry code fences, and a marker there is far more likely a real claim than a deliberate literal), `[VERIFIKASI]` uppercase, `[ Assumption ]` with inner spaces (**not** a match — the convention is exact, and loosening it invites false positives), two markers on one line (one finding, not two), a marker on the last line with no trailing newline, and markdown with no markers at all (empty finding list)
+- [x] Run tests, confirm all pass
+- [x] Commit: "feat(docx): refuse to render a claim the candidate never verified"
+- [x] `python3 -m compileall -q scripts tests` passes
+- [x] `python3 -m unittest discover -s tests -t .` passes
+- [x] A markdown file carrying `[verifikasi]` produces a finding whose `line` matches the real 1-based line number, proven against a multi-line fixture
+- [x] `[ Assumption ]` with inner spaces produces no finding
+- [x] Mutation check: delete the `[Assumption]` half of the pattern and confirm a test fails — a guard that guards only half of what it claims is this repository's documented recurring defect
+- [x] No placeholder/TODO comments in new code
+- [x] detect-stack: no stack markers for this project — verification is plan-declared only
 
 ### [ ] Phase C: ATS flattening
 - [ ] Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `Skill: Python — 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
@@ -144,3 +144,4 @@
 ## Log
 - 2026-09-19 plan ditulis — NEXT: Phase A
 - 2026-09-19 Phase A selesai — `scripts/docx.py::parse_blocks` + 26 test baru, 288 lulus / 0 gagal. Cacat ditemukan saat dijalankan pada CV nyata: bullet yang terbungkus ke baris berikut pecah jadi paragraf liar; baris berindentasi sekarang menyambung bullet di atasnya. Commit `feat(docx): parse the supported markdown subset into blocks`. — NEXT: Phase B
+- 2026-09-19 Phase B selesai — `ats_lint` + `unverified_findings` + `UnverifiedClaimError`, 318 lulus / 0 gagal. Mutation check: buang separuh `[Assumption]` → 1 test gagal; buang `re.I` → 3 gagal; buang syarat baris pemisah tabel → MASIH HIJAU pada percobaan pertama karena test pipa-literal cuma satu baris, dan satu baris tak pernah bisa jadi tabel. Ditambal 3 kasus multi-baris, mutasi yang sama sekarang gagal ketiganya. Commit `feat(docx): refuse to render a claim the candidate never verified`. — NEXT: Phase C
