@@ -155,6 +155,41 @@ spaces and two bullets can merge visually.
 XML escaping, in this order: `&` → `&amp;`, then `<` → `&lt;`, then `>` → `&gt;`.
 Escaping `&` last would double-escape the entities the first two produced.
 
+## Amendments, 2026-09-19 (post-implementation, owner-approved)
+
+Seven points where the pinned text above no longer matches the code. Every
+one was found by RUNNING the code — on a real CV, through a real document
+extractor, or by an adversarial review — and each is approved. They are
+recorded here rather than silently left to drift, because this document is
+the contract.
+
+1. **Table rows are bullets, and every cell keeps its header.** Emitted as
+   bare lines, consecutive rows are one run of text and `parse_blocks` joins
+   them into a single paragraph by markdown's own rules: a three-row skills
+   table rendered as one run-on sentence. Labelling only the first cell then
+   left an ATS reading unlabelled numbers.
+2. **Bullets may be indented, and an indented line continues the bullet
+   above.** A CV wraps its bullets; without this, every wrapped bullet
+   rendered as a bullet plus a stray un-bulleted paragraph.
+3. **Bullets carry a literal `•` glyph.** Real list formatting needs a sixth
+   part, `word/numbering.xml`, which is outside the pinned five and is a
+   routine source of resume-parser garbage. The glyph is plain text.
+4. **ZIP timestamps are fixed** to 1980-01-01, so the same markdown renders
+   to the same bytes and the committed eval sample can be regenerated and
+   diffed rather than trusted.
+5. **`escape` first deletes XML-illegal control characters.** One stray byte
+   makes the document unopenable rather than merely ugly.
+6. **`word/styles.xml` carries `<w:ind w:left="360"/>` on `ListParagraph`**
+   and a `docDefaults` block — what produces the bullet indent.
+7. **`--out` is refused when it equals `--in` or does not end in `.docx`.**
+   Compared with `os.path.samefile`, because macOS's default APFS is
+   case-insensitive and a string compare let `--out CV.MD` overwrite
+   `cv.md` — the tailored markdown, destroyed with no backup.
+
+A further amendment to the gate itself is recorded in the spec: the marker is
+matched with its reason attached, matched on the line as it will finally
+read, and removed from the document under `--allow-unverified`.
+
 ## Phases
 
 ### Phase A: markdown → blocks
@@ -168,7 +203,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 **Steps:**
 1. Write failing test for `docx.parse_blocks("# Ali\n\nHello\n")` returning `[{"kind": "heading", "level": 1, "text": "Ali"}, {"kind": "paragraph", "text": "Hello"}]`. Expected error: `ModuleNotFoundError: No module named 'docx'`
 2. Run `python3 -m unittest discover -s tests -t .`, confirm it fails for that reason
-3. Implement `parse_blocks(markdown)` per the Block contract above: `#`/`##`/`###` → heading with level; `-` or `*` at column 0 → bullet; a blank-line-separated run of text → paragraph. Inline `**bold**`, `*italic*` and `` `code` `` markers are stripped from the text (Word carries the style, not the asterisks)
+3. Implement `parse_blocks(markdown)` per the Block contract above: `#`/`##`/`###` → heading with level; `-` or `*` at the start of a line, leading whitespace allowed → bullet; an indented line under a bullet continues that bullet; a blank-line-separated run of text → paragraph. Inline `**bold**`, `*italic*` and `` `code` `` markers are stripped from the text (Word carries the style, not the asterisks)
 4. Add tests for the enumerated edge cases: empty string, whitespace-only, a heading with no text (`##` alone), `####` (level 4 — treated as a paragraph, not a heading, because the style table stops at 3), a bullet with no text, CRLF line endings, a line that is only `---`, two blank lines between paragraphs, 500 blocks, and text containing `&`, `<`, `>`
 5. Run tests, confirm all pass
 6. Commit: "feat(docx): parse the supported markdown subset into blocks"
@@ -238,10 +273,10 @@ a file exists, so this is where the asymmetry closes.
 - Test: `tests/test_docx.py`
 
 **Steps:**
-1. Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `Skill: Python — 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
+1. Write failing test for `docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")` returning markdown with no `|` characters and a line reading `- Skill: Python — Years: 8`. Expected error: `AttributeError: module 'docx' has no attribute 'flatten'`
 2. Run tests, confirm it fails for that reason
 3. Implement `flatten(markdown)` returning `(flattened_markdown, notes)` where `notes` is a list of strings for stderr. Transformations, all of them from spec §4 gate 2:
-   - **table** → one line per body row, `"<header1>: <cell1> — <cell2>"`, the separator row dropped
+   - **table** → one BULLET per body row, every cell keeping its own header, `"- <header1>: <cell1> — <header2>: <cell2>"`, the separator row dropped
    - **image** `![alt](src)` → removed entirely; note records the `src`
    - **link** `[text](url)` → `text (url)`, because ATS frequently keep neither the anchor nor the href
    - **nesting deeper than one level** → flattened to one level

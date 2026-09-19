@@ -50,7 +50,7 @@ One new module, one new subcommand, zero dependencies.
 
 ```
 scripts/docx.py
-  ats_lint(markdown)      -> [(line_no, line, reason), ...]
+  ats_lint(markdown)      -> [{"line": int, "text": str, "reason": str}, ...]
   flatten(markdown)       -> ATS-safe markdown
   render(markdown, path)  -> writes the .docx
 
@@ -70,6 +70,16 @@ syntax leaked. For comparison, `pandoc` needed 10,685 bytes for less content.
 ### 4. Three gates, in order, before any XML is written
 
 **Gate 1 — unverified claims. Refuses; writes nothing.**
+
+**Amended 2026-09-19, after AJOB-2 review.** The marker is matched with its
+reason attached too — `[Assumption: figure from memory]`, `[verifikasi nanti]`
+— because that is the likelier thing to be written than the bare form. It is
+matched on the line as it will finally READ, after inline emphasis is
+stripped and html entities decoded: `[**verifikasi**]` and
+`&#91;verifikasi&#93;` each got a claim into a rendered CV while the gate
+reported clean. Under `--allow-unverified` the marker itself is removed from
+the document — the override sends the claim, not the candidate's private
+note to themselves.
 
 Vault notes carry `[verifikasi]` and `[Assumption]` to mark a claim the author has not
 yet checked. Rendering one into a CV converts a private "needs checking" into a public
@@ -92,7 +102,7 @@ says so in its help text. It is opt-in per run, never a config default.
 
 | Input | Becomes |
 |---|---|
-| markdown table | one line per row: `Skill: Python — 8 years` |
+| markdown table | one bullet per row, every cell keeping its own header: `- Skill: Python — Years: 8` |
 | image | dropped; the filename is reported on stderr |
 | link | `text (url)` — ATS frequently lose the hyperlink and keep neither |
 | nesting deeper than one level | flattened to one level |
