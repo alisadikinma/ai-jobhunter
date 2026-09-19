@@ -18,7 +18,41 @@ Three functions, in the order `render` calls them:
 - `parse_blocks` — the supported markdown subset, as a flat block list.
 """
 
+import os
 import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import ats  # noqa: E402
+
+
+class DocxError(Exception):
+    """Base for every refusal this module raises."""
+
+
+class UnverifiedClaimError(DocxError):
+    """The markdown still carries a claim the candidate never checked.
+
+    Raised before a single byte is written. `README.md` promises that such a
+    claim never reaches an outward document; until this existed the promise
+    rested on model prose while the repository's other guarantees were
+    properties of the code. Rendering is the last moment before a file exists
+    on disk, so this is where the asymmetry closes.
+    """
+
+    def __init__(self, findings, source="<markdown>"):
+        self.findings = list(findings)
+        self.source = source
+        detail = "; ".join(
+            '%s:%d — "%s"' % (source, f["line"], f["text"]) for f in self.findings
+        )
+        super().__init__(
+            "refused to render: %d unverified claim(s) still in the markdown. "
+            "Verify the claim and remove the marker, or pass --allow-unverified "
+            "to render it anyway. %s" % (len(self.findings), detail)
+        )
+
 
 # --- the markdown subset -------------------------------------------------
 #
@@ -162,3 +196,106 @@ def parse_blocks(markdown):
 
     flush_paragraph()
     return blocks
+
+
+# --- what must not ship, and what parses badly ---------------------------
+
+# The vault convention, exact. Case is ignored because a CV written in a hurry
+# capitalises inconsistently, but the inner spelling is not loosened: matching
+# `[ verifikasi ]` or `[verifikasi-nanti]` would refuse on text that only
+# resembles the marker, and a gate that cries wolf gets bypassed by habit.
+_UNVERIFIED_RE = re.compile(r"\[(?:verifikasi|assumption)\]", re.I)
+
+_IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]*)\)")
+
+# Stricter than `ats._TAG_RE` (`<[^>]+>`) on purpose, and only for DETECTING
+# html — the stripping itself still delegates to `ats._clean_description`.
+# `ats`'s pattern matches "< 200ms, throughput >" inside an ordinary sentence,
+# and a CV that says "p95 < 200ms and > 1k rps" would have the middle of that
+# sentence deleted as if it were a tag.
+_HTML_TAG_RE = re.compile(
+    r"<!--.*?-->|</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*?)?\s*/?>", re.S
+)
+
+# A table separator row: pipe-delimited cells of dashes, with optional
+# alignment colons. Requiring one is what keeps a sentence containing a
+# literal "|" from being read as a table.
+_TABLE_SEP_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
+
+# A bullet indented four or more spaces (or by a tab) is nested at least two
+# levels deep. One level of nesting survives flattening; deeper does not.
+_DEEP_BULLET_RE = re.compile(r"^(?: {4,}|\t+)\s*[-*]\s")
+
+
+def _is_table_row(line):
+    return "|" in line and line.strip() != ""
+
+
+def find_tables(lines):
+    """Index ranges of `lines` that form a markdown table, header row first.
+
+    Returns a list of `(start, stop)` half-open index pairs. A table is a row
+    containing a pipe, immediately followed by a separator row, followed by
+    any number of further pipe-carrying rows.
+
+    One detector, used by both `ats_lint` and `flatten`, so the two can never
+    disagree about what a table is.
+    """
+    tables = []
+    index = 0
+    while index < len(lines) - 1:
+        if _is_table_row(lines[index]) and _TABLE_SEP_RE.match(lines[index + 1]):
+            stop = index + 2
+            while stop < len(lines) and _is_table_row(lines[stop]):
+                stop += 1
+            tables.append((index, stop))
+            index = stop
+            continue
+        index += 1
+    return tables
+
+
+def ats_lint(markdown):
+    """Findings for everything an ATS reads badly, plus the refusal trigger.
+
+    Each finding is `{"line": <1-based>, "text": <the line>, "reason": <one
+    of unverified-claim, table, image, deep-nesting, html>}`.
+
+    Only `unverified-claim` refuses — `render` raises on it. The other four
+    are what `flatten` repairs, reported here so the operator sees what the
+    document contained before anything rewrote it.
+
+    Every finding carries the line's own text, not just a count, because the
+    person reading the refusal at 3am needs to see the claim itself.
+    """
+    lines = (markdown or "").splitlines()
+    findings = []
+
+    def add(index, reason):
+        findings.append(
+            {"line": index + 1, "text": lines[index].rstrip(), "reason": reason}
+        )
+
+    for start, _stop in find_tables(lines):
+        add(start, "table")
+
+    for index, line in enumerate(lines):
+        # One finding per line even when the line carries two markers: the
+        # unit of the refusal is the claim's line, and two findings pointing
+        # at one line read as two separate problems.
+        if _UNVERIFIED_RE.search(line):
+            add(index, "unverified-claim")
+        if _IMAGE_RE.search(line):
+            add(index, "image")
+        if _DEEP_BULLET_RE.match(line):
+            add(index, "deep-nesting")
+        if _HTML_TAG_RE.search(line):
+            add(index, "html")
+
+    findings.sort(key=lambda f: (f["line"], f["reason"]))
+    return findings
+
+
+def unverified_findings(markdown):
+    """Just the findings that refuse — the gate `render` consults."""
+    return [f for f in ats_lint(markdown) if f["reason"] == "unverified-claim"]
