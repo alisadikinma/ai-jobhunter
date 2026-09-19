@@ -87,6 +87,22 @@ _BOLD_RE = re.compile(r"\*\*(?=\S)(.+?)(?<=\S)\*\*", re.S)
 _ITALIC_RE = re.compile(r"\*(?=\S)([^*]+?)(?<=\S)\*")
 _CODE_RE = re.compile(r"`([^`]+)`")
 
+# Underscore emphasis, which models write at least as often as the asterisk
+# form. Both patterns refuse to start or end next to a word character, so
+# `my_var_name` and `__init__` keep their underscores — a CV naming a Python
+# dunder should not have it silently rewritten.
+_BOLD_UNDERSCORE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])__(?=\S)(.+?)(?<=\S)__(?![A-Za-z0-9_])", re.S
+)
+_ITALIC_UNDERSCORE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"
+)
+
+# Zero-width and other invisible formatting characters. They render as
+# nothing, so "[verifi<ZWSP>kasi]" reads to a human as the marker while
+# matching no pattern at all.
+_INVISIBLE_RE = re.compile(r"[\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]")
+
 
 def strip_inline(text):
     """Remove `**bold**`, `*italic*` and `` `code` `` markers, keeping text.
@@ -94,9 +110,27 @@ def strip_inline(text):
     Bold runs first: `\\*\\*x\\*\\*` would otherwise be seen by the italic
     pattern as an italic run wrapping `\\*x\\*`.
     """
+    out = []
+    position = 0
+    # Emphasis is stripped OUTSIDE code spans only. A CV that names
+    # `__init__` or writes `cat a | sed -e *` in backticks means those
+    # characters literally, and markdown agrees: emphasis does not apply
+    # inside a code span. Applying it everywhere turned `__init__` into
+    # `init`.
+    for match in _CODE_RE.finditer(text):
+        out.append(_strip_emphasis(text[position : match.start()]))
+        out.append(match.group(1))
+        position = match.end()
+    out.append(_strip_emphasis(text[position:]))
+    return "".join(out)
+
+
+def _strip_emphasis(text):
+    """Bold before italic: `**x**` would otherwise read as italic around `*x*`."""
     text = _BOLD_RE.sub(r"\1", text)
+    text = _BOLD_UNDERSCORE_RE.sub(r"\1", text)
     text = _ITALIC_RE.sub(r"\1", text)
-    text = _CODE_RE.sub(r"\1", text)
+    text = _ITALIC_UNDERSCORE_RE.sub(r"\1", text)
     return text
 
 
@@ -255,6 +289,15 @@ def _unmask(line):
     Tags are removed with no separator on purpose. That is stricter than the
     html cleaner, which substitutes a space — `[verif<i>ikasi</i>]` rejoins
     into the marker here and is refused, rather than being caught by luck.
+    Zero-width characters go the same way: they render as nothing, so
+    `[verifi<ZWSP>kasi]` reads to a human as the marker while matching no
+    pattern.
+
+    Known limit, stated rather than hidden: a homoglyph — Cyrillic "а" for
+    Latin "a" — is not caught. Closing it needs a confusables table, which is
+    not in the standard library, and it is an evasion nobody writes by
+    accident. The gate is built against mistakes, not against an author
+    deliberately smuggling a claim past themselves.
     """
     text = line
     previous = None
@@ -264,6 +307,7 @@ def _unmask(line):
         previous = text
         text = html.unescape(text)
     text = _HTML_TAG_RE.sub("", text)
+    text = _INVISIBLE_RE.sub("", text)
     return strip_inline(text)
 
 

@@ -42,6 +42,25 @@ class TestParseBlocksHappyPath(unittest.TestCase):
             ],
         )
 
+    def test_emphasis_is_not_stripped_inside_a_code_span(self):
+        # A CV naming `__init__` means it literally, and markdown agrees:
+        # emphasis does not apply inside a code span. Stripping everywhere
+        # turned `__init__` into `init`.
+        blocks = docx.parse_blocks("- ran `__init__` and `my_var` daily\n")
+        self.assertEqual(blocks[0]["text"], "ran __init__ and my_var daily")
+
+    def test_a_shell_pipeline_in_a_code_span_survives_intact(self):
+        blocks = docx.parse_blocks("- shell: `cat a | sed -e *x*`\n")
+        self.assertEqual(blocks[0]["text"], "shell: cat a | sed -e *x*")
+
+    def test_underscore_emphasis_outside_a_code_span_is_stripped(self):
+        blocks = docx.parse_blocks("- __Bold__ and _italic_ text\n")
+        self.assertEqual(blocks[0]["text"], "Bold and italic text")
+
+    def test_an_identifier_with_inner_underscores_is_left_alone(self):
+        blocks = docx.parse_blocks("- maintained my_var_name across services\n")
+        self.assertEqual(blocks[0]["text"], "maintained my_var_name across services")
+
     def test_inline_emphasis_markers_are_stripped_from_the_text(self):
         blocks = docx.parse_blocks("**Bold** and *italic* and `code`\n")
         self.assertEqual(
@@ -266,6 +285,35 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
 
     def test_a_tag_splitting_the_marker_does_not_hide_it(self):
         self.assertEqual(len(docx.unverified_findings("- x [verif<i>ikasi</i>]\n")), 1)
+
+    def test_underscore_emphasis_around_the_marker_does_not_hide_it(self):
+        # Found by probing the gate with fifteen spellings after the first
+        # round of fixes. Models write `__bold__` at least as often as `**`.
+        self.assertEqual(len(docx.unverified_findings("- x [__verifikasi__]\n")), 1)
+        self.assertEqual(len(docx.unverified_findings("- x [_verifikasi_]\n")), 1)
+
+    def test_a_zero_width_character_inside_the_marker_does_not_hide_it(self):
+        # Renders as nothing, so it reads to a human as the marker while
+        # matching no pattern at all.
+        self.assertEqual(
+            len(docx.unverified_findings("- x [verifi\u200bkasi]\n")), 1
+        )
+
+    def test_a_bidi_control_character_does_not_hide_it(self):
+        self.assertEqual(
+            len(docx.unverified_findings("- x [verifikasi\u202e]\n")), 1
+        )
+
+    def test_a_marker_inside_a_table_cell_does_not_hide_it(self):
+        markdown = "| Skill | Note |\n|---|---|\n| Python | grew 40% [verifikasi] |\n"
+        self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_a_homoglyph_is_a_known_and_stated_limit(self):
+        # Cyrillic "а" for Latin "a". Closing this needs a confusables table,
+        # which is not in the standard library, and it is not something
+        # anybody writes by accident. Pinned so the limit is a decision on
+        # record rather than a surprise.
+        self.assertEqual(docx.unverified_findings("- x [verifik\u0430si]\n"), [])
 
     def test_the_finding_still_names_the_original_line_and_text(self):
         # The projection is for detection only. What the author is shown must
