@@ -254,6 +254,18 @@ pemberhenti — memasukkannya memotong tail di placeholder `<slug>` dan diam-dia
 dan `--company`, yaitu menukar satu titik buta dengan titik buta lain. Cakupan 0/18 → 16/18 → 18/18,
 8 perintah. Empat bentuk serangan menggigit, pipe ke `jq` tidak memicu gagal palsu.
 
+Putaran 3 audit (scope `e9ba439..HEAD`): temuan lama tertutup dan direproduksi — 18/18 dicocokkan
+dengan enumerasi tangan `grep -rno -- '--[a-z][a-z0-9-]*' skills/`, dan lima bentuk serangan yang
+belum saya coba (sel tabel, blok indentasi 4 spasi, heading, list item, `--flag=value`) semuanya
+menggigit. Yang memblokir justru kode yang saya tulis putaran itu:
+
+| # | Temuan | Tindakan |
+|---|---|---|
+| B1 | `_cli_subcommands()` memakai `re.search` tanpa jangkar. Satu argumen ber-`choices` di help — `--mode {fast,slow}` — membuatnya mengembalikan `fast,slow`, **diam-diam**, dan `--unpromoted` + `--row` keluar lagi dari cakupan sementara suite tetap hijau | Dijangkar ke baris `usage:`, kelas karakter dilebarkan, `assert` telanjang jadi `assertTrue` (`python3 -O` melucuti yang pertama — dibuktikan) |
+| B2 | Filter inline hanya bisa **mengonfirmasi** nama yang sudah ada, jadi subcommand fiktif di prosa tidak pernah bisa menggagalkan tes | Nama bertanda hubung + diikuti flag panjang ikut diuji; 19 identifier prosa biasa tetap tersaring; nol false positive |
+| B3 | Flag di span backtick sendiri (`--top N`, tanpa subcommand) tidak punya pasangan untuk diuji | Dicatat sebagai batas model pasangan di docstring, bukan dianggap bug |
+
+
 ## Regression tests
 
 Each line below was proven by running the round-3 tests against the pre-fix tree

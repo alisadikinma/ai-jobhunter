@@ -251,10 +251,23 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     def _documented_commands(self):
         """Map each documented subcommand to the long flags shown with it.
 
+        Out of scope by design: a flag written in its OWN backtick span, with
+        no subcommand beside it — `skills/tailor/SKILL.md:112` says "`--top N`
+        changes the cut". There is no pair to assert, so misspelling it there
+        stays green. This is a limit of the pair model, recorded here so the
+        next audit does not rediscover it as a defect.
+
         Only names that are real subcommands are kept from the inline form:
         prose is full of backticked identifiers, and every one of them would
         otherwise be asserted to exist in the CLI.
         """
+        # The inline branch used to drop every name the CLI does not already
+        # know, so a fictional `queue-purge` named in prose could never fail
+        # the subcommand test — the filter could only confirm names that
+        # existed. Requiring a hyphen AND a long flag right after keeps the 19
+        # ordinary backticked prose identifiers out (`batches`, `skipped`,
+        # `refused`, `linkedin-pdf`, …) while letting a wrong command name
+        # through to be asserted against the CLI.
         real = set(self._cli_subcommands())
         commands = {}
         for skill_md in sorted(pathlib.Path(SKILLS_DIR).glob("*/SKILL.md")):
@@ -265,16 +278,36 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
                     commands.setdefault(name, set()).update(self._flags_in(tail))
                 for match in self._INLINE_RE.finditer(line):
                     name, tail = match.group(1), match.group(2)
-                    if name not in real:
+                    looks_like_a_command = "-" in name and tail.lstrip().startswith("--")
+                    if name not in real and not looks_like_a_command:
                         continue
                     commands.setdefault(name, set()).update(self._flags_in(tail))
         return commands
 
     def _cli_subcommands(self):
-        """The subcommand names argparse itself reports, parsed from --help."""
+        """The subcommand names argparse itself reports, parsed from --help.
+
+        Anchored to the usage line, and deliberately not narrowed to the
+        characters subcommands happen to use today. An unanchored search for
+        the first lowercase braced token degrades SILENTLY: give any argument
+        a `choices` list and its `{fast,slow}` is matched instead of the
+        subcommand list, which drops `--unpromoted` and `--row` back out of
+        coverage while the suite still reports green. Measured on a help text
+        carrying `--mode {fast,slow}`:
+
+            old regex -> 'fast,slow'
+            new regex -> 'config-show,queue_purge,queue-list'
+
+        A guard that goes quiet instead of failing is this ticket's own
+        recurring defect, so the parse fails loudly or not at all.
+        `assertTrue`, not a bare `assert`, because `python3 -O` strips the
+        latter and a stripped check is the same silence by another route.
+        """
         help_text = self._cli_help()
-        match = re.search(r"\{([a-z0-9,-]+)\}", help_text)
-        assert match, f"could not read the subcommand list out of:\n{help_text}"
+        match = re.search(r"^usage:.*?\{([^}]+)\}", help_text, re.S)
+        self.assertTrue(
+            match, f"could not read the subcommand list out of:\n{help_text}"
+        )
         return match.group(1).split(",")
 
     def test_every_documented_subcommand_exists_in_the_cli(self):
