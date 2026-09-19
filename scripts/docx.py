@@ -267,6 +267,26 @@ def parse_blocks(markdown):
 # resembles the marker, and a gate that cries wolf gets bypassed by habit.
 _UNVERIFIED_RE = re.compile(r"\[(?:verifikasi|assumption)\b[^\]]*\]", re.I)
 
+
+def _spaced(word):
+    """`verifikasi` as a pattern tolerating whitespace between its letters."""
+    return r"\s*".join(re.escape(ch) for ch in word)
+
+
+# Applied to the PROJECTION only, never to the raw line. Two things put a
+# space inside the word after the gate had already read it: a line wrapped
+# mid-marker, whose continuation `parse_blocks` joins with a space, and a tag
+# with spaces inside it — "[veri<span>  </span>fikasi]" — which the html
+# cleaner collapses to "[veri fikasi]". Both shipped the claim.
+# No `\s*` after the opening bracket, deliberately. "[ Assumption ]" stays
+# NOT a match, as the plan pins it: a leading space is the author writing
+# something else, while a space INSIDE the word is a transformation having
+# split it. The two cases look similar and are not the same.
+_UNVERIFIED_LOOSE_RE = re.compile(
+    r"\[(?:" + _spaced("verifikasi") + r"|" + _spaced("assumption") + r")\b[^\]]*\]",
+    re.I,
+)
+
 _IMAGE_RE = re.compile(r"!\[[^\]]*\]\(([^)]*)\)")
 
 # Stricter than `ats._TAG_RE` (`<[^>]+>`) on purpose, and only for DETECTING
@@ -401,7 +421,7 @@ def ats_lint(markdown):
         # One finding per line even when the line carries two markers: the
         # unit of the refusal is the claim's line, and two findings pointing
         # at one line read as two separate problems.
-        if _UNVERIFIED_RE.search(line) or _UNVERIFIED_RE.search(_unmask(line)):
+        if _UNVERIFIED_RE.search(line) or _UNVERIFIED_LOOSE_RE.search(_unmask(line)):
             add(index, "unverified-claim")
         if _IMAGE_RE.search(line):
             add(index, "image")
@@ -951,9 +971,11 @@ def _strip_markers(blocks):
         # nothing — the override went silent, which is the one thing it
         # promised not to do. Collapsing to the projection first makes the
         # removal cover exactly what the gate detects, by construction.
-        if not _UNVERIFIED_RE.search(text) and _UNVERIFIED_RE.search(_unmask(text)):
+        if not _UNVERIFIED_RE.search(text) and _UNVERIFIED_LOOSE_RE.search(
+            _unmask(text)
+        ):
             text = _unmask(text)
-        cleaned = _UNVERIFIED_RE.sub("", text)
+        cleaned = _UNVERIFIED_LOOSE_RE.sub("", _UNVERIFIED_RE.sub("", text))
         if cleaned == block["text"]:
             continue
         cleaned = _DOUBLE_SPACE_RE.sub(" ", cleaned)

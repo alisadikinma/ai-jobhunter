@@ -379,6 +379,49 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
             len(docx.unverified_findings("- ARR [\uff56erifikasi]\n")), 1
         )
 
+    def test_a_marker_split_by_a_line_wrap_does_not_hide_it(self):
+        """The continuation rule joins a wrapped line with a space.
+
+        `- ARR [veri\\n  fikasi]` became the single block "ARR [veri fikasi]"
+        — the claim shipped, with the marker broken only by a space that the
+        gate had never seen, because the gate read two separate lines.
+        """
+        markdown = "# CV\n\n- ARR [veri\n  fikasi]\n"
+        self.assertEqual(len(docx.unverified_findings(markdown)), 0)
+        # Not caught per line, by construction — caught once the blocks are
+        # the text that will actually be written.
+        path = os.path.join(tempfile.mkdtemp(), "cv.docx")
+        with self.assertRaises(docx.UnverifiedClaimError):
+            with contextlib.redirect_stderr(io.StringIO()):
+                docx.render(markdown, path)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_tag_holding_spaces_does_not_split_the_marker_past_the_gate(self):
+        # "[veri<span>  </span>fikasi]" — the html cleaner collapses the tag
+        # and its spaces to one space, after the gate ran.
+        self.assertEqual(
+            len(docx.unverified_findings("- ARR [veri<span>  </span>fikasi]\n")), 1
+        )
+
+    def test_a_marker_spelled_out_letter_by_letter_is_caught(self):
+        self.assertEqual(len(docx.unverified_findings("- ARR [v e r i f i k a s i]\n")), 1)
+
+    def test_a_leading_space_is_still_not_a_match(self):
+        # "[ Assumption ]" stays clean, as the plan pins it. A leading space
+        # is the author writing something else; a space inside the word is a
+        # transformation having split it. The two look similar and are not.
+        self.assertEqual(docx.unverified_findings("x [ Assumption ]\n"), [])
+
+    def test_the_loose_pattern_does_not_fire_on_ordinary_bracketed_prose(self):
+        for line in (
+            "- delivered [very informal kasi] sessions",
+            "- ran [a verification step] daily",
+            "- shipped [v2] of the API",
+            "- see [notes] for the full figure",
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(docx.unverified_findings(line + "\n"), [])
+
     def test_a_homoglyph_is_a_known_and_stated_limit(self):
         # Cyrillic "а" for Latin "a". Closing this needs a confusables table,
         # which is not in the standard library, and it is not something
