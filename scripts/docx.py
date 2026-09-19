@@ -220,7 +220,13 @@ _HTML_TAG_RE = re.compile(
 # A table separator row: pipe-delimited cells of dashes, with optional
 # alignment colons. Requiring one is what keeps a sentence containing a
 # literal "|" from being read as a table.
-_TABLE_SEP_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
+# One or more dash cells, so a single-column table is still a table. The
+# pattern alone also matches a bare "---", which is a horizontal rule and,
+# under a line containing a pipe, a setext heading underline — so `find_tables`
+# additionally requires a pipe on the separator line itself.
+_TABLE_SEP_RE = re.compile(
+    r"^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)*\|?\s*$"
+)
 
 # A bullet indented four or more spaces (or by a tab) is nested at least two
 # levels deep. One level of nesting survives flattening; deeper does not.
@@ -244,7 +250,12 @@ def find_tables(lines):
     tables = []
     index = 0
     while index < len(lines) - 1:
-        if _is_table_row(lines[index]) and _TABLE_SEP_RE.match(lines[index + 1]):
+        separator = lines[index + 1]
+        if (
+            _is_table_row(lines[index])
+            and "|" in separator
+            and _TABLE_SEP_RE.match(separator)
+        ):
             stop = index + 2
             while stop < len(lines) and _is_table_row(lines[stop]):
                 stop += 1
@@ -299,3 +310,214 @@ def ats_lint(markdown):
 def unverified_findings(markdown):
     """Just the findings that refuse — the gate `render` consults."""
     return [f for f in ats_lint(markdown) if f["reason"] == "unverified-claim"]
+
+
+# --- repairing what an ATS reads badly -----------------------------------
+
+_INLINE_LINK_RE = re.compile(r"\[([^\]]*)\]\(([^)]*)\)")
+_REFERENCE_LINK_RE = re.compile(r"\[[^\]]*\]\[[^\]]*\]")
+_LEADING_WS_RE = re.compile(r"^[ \t]*")
+
+# `ats._clean_description` returns the literal "N/A" for any result shorter
+# than ten characters, because jobsync rejects a 1-9 character description.
+# That floor belongs to jobsync, not to a CV: without this pad, the line
+# "<b>Skills</b>" would come back as "N/A" and a heading would be replaced by
+# a shrug. NUL is used because nothing in the cleaning pipeline touches it —
+# it is not whitespace, not a tag, not an entity — and it is not legal in XML
+# anyway, so a leak would be loud rather than silent.
+_HTML_FLOOR_PAD = "\x00" * ats._MIN_DESCRIPTION_LEN
+
+
+# Sentinels for the angle brackets that are NOT part of a tag. See
+# `_protect_non_tags` — `ats._TAG_RE` is `<[^>]+>`, which happily eats the
+# middle of "p95 < 200ms and > 1k rps".
+_LT_SENTINEL = "\x01"
+_GT_SENTINEL = "\x02"
+
+# " ," and "( " after a tag became a space. A CV that reads "engineer ,
+# Amsterdam" looks like a bug to the human who opens it.
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.;:!?%)\]])")
+_SPACE_AFTER_OPEN_RE = re.compile(r"([(\[])\s+")
+
+
+def _protect_non_tags(text):
+    """Hide angle brackets that are not part of an html tag.
+
+    `ats._clean_description` strips `<[^>]+>`, which is right for a job
+    description scraped from a careers page and wrong for a CV line: it
+    deletes everything between a less-than and the next greater-than, and
+    "Keeps p95 < 200ms and > 1k rps" loses its middle. Only the spans the
+    strict tag pattern matched are left visible to it.
+    """
+    spans = [match.span() for match in _HTML_TAG_RE.finditer(text)]
+    out = []
+    position = 0
+    for start, stop in spans:
+        before = text[position:start]
+        out.append(
+            before.replace("<", _LT_SENTINEL).replace(">", _GT_SENTINEL)
+        )
+        out.append(text[start:stop])
+        position = stop
+    tail = text[position:]
+    out.append(tail.replace("<", _LT_SENTINEL).replace(">", _GT_SENTINEL))
+    return "".join(out)
+
+
+def strip_html(text):
+    """`ats._clean_description`, minus two behaviours a CV cannot survive.
+
+    The jobsync length floor ("N/A" below ten characters) is neutralised by a
+    pad, and non-tag angle brackets are hidden behind sentinels first.
+    Indentation is restored afterwards: the cleaner collapses all whitespace,
+    and a nested bullet that lost its indent would stop being a bullet.
+    """
+    indent = _LEADING_WS_RE.match(text).group(0)
+    cleaned = ats._clean_description(_protect_non_tags(text) + _HTML_FLOOR_PAD)
+    cleaned = cleaned.replace("\x00", "")
+    cleaned = cleaned.replace(_LT_SENTINEL, "<").replace(_GT_SENTINEL, ">")
+    cleaned = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", cleaned)
+    cleaned = _SPACE_AFTER_OPEN_RE.sub(r"\1", cleaned)
+    return indent + cleaned.strip()
+
+
+def _split_row(line):
+    """The cells of a markdown table row, outer pipes discarded."""
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+    return [cell.strip() for cell in stripped.split("|")]
+
+
+def _flatten_table(lines, start, stop):
+    """One line per body row: `"<header1>: <cell1> — <cell2>"`.
+
+    A row short of cells is padded rather than dropped — a missing cell is
+    missing data, but dropping the row loses the data that IS there. Padding
+    is trailing-only by construction, so a short row simply ends early.
+    """
+    headers = _split_row(lines[start])
+    first_header = headers[0] if headers else ""
+    out = []
+    for row_line in lines[start + 2 : stop]:
+        cells = _split_row(row_line)
+        if len(cells) < len(headers):
+            cells = cells + [""] * (len(headers) - len(cells))
+        values = [cell for cell in cells if cell]
+        body = " — ".join(values)
+        if first_header and body:
+            out.append("%s: %s" % (first_header, body))
+        elif first_header:
+            # Every cell was empty. The row still carried a position in the
+            # table, so it is kept rather than silently dropped.
+            out.append("%s:" % first_header)
+        else:
+            out.append(body)
+    return out
+
+
+def flatten(markdown):
+    """Rewrite what an ATS parses badly into something it parses.
+
+    Returns `(flattened_markdown, notes)`. `notes` is a list of human lines
+    naming every transformation applied, printed to stderr by the CLI so the
+    operator sees what changed without diffing two files.
+
+    This function never refuses — that is the whole distinction from
+    `ats_lint`. A construct it cannot repair is passed through and noted.
+    Every note carries the line number from the ORIGINAL markdown, so it
+    still points at something the author can find after the rewrite has
+    shifted every line below it.
+    """
+    lines = (markdown or "").splitlines()
+    notes = []
+
+    # Tables first, and line-wise: a table is the one construct that spans
+    # more than one line, so every later transformation can be per-line.
+    # Each output line keeps the original line number it came from.
+    numbered = []
+    table_ranges = find_tables(lines)
+    consumed = set()
+    for start, stop in table_ranges:
+        consumed.update(range(start, stop))
+    table_starts = {start: (start, stop) for start, stop in table_ranges}
+
+    for index, line in enumerate(lines):
+        if index in table_starts:
+            start, stop = table_starts[index]
+            rows = _flatten_table(lines, start, stop)
+            for row in rows:
+                numbered.append((index, row))
+            if rows:
+                notes.append(
+                    "line %d: table flattened to %d line(s)" % (index + 1, len(rows))
+                )
+            else:
+                notes.append(
+                    "line %d: table had no body rows, dropped" % (index + 1)
+                )
+            continue
+        if index in consumed:
+            continue
+        numbered.append((index, line))
+
+    out = []
+    for index, line in numbered:
+        number = index + 1
+
+        if _HTML_TAG_RE.search(line):
+            line = strip_html(line)
+            notes.append("line %d: inline html stripped" % number)
+
+        images = _IMAGE_RE.findall(line)
+        if images:
+            line = _IMAGE_RE.sub("", line)
+            for source in images:
+                notes.append("line %d: image removed (%s)" % (number, source or "no src"))
+
+        if _REFERENCE_LINK_RE.search(line):
+            notes.append(
+                "line %d: reference-style link left as written — out of scope" % number
+            )
+
+        if _INLINE_LINK_RE.search(line):
+            line = _INLINE_LINK_RE.sub(_rewrite_link, line)
+            notes.append("line %d: link rewritten as text (url)" % number)
+
+        if _DEEP_BULLET_RE.match(line):
+            # One level, not zero: a nested bullet still reads as a
+            # sub-point, and `parse_blocks` renders it as an ordinary bullet
+            # either way.
+            line = "  " + line.lstrip()
+            notes.append("line %d: nesting flattened to one level" % number)
+
+        # A line that held nothing but an image is now empty. Keeping it as a
+        # blank line is correct — it separates the paragraphs around it.
+        out.append(line.rstrip())
+
+    # Tables are found in a first pass over the whole document, so their
+    # notes would otherwise all precede notes about earlier lines. Sorted by
+    # the number each note names, a reader can follow them down the file.
+    notes.sort(key=_note_line_number)
+    return "\n".join(out) + ("\n" if out else ""), notes
+
+
+_NOTE_LINE_RE = re.compile(r"^line (\d+):")
+
+
+def _note_line_number(note):
+    match = _NOTE_LINE_RE.match(note)
+    return int(match.group(1)) if match else 0
+
+
+def _rewrite_link(match):
+    """`[text](url)` → `text (url)`, because an ATS keeps neither reliably."""
+    text = match.group(1).strip()
+    url = match.group(2).strip()
+    if not text:
+        return url
+    if not url or text == url:
+        return text
+    return "%s (%s)" % (text, url)

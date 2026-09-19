@@ -16,6 +16,7 @@ import docx  # noqa: E402
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 TAILORED_CV = os.path.join(FIXTURES, "tailored_cv.md")
+MESSY_CV = os.path.join(FIXTURES, "messy_cv.md")
 
 
 def read_fixture(name):
@@ -368,6 +369,202 @@ class TestUnverifiedClaimErrorMessage(unittest.TestCase):
 
     def test_it_is_a_docx_error(self):
         self.assertTrue(issubclass(docx.UnverifiedClaimError, docx.DocxError))
+
+
+class TestFlattenTables(unittest.TestCase):
+    def test_a_table_becomes_one_line_per_body_row(self):
+        flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")
+        self.assertNotIn("|", flat)
+        self.assertIn("Skill: Python — 8", flat)
+
+    def test_the_separator_row_never_survives(self):
+        flat, _notes = docx.flatten("| A | B |\n|---|---|\n| 1 | 2 |\n")
+        self.assertNotIn("---", flat)
+
+    def test_a_one_column_table_keeps_its_header_as_the_label(self):
+        flat, _notes = docx.flatten("| Skill |\n|---|\n| Python |\n")
+        self.assertIn("Skill: Python", flat)
+        self.assertNotIn("|", flat)
+
+    def test_a_row_short_of_cells_is_kept_not_dropped(self):
+        flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n| Python |\n")
+        self.assertIn("Skill: Python", flat)
+
+    def test_a_table_without_a_separator_row_is_left_alone(self):
+        markdown = "| Skill | Years |\n| Python | 8 |\nplain line\n"
+        flat, notes = docx.flatten(markdown)
+        self.assertIn("| Skill | Years |", flat)
+        self.assertEqual(notes, [])
+
+    def test_an_empty_table_produces_no_rows_and_says_so(self):
+        flat, notes = docx.flatten("| Skill | Years |\n|---|---|\n")
+        self.assertNotIn("|", flat)
+        self.assertTrue(any("no body rows" in note for note in notes))
+
+    def test_a_row_of_entirely_empty_cells_still_leaves_a_line(self):
+        flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n|  |  |\n")
+        self.assertIn("Skill:", flat)
+
+    def test_a_sentence_with_a_literal_pipe_survives_unflattened(self):
+        markdown = "Ran `cat x | sort | uniq` daily.\nIt replaced a cron job.\n"
+        flat, notes = docx.flatten(markdown)
+        self.assertIn("cat x | sort | uniq", flat)
+        self.assertEqual(notes, [])
+
+    def test_a_table_note_names_the_original_line_number(self):
+        markdown = "intro\n\n| Skill | Years |\n|---|---|\n| Python | 8 |\n"
+        _flat, notes = docx.flatten(markdown)
+        self.assertTrue(any(note.startswith("line 3:") for note in notes))
+
+
+class TestFlattenImagesAndLinks(unittest.TestCase):
+    def test_an_image_is_removed_and_its_source_noted(self):
+        flat, notes = docx.flatten("![headshot](photos/rin.png)\n")
+        self.assertNotIn("rin.png", flat)
+        self.assertTrue(any("photos/rin.png" in note for note in notes))
+
+    def test_an_image_with_no_alt_text_is_still_removed(self):
+        flat, _notes = docx.flatten("![](photos/rin.png)\n")
+        self.assertNotIn("rin.png", flat)
+
+    def test_an_image_with_no_source_is_removed_and_noted(self):
+        flat, notes = docx.flatten("![alt]()\n")
+        self.assertNotIn("![", flat)
+        self.assertTrue(any("no src" in note for note in notes))
+
+    def test_a_link_becomes_text_then_url_in_parentheses(self):
+        flat, _notes = docx.flatten("See [our blog](https://example.com/b)\n")
+        self.assertIn("our blog (https://example.com/b)", flat)
+
+    def test_a_link_whose_text_equals_its_url_is_emitted_once(self):
+        flat, _notes = docx.flatten("[https://example.com](https://example.com)\n")
+        self.assertEqual(flat.strip(), "https://example.com")
+
+    def test_a_link_with_no_text_falls_back_to_the_url(self):
+        flat, _notes = docx.flatten("[](https://example.com)\n")
+        self.assertEqual(flat.strip(), "https://example.com")
+
+    def test_a_reference_style_link_is_left_as_written_and_noted(self):
+        flat, notes = docx.flatten("Spoke at [PyCon][pycon-ref] once\n")
+        self.assertIn("[PyCon][pycon-ref]", flat)
+        self.assertTrue(any("reference-style" in note for note in notes))
+
+    def test_an_image_is_removed_before_it_can_be_read_as_a_link(self):
+        flat, _notes = docx.flatten("![alt](x.png)\n")
+        self.assertNotIn("alt", flat)
+
+
+class TestFlattenNestingAndHtml(unittest.TestCase):
+    def test_three_level_nesting_collapses_to_one(self):
+        markdown = "- one\n  - two\n    - three\n        - four\n"
+        flat, _notes = docx.flatten(markdown)
+        for line in flat.splitlines():
+            self.assertLessEqual(len(line) - len(line.lstrip()), 2, line)
+
+    def test_one_level_of_nesting_is_left_alone(self):
+        flat, notes = docx.flatten("- one\n  - two\n")
+        self.assertEqual(flat, "- one\n  - two\n")
+        self.assertEqual(notes, [])
+
+    def test_inline_html_is_stripped(self):
+        flat, notes = docx.flatten("<b>Product engineer</b>, Amsterdam\n")
+        self.assertEqual(flat.strip(), "Product engineer, Amsterdam")
+        self.assertTrue(any("html" in note for note in notes))
+
+    def test_the_space_a_stripped_tag_leaves_before_a_comma_is_closed_up(self):
+        # A tag becomes a space, so "</b>," becomes " ,". A CV reading
+        # "engineer , Amsterdam" looks broken to the person who opens it.
+        flat, _notes = docx.flatten("<b>engineer</b>, Amsterdam (NL)\n")
+        self.assertNotIn(" ,", flat)
+        self.assertIn("(NL)", flat)
+
+    def test_a_short_html_line_does_not_become_the_na_sentinel(self):
+        # `ats._clean_description` returns "N/A" below ten characters. Without
+        # the pad, a heading like this one is replaced by a shrug.
+        flat, _notes = docx.flatten("<b>Skills</b>\n")
+        self.assertEqual(flat.strip(), "Skills")
+
+    def test_an_html_line_that_is_a_bullet_keeps_its_indent(self):
+        flat, _notes = docx.flatten("  - <b>nested</b> point\n")
+        self.assertTrue(flat.startswith("  - "), repr(flat))
+
+    def test_a_comparison_operator_sentence_is_untouched(self):
+        markdown = "Keeps p95 < 200ms and > 1k rps.\n"
+        flat, notes = docx.flatten(markdown)
+        self.assertEqual(flat, markdown)
+        self.assertEqual(notes, [])
+
+    def test_no_nul_padding_ever_reaches_the_output(self):
+        flat, _notes = docx.flatten("<b>x</b>\n")
+        self.assertNotIn("\x00", flat)
+
+
+class TestFlattenOverARealMessyCV(unittest.TestCase):
+    def setUp(self):
+        self.flat, self.notes = docx.flatten(read_fixture(MESSY_CV))
+
+    def test_the_phase_a_invariant_holds_on_flattened_output(self):
+        blocks = docx.parse_blocks(self.flat)
+        self.assertEqual(
+            {b["kind"] for b in blocks}, {"heading", "paragraph", "bullet"}
+        )
+
+    def test_no_table_pipes_survive(self):
+        self.assertNotIn("| Python |", self.flat)
+        self.assertIn("Skill: Python — 8 — 2026", self.flat)
+
+    def test_the_literal_pipe_sentence_survives(self):
+        self.assertIn("cat ledger | sort | uniq -c", self.flat)
+
+    def test_the_comparison_sentence_keeps_both_operators(self):
+        self.assertIn("< 200ms", self.flat)
+        self.assertIn("> 1k rps", self.flat)
+
+    def test_no_image_survives(self):
+        self.assertNotIn("rin.png", self.flat)
+
+    def test_flattening_leaves_nothing_for_the_linter_to_repair(self):
+        repairable = [
+            f
+            for f in docx.ats_lint(self.flat)
+            if f["reason"] in ("table", "image", "deep-nesting", "html")
+        ]
+        self.assertEqual(repairable, [])
+
+    def test_notes_are_ordered_by_the_line_they_name(self):
+        # Tables are found in a first pass over the whole file, so without
+        # sorting the table note jumps ahead of notes about earlier lines.
+        numbers = [int(note.split()[1].rstrip(":")) for note in self.notes]
+        self.assertEqual(numbers, sorted(numbers))
+
+    def test_every_note_names_a_line_number(self):
+        self.assertTrue(self.notes)
+        for note in self.notes:
+            self.assertTrue(note.startswith("line "), note)
+
+    def test_flatten_never_refuses(self):
+        # Even markdown carrying every repairable construct at once returns
+        # normally. Refusing is `ats_lint`'s job alone.
+        flat, notes = docx.flatten(read_fixture(MESSY_CV) + "\nclaim [verifikasi]\n")
+        self.assertTrue(flat)
+        self.assertTrue(notes)
+
+    def test_empty_and_none_input_flatten_to_empty(self):
+        self.assertEqual(docx.flatten(""), ("", []))
+        self.assertEqual(docx.flatten(None), ("", []))
+
+
+class TestHtmlStrippingIsNotReimplemented(unittest.TestCase):
+    def test_the_module_delegates_to_ats_clean_description(self):
+        source = read_fixture(os.path.join(FIXTURES, "..", "..", "scripts", "docx.py"))
+        self.assertIn("ats._clean_description", source)
+
+    def test_there_is_no_second_tag_substitution_in_the_module(self):
+        # A second stripper would drift from `ats`'s, and the two would
+        # disagree about what an ATS sees.
+        source = read_fixture(os.path.join(FIXTURES, "..", "..", "scripts", "docx.py"))
+        self.assertNotIn("_TAG_RE.sub", source)
+        self.assertNotIn("html.unescape", source)
 
 
 if __name__ == "__main__":
