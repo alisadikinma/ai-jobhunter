@@ -324,28 +324,41 @@ def _resolve_project_sources(cfg):
 
 
 def _require_no_escaping_links(root, full_path, name):
-    """Walk the allow-listed directory and refuse any link leading outside it.
+    """Walk the allow-listed directory and refuse any link leading outside IT.
 
     Checking only the top-level entry protects one level. A symlink INSIDE an
     allow-listed directory — `projects/allowed/notes -> /client-work` — has an
     innocent name, is never inspected, and is followed by any ordinary walk.
     Measured: a file under such a link was read straight out of the
-    allow-listed directory. That is the "read everything" mode the allow-list
-    exists to rule out, reachable with one link.
+    allow-listed directory.
+
+    Containment is measured against the allow-listed directory, NOT against
+    the root. Measuring against the root was the fifth and sixth bypass: the
+    allow-list's whole contract is that a directory under the root which was
+    not named is unreadable, so a link that stays "inside the root" has
+    escaped just as completely as one that leaves it. Both were measured
+    reading a confidential file:
+
+        allowed/archive -> ..          read root/client-acme-pricing/negotiation.md
+        allowed/peek    -> ../client-work   read root/client-work/nda.md
+
+    `..` in particular is a one-character escape with an innocent name, and
+    the old guard whitelisted it explicitly (`target != real_root`).
     """
-    real_root = os.path.realpath(root)
+    real_entry = os.path.realpath(full_path)
     for dirpath, dirnames, filenames in os.walk(full_path, followlinks=False):
         for entry in list(dirnames) + list(filenames):
             candidate = os.path.join(dirpath, entry)
             if not os.path.islink(candidate):
                 continue
             target = os.path.realpath(candidate)
-            if target != real_root and not _is_under(target, real_root):
+            if not _is_under(target, real_entry):
                 raise ProjectSourceError(
                     f"Allow-listed project directory {name!r} contains a link "
-                    f"leading outside the root: {os.path.relpath(candidate, full_path)!r} "
-                    f"resolves to {target!r}. Allow-listing a directory does not "
-                    "allow-list what its links point at."
+                    f"leading outside it: {os.path.relpath(candidate, full_path)!r} "
+                    f"resolves to {target!r}, which is not under {real_entry!r}. "
+                    "Allow-listing a directory does not allow-list what its "
+                    "links point at — not even somewhere else under the root."
                 )
 
 
@@ -365,25 +378,29 @@ def _is_under(path, root):
 
 
 def _require_inside_root(root, full_path, name):
-    """Refuse a name that leads outside the root once links are resolved.
+    """Refuse an allow-listed name that is not the real directory of that name.
 
     Validating the NAME is not enough. A symlink in the root pointing at a
     client's directory has a perfectly innocent name, and allow-listing that
     name allow-lists whatever it points at — which is not what the person
-    writing the config agreed to. Comparing resolved paths is what makes the
-    allow-list about directories rather than about spellings.
+    writing the config agreed to.
+
+    "Resolves under the root" is too weak a test, and was the seventh bypass:
+    `root/alias -> root/client-work` stays inside the root and still hands
+    back a directory nobody allow-listed. Measured, it read
+    `root/not-allowlisted/nda.md`. So the requirement is exact identity —
+    `<root>/<name>` and nothing else. A directory reached through a link is a
+    directory the config author did not name.
     """
     real_root = os.path.realpath(root)
     real_path = os.path.realpath(full_path)
-    if not _is_under(real_path, real_root) and real_path != real_root:
+    expected = os.path.join(real_root, name)
+    if real_path != expected:
         raise ProjectSourceError(
-            f"Allow-listed project directory {name!r} resolves outside the root: "
-            f"{real_path!r} is not under {real_root!r}. A symlink's name is "
-            "allow-listed, but what it points at is not."
-        )
-    if real_path == real_root:
-        raise ProjectSourceError(
-            f"Allow-listed project directory {name!r} resolves to the root itself."
+            f"Allow-listed project directory {name!r} resolves to {real_path!r}, "
+            f"not to {expected!r}. A symlink's name is allow-listed, but what it "
+            "points at is not — including another directory under the same root, "
+            "which was never allow-listed either."
         )
 
 

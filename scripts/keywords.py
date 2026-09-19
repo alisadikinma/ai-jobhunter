@@ -173,6 +173,14 @@ def coverage(jd_text, cv_text, top_n=DEFAULT_TOP_N):
     """
     jd_stripped = (jd_text or "").strip()
     cv_stripped = (cv_text or "").strip()
+    # Validate the flag BEFORE anything else. Sitting below the two
+    # empty-text early returns, this guard never fired on the paths a user
+    # is most likely to hit: `--top 0` with an empty JD exited 0 with a
+    # report. Argument validation also has no business running after the
+    # text has been tokenised and sorted.
+    if top_n is not None and top_n <= 0:
+        raise KeywordsError(f"top_n must be positive or None, got {top_n!r}")
+
     if not jd_stripped:
         return _empty_report("the job description text is empty")
     if not cv_stripped:
@@ -190,8 +198,6 @@ def coverage(jd_text, cv_text, top_n=DEFAULT_TOP_N):
     # mistake, not a request for everything — silently returning all 688
     # terms because someone typed `--top 0` is the opposite of what they
     # asked for.
-    if top_n is not None and top_n <= 0:
-        raise KeywordsError(f"top_n must be positive or None, got {top_n!r}")
     limit = top_n
     return {
         "covered": covered[:limit] if limit else covered,

@@ -167,7 +167,7 @@ exactly these names.
 **Steps:**
 1. Write failing test for `jobq.append_rows` writing one JSONL line per row to a temp queue path. Expected error: `ModuleNotFoundError: No module named 'jobq'`
 2. Run `python3 -m unittest discover -s tests -t . -v`, confirm it fails for that reason
-3. Implement `scripts/jobq.py` with `load(path)`, `append_rows(path, rows)`, `row_key(row)` and `iter_unscored(rows)`. `row_key` is `sha256` of `jobUrl` when present, else of `company|jobTitle|location` lower-cased and whitespace-collapsed
+3. Implement `scripts/jobq.py` with `load(path)`, `append_rows(path, rows)`, `row_key(row)`, `iter_unscored(rows)`, `iter_unpromoted(rows)` and `update_rows(path, updates, key=row_key)`. `row_key` is `sha256` of `jobUrl` when present, else of `company|jobTitle|location` lower-cased and whitespace-collapsed. `iter_unpromoted` yields rows with no truthy `promoted` field — without it the promote step re-upserts rows already in jobsync and spends the hourly budget twice. `update_rows` merges fields into matching rows by writing a temp file and `os.replace`-ing it, preserving the existing file mode and any line it could not parse verbatim
 4. Add tests for the enumerated edge cases: empty file, missing file, a row with no `jobUrl`, two rows differing only by URL query string, a duplicate appended twice, a malformed (non-JSON) line, 1000 rows, and a row whose `company` differs only by trailing whitespace
 5. Run tests, confirm all pass
 6. Commit: "feat(queue): local JSONL work queue with URL-and-identity dedupe"
@@ -247,7 +247,8 @@ exactly these names.
 **Verification:**
 - [ ] `python3 -m compileall -q scripts tests` passes
 - [ ] `python3 -m unittest discover -s tests -t . -v` passes
-- [ ] No test performs network I/O (grep the test dir for `urlopen` returns nothing)
+- [ ] No test performs network I/O — every `urlopen` in `tests/` sits inside
+      `unittest.mock.patch`; no socket is opened
 - [ ] A description under 10 characters normalises to `"N/A"`, satisfying the jobsync minimum
 - [ ] No placeholder/TODO comments in new code
 
@@ -350,6 +351,47 @@ Two consequences for the implementation:
 - [ ] Batches never exceed 10 items
 - [ ] No placeholder/TODO comments in new code
 
+### Phase E.5: `scripts/jobhunter.py`, the one command the skills call
+
+**Estimated time:** 15 minutes
+
+**Files:**
+- Create: `scripts/jobhunter.py`
+- Test: `tests/test_cli.py`
+
+**Why this phase exists.** A SKILL.md is prose read by a model, and prose
+naming a Python function is not a way to call it. Without this file the
+skills say "read with `config.load(path)`" and nothing in the repository
+says where `config.py` lives or how to reach it — the only code that knows
+is the test suite's own `sys.path.insert`. The first person to install the
+plugin would have to guess an absolute path inside their plugin cache. This
+was the review's first Critical finding: **nothing was runnable.**
+
+**Steps:**
+1. Write failing test for `main(["config-show", "--config", <path>])` printing one JSON document on stdout. Expected error: `ModuleNotFoundError: No module named 'jobhunter'`
+2. Run tests, confirm it fails for that reason
+3. Implement `scripts/jobhunter.py` as ONE `argparse` entrypoint with nine subcommands: `config-show`, `ats-fetch`, `ats-normalize`, `queue-append`, `queue-list` (`--unscored`, `--unpromoted`), `queue-update`, `queue-key`, `keywords-report` (`--top`, `--markdown`), `promote-prepare`. Every skill invokes exactly `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand>` — never a bare path, never a Python function name
+4. Large payloads arrive as `--rows @path` / `--updates @path`, because a whole job description on a command line is mangled by the shell
+5. `main()` catches **every** exception and emits `{"error": "<class>", "message": "..."}` as JSON on stderr, exit 1. A traceback is not a result a skill can report, and the contract stated in all six SKILL.md is JSON either way
+6. `--company` is required for `lever` and `ashby` (their payloads carry no company name) and refused for `greenhouse` (its payload states its own, so the flag would be silently ignored). Validate this BEFORE the network call
+7. `promote-prepare` validates each row FIRST and budgets over the survivors. Budgeting over the raw rows counts refusals against the request ceiling — measured on 25 bad rows ahead of 50 good ones with `--limit 30`: the old order prepared **0** and held 60 rows back, the new order prepares 15
+8. Run tests, confirm all pass
+9. Commit: "feat(cli): single entrypoint every skill invokes"
+
+**Completeness ladder:**
+- Happy path: each subcommand prints one JSON document on stdout, nothing else. Logging goes to stderr — `ats.fetch`'s log line on stdout made `json.load` fail on a real fetch.
+- Error paths: malformed JSON in `--rows`, a missing `@file`, a bad `--jd` path, a missing or surplus `--company`, a non-positive `--top`. Each is a named JSON refusal, never a traceback.
+- Edge cases: empty queue, every row refused, a board whose postings all fail to normalise, `--limit` above the jobsync hourly ceiling.
+- Tests: `tests/test_cli.py` calls `main(argv)` in-process and reads stdout, because the contract the skills depend on is the bytes on stdout, not a return value.
+- Observability: `ats-*` report `skipped` postings alongside `rows`, so a board that came back short says so.
+
+**Verification:**
+- [ ] `python3 -m compileall -q scripts` passes
+- [ ] `python3 -m unittest discover -s tests -t .` passes
+- [ ] Every subcommand documented in a SKILL.md exists, and every flag documented with it exists on that subcommand (`tests/test_manifest.py`)
+- [ ] stdout holds one parseable JSON document for every subcommand except `keywords-report --markdown`
+- [ ] No placeholder/TODO comments in new code
+
 ### Phase F: the six skills and the plugin manifest
 
 **Estimated time:** 15 minutes
@@ -359,12 +401,13 @@ Two consequences for the implementation:
 - Create: `.claude-plugin/plugin.json`
 - Create: `README.md`
 - Create: `tests/test_manifest.py`
+- Depends on: `scripts/jobhunter.py` from Phase E.5 — every command a SKILL.md writes must be one that file accepts
 
 **Steps:**
 1. Write failing test asserting `.claude-plugin/plugin.json` parses and that every directory under `skills/` has a `SKILL.md` whose front matter declares a `name` and `description`. Expected error: `FileNotFoundError: .claude-plugin/plugin.json`
 2. Run tests, confirm it fails for that reason
 3. Write `.claude-plugin/plugin.json` with `name: "ai-jobhunter"`, version `0.1.0`, MIT licence, author Ali Sadikin
-4. Write the six SKILL.md files. Each states its inputs, the exact scripts it calls, the MCP tools it may use, and what it refuses to do. `outreach` must check for a Gmail MCP tool at run time and fall back to writing `.eml` files, saying in its output which path it took. `promote` is the only skill permitted to call jobsync MCP tools
+4. Write the six SKILL.md files. Each states its inputs, the exact **commands** it runs — always `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand>`, never a Python function name — the MCP tools it may use, and what it refuses to do. `outreach` must check for a Gmail MCP tool at run time and fall back to writing `.eml` files, saying in its output which path it took. `promote` is the only skill permitted to call jobsync MCP tools
 4b. `profile`'s SKILL.md specifies the four compilation passes from spec §4.2 verbatim: **ingest** each source to `.jobhunter/profile/sources/<name>.md` with its URL/path and fetch date and never edit it; **extract** each atomic claim with its source file and line, carrying `verified: false` for any claim the source itself flags unverified (markers in use: `[verifikasi]`, `[Assumption]`); **reconcile** by the configured tier precedence, writing anything precedence cannot settle to `.jobhunter/profile/conflicts.md`; **render** `master-cv.md` with a source named on every bullet. It states two hard rules: a `verified: false` claim is never rendered into any outward document, and only allow-listed project directories are ever opened
 5. Read `/Users/alisadikin/Drive-D/claude-plugin/jobhunter-plugin/refs/` for prior art on CV, email and contact wording before writing `tailor` and `outreach`
 6. Run tests, confirm all pass

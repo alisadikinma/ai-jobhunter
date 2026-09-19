@@ -429,14 +429,25 @@ class TestAllowListCannotResolveToTheRoot(unittest.TestCase):
             os.symlink(outside, os.path.join(root, "innocent-name"))
             with self.assertRaises(config.ProjectSourceError) as ctx:
                 config.resolve_profile_sources(self._cfg(root, ["innocent-name"]))
-            self.assertIn("outside the root", str(ctx.exception))
+            self.assertIn("not to", str(ctx.exception))
 
-    def test_symlink_pointing_inside_the_root_is_allowed(self):
+    def test_symlink_to_a_sibling_under_the_root_is_also_rejected(self):
+        """This test used to assert the opposite, and asserting the opposite
+        was the seventh allow-list bypass.
+
+        `alias -> allowed` stays inside the root, so the old "resolves under
+        the root" check passed it — and handed back `allowed`, a directory
+        the config never named. Measured on the pre-fix tree, reading
+        `root/not-allowlisted/nda.md` through an allow-list entry called
+        `allowed`. Inside-the-root is not the contract; being the directory
+        of that name is.
+        """
         with tempfile.TemporaryDirectory() as tmp:
             root = self._root(tmp)
             os.symlink(os.path.join(root, "allowed"), os.path.join(root, "alias"))
-            sources = config.resolve_profile_sources(self._cfg(root, ["alias"]))
-            self.assertEqual(len(sources), 1)
+            with self.assertRaises(config.ProjectSourceError) as ctx:
+                config.resolve_profile_sources(self._cfg(root, ["alias"]))
+            self.assertIn("resolves to", str(ctx.exception))
 
     def test_an_unlisted_sibling_is_still_never_returned(self):
         """The real assertion the old test of this name never made: reach for
@@ -510,7 +521,7 @@ class TestNestedLinksCannotEscapeTheAllowList(unittest.TestCase):
             os.symlink(outside, os.path.join(root, "allowed", "notes"))
             with self.assertRaises(config.ProjectSourceError) as ctx:
                 config.resolve_profile_sources(self._cfg(root))
-            self.assertIn("leading outside the root", str(ctx.exception))
+            self.assertIn("leading outside it", str(ctx.exception))
 
     def test_a_link_pointing_back_inside_the_root_is_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -521,6 +532,43 @@ class TestNestedLinksCannotEscapeTheAllowList(unittest.TestCase):
                 os.path.join(root, "allowed", "alias"),
             )
             self.assertEqual(len(config.resolve_profile_sources(self._cfg(root))), 1)
+
+    def test_a_nested_link_to_the_root_itself_is_refused(self):
+        """`ln -s ..` inside an allow-listed directory, named `archive`.
+
+        One character, an innocent name, and the whole root is readable at
+        `allowed/archive/<anything>`. The guard that measured containment
+        against the root whitelisted this case explicitly.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            secret = os.path.join(root, "client-acme-pricing")
+            os.makedirs(secret)
+            with open(os.path.join(secret, "negotiation.md"), "w", encoding="utf-8") as f:
+                f.write("undecided negotiation")
+            os.symlink("..", os.path.join(root, "allowed", "archive"))
+            with self.assertRaises(config.ProjectSourceError) as ctx:
+                config.resolve_profile_sources(self._cfg(root))
+            self.assertIn("leading outside it", str(ctx.exception))
+
+    def test_a_nested_link_to_an_unlisted_sibling_is_refused(self):
+        """Staying under the root is not staying inside the allow-list.
+
+        `allowed/peek -> ../client-work` never leaves the root, and the
+        pre-fix guard returned it. Measured reading `client-work/nda.md`.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = os.path.join(tmp, "root")
+            os.makedirs(os.path.join(root, "allowed"))
+            sibling = os.path.join(root, "client-work")
+            os.makedirs(sibling)
+            with open(os.path.join(sibling, "nda.md"), "w", encoding="utf-8") as f:
+                f.write("client pricing")
+            os.symlink(sibling, os.path.join(root, "allowed", "peek"))
+            with self.assertRaises(config.ProjectSourceError) as ctx:
+                config.resolve_profile_sources(self._cfg(root))
+            self.assertIn("leading outside it", str(ctx.exception))
 
     def test_a_deeply_nested_escaping_link_is_still_caught(self):
         with tempfile.TemporaryDirectory() as tmp:

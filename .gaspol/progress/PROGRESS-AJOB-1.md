@@ -76,7 +76,8 @@
 **Verification:**
 - [x] `python3 -m compileall -q scripts tests` passes
 - [x] `python3 -m unittest discover -s tests -t . -v` passes
-- [x] No test performs network I/O (grep the test dir for `urlopen` returns nothing)
+- [x] No test performs network I/O — every `urlopen` in `tests/` is inside
+      `unittest.mock.patch` (12 patch targets; the 13th mention is a docstring)
 - [x] A description under 10 characters normalises to `"N/A"`, satisfying the jobsync minimum
 - [x] An unmappable Greenhouse location leaves `workplaceType` absent rather than guessing
 - [x] An Ashby row with `isListed: false` is dropped
@@ -113,6 +114,13 @@
 - [x] `tags` never exceeds 10 and always retains the visa tag and the variant tag
 - [x] Batches never exceed 10 items
 - [x] No placeholder/TODO comments in new code
+
+### [x] Phase E.5: `scripts/jobhunter.py`, the one command the skills call
+- [x] Lahir dari gaspol-review putaran 1, bukan dari plan asli — plan ditambal balik agar tetap self-contained
+- [x] Sembilan subcommand, satu `argparse`, JSON di stdout, refusal JSON di stderr
+- [x] `--company` diwajibkan untuk lever/ashby dan ditolak untuk greenhouse, sebelum panggilan jaringan
+- [x] `promote-prepare` validasi dulu, budget atas yang lolos
+- [x] `tests/test_cli.py` memanggil `main(argv)` langsung dan membaca stdout (putaran 3)
 
 ### [x] Phase F: the six skills and the plugin manifest
 - [x] Write failing test asserting `.claude-plugin/plugin.json` parses and every `skills/*/SKILL.md` declares name and description. Expected error: `FileNotFoundError: .claude-plugin/plugin.json`
@@ -161,6 +169,7 @@
 | C — ATS fetchers | DONE | `5998380` + fix |
 | D — keyword coverage | DONE | `8e2033d` |
 | E — promote | DONE | `92dce2a` |
+| E.5 — CLI entrypoint | DONE | `1aa0e24` (lahir dari review, bukan plan) |
 | F — skills + manifest | DONE | `12ac066` |
 | G — evals | DONE | `283919c` |
 
@@ -202,6 +211,16 @@ Dua putaran. Verdict pertama: **BLOCKING** — 3 Critical. Verdict kedua atas di
 | 2 | Kontrak error JSON pecah pada input keliru biasa | `main()` menangkap semua, selalu JSON |
 | 2 | Budget dihitung sebelum validasi — salah 6× | Validasi dulu, budget atas yang lolos |
 | 2 | `AttributeError` pada entri non-dict Ashby (regresi dari perbaikan sebelumnya) | Ditolak bernama |
+| 3 | **Bypass kelima & keenam**: containment diukur ke `root`, bukan ke folder yang di-allow-list. `allowed/archive -> ..` membuka seluruh vault | Diukur ke folder allow-list; `ln -s ..` ditolak |
+| 3 | **Bypass ketujuh**: entry allow-list sendiri boleh symlink ke sibling. Test `test_symlink_pointing_inside_the_root_is_allowed` justru mengkodekan lubang ini sebagai perilaku benar | Entry wajib persis `<root>/<name>`; test diganti |
+| 3 | Guard non-dict cuma di Ashby — satu entri nyasar membuang seluruh board Greenhouse/Lever | Guard pindah ke `_normalize_all`, satu tempat untuk tiga board |
+| 3 | `_Rows.skipped` nol pembaca, dan `json.dump` membuangnya — cacat sama persis yang memblokir putaran 2 | `_Rows` selalu dikembalikan; `jobhunter.py` melaporkan `skipped` |
+| 3 | Guard `top_n` di bawah dua early return — `--top 0` dengan JD kosong keluar 0 | Validasi argumen dipindah ke paling atas |
+| 3 | `scripts/jobhunter.py` nol tes perilaku padahal entrypoint semua skill | `tests/test_cli.py`, 11 tes |
+| 3 | `ats.fetch` cetak log ke stdout — `json.load` gagal di fetch sungguhan | `file=sys.stderr` di empat baris |
+| 3 | Plan mengaku self-contained tapi nol sebutan `jobhunter.py`, `update_rows`, `iter_unpromoted` | Phase E.5 ditambahkan ke plan; kontrak `jobq` dilengkapi |
+| 3 | Kotak verifikasi mengklaim `grep urlopen` nihil — nyatanya 13 sebutan | Klaim diganti dengan yang benar (12 target patch) |
+| 3 | Penjaga manifest cuma cek nama subcommand, bukan flag — `--unpromted` tetap hijau | Flag ikut dicek ke `--help` subcommand-nya |
 
 Uji mutasi dipakai dua kali: subcommand palsu disisipkan ke SKILL.md untuk membuktikan penjaganya menggigit.
 

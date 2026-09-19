@@ -66,6 +66,12 @@ def cmd_config_show(args):
     _emit({"config": cfg, "sources": [{"tier": t, "path": p} for t, p in sources]})
 
 
+class CompanyRequiredError(ValueError):
+    """`--company` is missing where the payload cannot supply it, or passed
+    where it would be ignored. Named so the JSON refusal carries a class an
+    operator can look up, like every other refusal this CLI emits."""
+
+
 def _require_company(args):
     """Fail before the network call, not after it.
 
@@ -77,12 +83,12 @@ def _require_company(args):
     """
     needs_company = args.board in ("lever", "ashby")
     if needs_company and not (args.company or "").strip():
-        raise ValueError(
+        raise CompanyRequiredError(
             f"--company is required for {args.board}: its payload carries no "
             "company name. Pass the company's display name."
         )
     if not needs_company and args.company:
-        raise ValueError(
+        raise CompanyRequiredError(
             f"--company is not accepted for {args.board}: its payload states "
             "the company itself, and the flag would be silently ignored."
         )
@@ -92,13 +98,25 @@ def cmd_ats_fetch(args):
     _require_company(args)
     ats.fetch(args.board, args.slug, args.dest)
     rows = _NORMALIZERS[args.board](args.dest, *( [args.company] if args.board != "greenhouse" else [] ))
-    _emit({"board": args.board, "slug": args.slug, "dest": args.dest, "rows": rows})
+    _emit(
+        {
+            "board": args.board,
+            "slug": args.slug,
+            "dest": args.dest,
+            "rows": list(rows),
+            # `json.dump` serialises a list subclass as a plain array, so the
+            # skipped postings vanished unless they are lifted out by hand.
+            # They name the posting and the field that moved — the only way
+            # an operator learns a board came back short.
+            "skipped": rows.skipped,
+        }
+    )
 
 
 def cmd_ats_normalize(args):
     _require_company(args)
     rows = _NORMALIZERS[args.board](args.path, *( [args.company] if args.board != "greenhouse" else [] ))
-    _emit({"board": args.board, "rows": rows})
+    _emit({"board": args.board, "rows": list(rows), "skipped": rows.skipped})
 
 
 def cmd_queue_append(args):

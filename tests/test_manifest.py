@@ -172,28 +172,42 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
             self.assertNotIn("/Users/", text, skill_md.parent.name)
             self.assertNotIn("/home/", text, skill_md.parent.name)
 
-    def test_every_documented_subcommand_exists_in_the_cli(self):
+    def _cli_help(self, *args):
         import subprocess
         import sys
 
-        help_text = subprocess.run(
-            [sys.executable, str(pathlib.Path(REPO_ROOT) / "scripts" / "jobhunter.py"), "--help"],
+        return subprocess.run(
+            [sys.executable, str(pathlib.Path(REPO_ROOT) / "scripts" / "jobhunter.py")]
+            + list(args)
+            + ["--help"],
             capture_output=True,
             text=True,
             check=True,
         ).stdout
-        # The path is quoted in the skills, so splitting on whitespace made
-        # parts[0] the closing quote and every documented name an empty
-        # string. The set was {""}, assertTrue passed on a non-empty set and
-        # assertIn("" , help_text) passed trivially — a guard that would have
-        # accepted a completely fictional subcommand.
-        pattern = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)')
-        documented = set()
-        for skill_md in pathlib.Path(SKILLS_DIR).glob("*/SKILL.md"):
+
+    # The path is quoted in the skills, so splitting on whitespace made
+    # parts[0] the closing quote and every documented name an empty string.
+    # The set was {""}, assertTrue passed on a non-empty set and
+    # assertIn("", help_text) passed trivially — a guard that would have
+    # accepted a completely fictional subcommand.
+    _COMMAND_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)((?:\s+--?[a-z][a-z0-9-]*)*)')
+
+    def _documented_commands(self):
+        """Map each documented subcommand to the long flags shown with it."""
+        commands = {}
+        for skill_md in sorted(pathlib.Path(SKILLS_DIR).glob("*/SKILL.md")):
             for line in skill_md.read_text().splitlines():
-                match = pattern.search(line)
-                if match:
-                    documented.add(match.group(1))
+                match = self._COMMAND_RE.search(line)
+                if not match:
+                    continue
+                name, tail = match.group(1), match.group(2)
+                flags = commands.setdefault(name, set())
+                flags.update(re.findall(r"--[a-z][a-z0-9-]*", tail))
+        return commands
+
+    def test_every_documented_subcommand_exists_in_the_cli(self):
+        help_text = self._cli_help()
+        documented = self._documented_commands()
         self.assertTrue(documented, "no skill documents a subcommand")
         self.assertNotIn("", documented)
         for name in sorted(documented):
@@ -202,6 +216,21 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
                 help_text,
                 f"{name} is documented in a skill but is not a real subcommand",
             )
+
+    def test_every_documented_flag_exists_on_its_subcommand(self):
+        """Names alone were guarded, so a typo like `--unpromted` stayed
+        green — the same class of silent miss as the quoting bug above, one
+        level down. Checks each flag against that subcommand's own --help.
+        """
+        for name, flags in sorted(self._documented_commands().items()):
+            sub_help = self._cli_help(name)
+            for flag in sorted(flags):
+                self.assertIn(
+                    flag,
+                    sub_help,
+                    f"{name} {flag} is documented in a skill but "
+                    f"{name} accepts no such flag",
+                )
 
 
 if __name__ == "__main__":

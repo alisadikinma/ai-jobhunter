@@ -104,12 +104,12 @@ def fetch(board, slug, dest):
         response = urllib.request.urlopen(request, timeout=_FETCH_TIMEOUT_SECONDS)
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
-        print(f"ats.fetch: board={board} slug={slug} status={exc.code} rows=0")
+        print(f"ats.fetch: board={board} slug={slug} status={exc.code} rows=0", file=sys.stderr)
         raise AtsError(
             f"{board} fetch for slug={slug!r} failed: HTTP {exc.code} {body}"
         ) from exc
     except (TimeoutError, urllib.error.URLError) as exc:
-        print(f"ats.fetch: board={board} slug={slug} status=<no response> error={exc}")
+        print(f"ats.fetch: board={board} slug={slug} status=<no response> error={exc}", file=sys.stderr)
         raise AtsError(f"{board} fetch for slug={slug!r} failed: {exc}") from exc
 
     with response:
@@ -125,7 +125,7 @@ def fetch(board, slug, dest):
         try:
             payload = json.load(f)
         except json.JSONDecodeError as exc:
-            print(f"ats.fetch: board={board} slug={slug} status={status} rows=<non-JSON body>")
+            print(f"ats.fetch: board={board} slug={slug} status={status} rows=<non-JSON body>", file=sys.stderr)
             raise AtsError(
                 f"{board} fetch for slug={slug!r} returned a non-JSON response body"
             ) from exc
@@ -137,7 +137,7 @@ def fetch(board, slug, dest):
     else:
         row_count = 0
 
-    print(f"ats.fetch: board={board} slug={slug} status={status} rows={row_count}")
+    print(f"ats.fetch: board={board} slug={slug} status={status} rows={row_count}", file=sys.stderr)
     return status, row_count
 
 
@@ -199,6 +199,13 @@ class _Rows(list):
     the second half, so the postings it named were lost as quietly as before.
     Subclassing `list` keeps every existing caller working — the rows ARE the
     list — while `rows.skipped` stays available to a caller that reports it.
+
+    Returned unconditionally, never "a plain list when nothing was skipped".
+    A type that appears only on the unhappy path is a type nobody writes code
+    against: `rows.skipped` would raise AttributeError in the common case,
+    so every caller would go back to ignoring it, which is the bug this
+    class exists to fix. `scripts/jobhunter.py` reports it on both
+    `ats-fetch` and `ats-normalize`.
     """
 
     def __init__(self, rows, skipped):
@@ -223,6 +230,15 @@ def _normalize_all(source, jobs, normalizer):
     first_error = None
     for job in jobs:
         try:
+            # A stray non-object in the payload used to reach `job.get(...)`
+            # and raise AttributeError, which this loop does not catch — so
+            # one bad entry discarded the whole board (measured: a 667-row
+            # Greenhouse fetch returned zero rows behind
+            # {"error": "AttributeError"}). Ashby grew its own guard and the
+            # other two boards did not; the check belongs here, where every
+            # board passes through exactly once.
+            if not isinstance(job, dict):
+                raise MissingFieldError(source, "job object")
             rows.append(normalizer(job))
         except MissingFieldError as exc:
             if first_error is None:
@@ -261,7 +277,7 @@ def normalize_greenhouse(path):
     rows, skipped = _normalize_all(
         SOURCE_GREENHOUSE, payload["jobs"], _normalize_greenhouse_job
     )
-    return rows if not skipped else _Rows(rows, skipped)
+    return _Rows(rows, skipped)
 
 
 def _normalize_greenhouse_job(job):
@@ -307,7 +323,7 @@ def normalize_lever(path, company):
     rows, skipped = _normalize_all(
         SOURCE_LEVER, payload, lambda p: _normalize_lever_posting(p, company)
     )
-    return rows if not skipped else _Rows(rows, skipped)
+    return _Rows(rows, skipped)
 
 
 def _normalize_lever_posting(posting, company):
@@ -360,8 +376,7 @@ def normalize_ashby(path, company):
         raise MissingFieldError(SOURCE_ASHBY, "jobs")
 
     def normalize_one(job):
-        if not isinstance(job, dict):
-            raise MissingFieldError(SOURCE_ASHBY, "job object")
+        # The non-dict case is `_normalize_all`'s, for every board at once.
         if "isListed" not in job:
             raise MissingFieldError(SOURCE_ASHBY, "isListed")
         return _normalize_ashby_job(job, company)
@@ -380,7 +395,7 @@ def normalize_ashby(path, company):
     rows, skipped = _normalize_all(SOURCE_ASHBY, listed, normalize_one)
     if unlisted:
         print(f"ats.normalize: source={SOURCE_ASHBY} unlisted_dropped={unlisted}", file=sys.stderr)
-    return rows if not skipped else _Rows(rows, skipped)
+    return _Rows(rows, skipped)
 
 
 def _normalize_ashby_job(job, company):
