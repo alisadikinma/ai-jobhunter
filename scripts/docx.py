@@ -103,15 +103,18 @@ _ITALIC_UNDERSCORE_RE = re.compile(
 # and bidi formatting, the soft hyphen, and every control character the XML
 # writer deletes on its way out.
 #
-# That last group is why this constant and `_ILLEGAL_XML_RE` are defined
+# That last group is why this set and `_ILLEGAL_XML_RE` are described
 # together. They were two different sets, and the gap between them was a hole
 # straight through both layers of the gate: "[veri\x01fikasi]" matched no
 # pattern here, and then `escape` — which runs AFTER the last check, inside
 # `document_xml` — deleted the \x01 and reassembled a clean "[verifikasi]"
 # in the shipped document. A character-removing transformation downstream of
-# the gate can only ever do that. `_ILLEGAL_XML_RE` is therefore a SUBSET of
-# this pattern by construction, and a test pins it over every codepoint.
-_XML_ILLEGAL_CLASS = r"\x00-\x08\x0b\x0c\x0e-\x1f"
+# the gate can only ever do that.
+#
+# `_ILLEGAL_XML_RE` must therefore stay a SUBSET of what this removes. The
+# two are built from different definitions — one from the XML grammar, one
+# from Unicode categories — so the relation is pinned by a test rather than
+# guaranteed by construction. Saying "by construction" here was an overclaim.
 
 # What Unicode calls Default_Ignorable_Code_Point — characters a renderer is
 # expected to show as nothing. `unicodedata` does not expose that property,
@@ -120,16 +123,31 @@ _XML_ILLEGAL_CLASS = r"\x00-\x08\x0b\x0c\x0e-\x1f"
 #
 # `Cc` control, `Cf` format, `Cn` unassigned (the reserved ignorable blocks
 # live there, and a codepoint nobody has defined cannot be meaningful text),
-# and `Mn` nonspacing mark. `Mn` is the one that matters most and the one an
-# earlier version missed: every variation selector is `Mn`, as are the
-# combining grapheme joiner and U+E0100's block. Removing marks from a
-# PROJECTION is safe in the only direction that counts — deleting characters
-# can reveal a marker that was hidden, never invent one that was not written.
-_INVISIBLE_CATEGORIES = frozenset(("Cc", "Cf", "Cn", "Mn"))
+# `Cs` surrogate, `Me` enclosing mark, and `Mn` nonspacing mark. `Mn` is the
+# one that matters most and the one an earlier version missed: every
+# variation selector is `Mn`, as are the combining grapheme joiner and
+# U+E0100's block. `Me` came next — U+20DD draws a ring around a letter and
+# Calibri has no glyph for it at all. Removing marks from a PROJECTION is
+# safe in the only direction that counts: deleting characters can reveal a
+# marker that was hidden, never invent one that was not written.
+_INVISIBLE_CATEGORIES = frozenset(("Cc", "Cf", "Cn", "Cs", "Me", "Mn"))
 
 # The Hangul fillers are `Lo`, an enormous category that also holds every CJK
 # ideograph, so these four are named rather than swept in.
 _INVISIBLE_LETTERS = frozenset("\u115f\u1160\u3164\uffa0")
+
+# Every space separator EXCEPT the ordinary one. NFKC folds U+00A0, the
+# U+2000 block, U+202F, U+205F and U+3000 into U+0020, so each of them lands
+# wherever a plain space lands — and U+200A HAIR SPACE is about half a point
+# wide in Calibri, which is not a space a reader sees. U+0020 itself is left
+# in place deliberately: the loose pattern already tolerates it between the
+# letters, and removing it would silently turn "[ Assumption ]" into a match,
+# which the plan pins as NOT one.
+_INVISIBLE_SPACES = frozenset(
+    ch
+    for ch in map(chr, range(0x110000))
+    if unicodedata.category(ch) in ("Zs", "Zl", "Zp") and ch != " "
+)
 
 
 def _remove_invisible(text):
@@ -143,6 +161,7 @@ def _remove_invisible(text):
         ch
         for ch in text
         if ch not in _INVISIBLE_LETTERS
+        and ch not in _INVISIBLE_SPACES
         and unicodedata.category(ch) not in _INVISIBLE_CATEGORIES
     )
 
@@ -374,6 +393,12 @@ def _unmask(line):
     # Compatibility normalisation folds the fullwidth forms — "［verifikasi］"
     # is indistinguishable from the marker on the page. It does NOT fold a
     # Cyrillic "а" into a Latin "a"; see the limit stated below.
+    # Marks are removed BEFORE normalising as well as after. NFKC does not
+    # only decompose — it COMPOSES, and composition destroys a match rather
+    # than revealing one: "i" plus U+0301 becomes "í", a letter, and the Mn
+    # is gone before anything can strip it. Seventeen combining marks hid a
+    # marker that way.
+    text = _remove_invisible(text)
     text = unicodedata.normalize("NFKC", text)
     text = _HTML_TAG_RE.sub("", text)
     text = _remove_invisible(text)
@@ -780,9 +805,15 @@ _ZIP_DATE = (1980, 1, 1, 0, 0, 0)
 
 # XML 1.0 forbids most control characters outright — a stray one makes the
 # document unopenable rather than merely ugly.
-# Built from the same class `_INVISIBLE_RE` contains, so the writer can never
-# delete a character the gate did not already normalise away.
-_ILLEGAL_XML_RE = re.compile(r"[" + _XML_ILLEGAL_CLASS + r"]")
+# The complement of XML 1.0's `Char` production, rather than a list of
+# control characters somebody thought of. The list version allowed U+FFFF
+# through: one of those in ordinary CV text produced a `.docx` that no
+# parser can open, and `render-docx` reported success with a plausible byte
+# count. Surrogates and the two noncharacters are forbidden too, and only
+# the grammar knows the whole set.
+_ILLEGAL_XML_RE = re.compile(
+    "[^\x09\x0a\x0d\x20-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]"
+)
 
 
 def escape(text):

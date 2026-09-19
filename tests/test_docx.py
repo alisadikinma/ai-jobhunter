@@ -284,6 +284,14 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
         markdown = "- <b>x</b> &amp;#91;verifikasi&amp;#93;\n"
         self.assertEqual(len(docx.unverified_findings(markdown)), 1)
 
+    def test_tags_are_removed_with_no_separator(self):
+        # The docstring calls this deliberate, and nothing pinned it: with
+        # the tag replaced by a space instead, "[<i></i>verifikasi]" becomes
+        # "[ verifikasi]" and the whole suite stayed green.
+        self.assertEqual(
+            docx._unmask("- x [verif<i>ikasi</i>]"), "- x [verifikasi]"
+        )
+
     def test_a_tag_splitting_the_marker_does_not_hide_it(self):
         self.assertEqual(len(docx.unverified_findings("- x [verif<i>ikasi</i>]\n")), 1)
 
@@ -352,6 +360,7 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
         (0xFEFF, 0xFEFF),
         (0xFFA0, 0xFFA0),
         (0xFFF0, 0xFFF8),
+        (0x13430, 0x1343F),
         (0x1BCA0, 0x1BCA3),
         (0x1D173, 0x1D17A),
         (0xE0000, 0xE0FFF),
@@ -373,6 +382,33 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
         for code in list(range(0xFE00, 0xFE10)) + [0xE0100, 0xE01EF]:
             with self.subTest(code=hex(code)):
                 markdown = "- ARR [veri%sfikasi]\n" % chr(code)
+                self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_a_combining_mark_that_composes_into_a_letter_does_not_hide_it(self):
+        """NFKC does not only decompose — it composes, and composition hides.
+
+        "i" plus U+0301 becomes "í", a letter, and the mark is gone before
+        anything can strip it. The docstring claimed a transformation that
+        removes characters can only make a marker MORE visible; NFKC is not
+        such a transformation. Marks are now removed before normalising too.
+        """
+        for mark in ("\u0300", "\u0301", "\u0308", "\u0323", "\u0340", "\u0341"):
+            with self.subTest(mark=repr(mark)):
+                markdown = "- ARR [ver i%sfikasi]\n".replace(" ", "")  % mark
+                self.assertEqual(len(docx.unverified_findings(markdown)), 1)
+
+    def test_an_enclosing_mark_does_not_hide_it(self):
+        # U+20DD rings a letter, and Calibri has no glyph for it at all.
+        self.assertEqual(
+            len(docx.unverified_findings("- ARR [veri\u20ddfikasi]\n")), 1
+        )
+
+    def test_a_space_that_is_not_a_space_does_not_hide_it(self):
+        # NFKC folds all of these to U+0020, so each lands where a plain
+        # space lands. U+200A is about half a point wide in Calibri.
+        for space in ("\u00a0", "\u2000", "\u200a", "\u202f", "\u205f", "\u3000"):
+            with self.subTest(space=repr(space)):
+                markdown = "- ARR [%sverifikasi]\n" % space
                 self.assertEqual(len(docx.unverified_findings(markdown)), 1)
 
     def test_the_hangul_fillers_are_caught(self):
@@ -685,6 +721,16 @@ class TestFlattenTables(unittest.TestCase):
             "| Skill | Years | Last used |\n|---|---|---|\n| Python | 8 | 2026 |\n"
         )
         self.assertIn("Skill: Python — Years: 8 — Last used: 2026", flat)
+
+    def test_a_row_with_more_cells_than_headers_keeps_them_all(self):
+        # The header padding is what stops `zip` truncating at the headers.
+        # Removing it left the suite green while "extra" vanished from the
+        # document — the docstring only ever mentioned SHORT rows.
+        flat, _notes = docx.flatten(
+            "| Skill | Years |\n|---|---|\n| Rust | 3 | 2022 | extra |\n"
+        )
+        self.assertIn("extra", flat)
+        self.assertIn("2022", flat)
 
     def test_a_sentence_with_a_literal_pipe_survives_unflattened(self):
         markdown = "Ran `cat x | sort | uniq` daily.\nIt replaced a cron job.\n"
@@ -1264,6 +1310,33 @@ class TestRenderTextFidelity(DocxTempDirCase):
         )
         for marker in ("**", "`", "## ", "](", "|---"):
             self.assertNotIn(marker, text)
+
+    def test_no_codepoint_can_make_the_document_unparseable(self):
+        """The direction nothing pinned.
+
+        The subset test protects the GATE: everything the writer deletes is
+        already gone from what the gate reads. XML validity needs the other
+        direction — everything XML forbids must be deleted — and nothing
+        checked it. A single U+FFFF in ordinary CV text produced a file no
+        parser could open, and `render-docx` reported success with a
+        plausible byte count.
+        """
+        forbidden = (
+            "\x00", "\x08", "\x0b", "\x0c", "\x1f",
+            "\ufffe", "\uffff",
+        )
+        for ch in forbidden:
+            with self.subTest(ch=repr(ch)):
+                path = self.out("x%x.docx" % ord(ch))
+                docx.render("# CV\n\n- Grew ARR to $9M%s in 18 months\n" % ch, path)
+                ElementTree.fromstring(self.document_xml(path))
+
+    def test_a_noncharacter_that_xml_permits_still_round_trips(self):
+        # U+FDD0 is a noncharacter but legal in XML content. Deleting it
+        # would be over-reach; keeping it must not break the parse.
+        path = self.out()
+        docx.render("# CV\n\n- Grew ARR\ufdd0 sharply\n", path)
+        ElementTree.fromstring(self.document_xml(path))
 
     def test_a_control_character_never_reaches_the_xml(self):
         # XML 1.0 forbids them: one stray byte makes the file unopenable
