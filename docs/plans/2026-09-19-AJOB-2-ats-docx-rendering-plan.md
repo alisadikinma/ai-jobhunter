@@ -157,7 +157,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 
 ## Amendments, 2026-09-19 (post-implementation, owner-approved)
 
-Nine points where the pinned text above no longer matches the code. Every
+Ten points where the pinned text above no longer matches the code. Every
 one was found by RUNNING the code — on a real CV, through a real document
 extractor, or by an adversarial review — and each is approved. They are
 recorded here rather than silently left to drift, because this document is
@@ -201,6 +201,14 @@ the contract.
    `Default_Ignorable_Code_Point`, covered by the categories that contain it
    plus the four Hangul fillers — defining it as `Cc`/`Cf` alone let all
    sixteen variation selectors ship a readable marker.
+
+10. **`[ Assumption ]` with a space after the bracket IS a match**, reversing
+    Phase B step 5. The original reasoning — a leading space means the author
+    wrote something else — is false on one path: a line wrapped immediately
+    after "[" arrives as "[ Assumption: FY24 baseline]", the space put there
+    by the wrap rather than by the author, and the marker shipped into the
+    document with exit 0. Measured before changing it: zero new false
+    positives over a corpus of bracketed CV prose. Owner decision, 2026-09-19.
 
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally
@@ -259,7 +267,7 @@ a file exists, so this is where the asymmetry closes.
 2. Run tests, confirm it fails for that reason
 3. Implement `ats_lint(markdown)` returning findings per the Lint finding contract. Detect `[verifikasi]` and `[Assumption]` **case-insensitively**, anywhere on the line. Also detect and report (without refusing) `table`, `image`, `deep-nesting`, `html`
 4. Implement `UnverifiedClaimError(Exception)` carrying `.findings`, with a message naming the file, the line number and the offending text, e.g. `cv.md:14 — "increased revenue 40% [verifikasi]"`
-5. Add tests for the enumerated edge cases: marker in a heading, marker inside a fenced code block (**still refuses** — a CV has no reason to carry code fences, and a marker there is far more likely a real claim than a deliberate literal), `[VERIFIKASI]` uppercase, `[ Assumption ]` with inner spaces (**not** a match — the convention is exact, and loosening it invites false positives), two markers on one line (one finding, not two), a marker on the last line with no trailing newline, and markdown with no markers at all (empty finding list)
+5. Add tests for the enumerated edge cases: marker in a heading, marker inside a fenced code block (**still refuses** — a CV has no reason to carry code fences, and a marker there is far more likely a real claim than a deliberate literal), `[VERIFIKASI]` uppercase, `[ Assumption ]` with inner spaces (**a match** — see Amendment 10; originally pinned as *not* a match, reversed once a line wrapping after `[` was found shipping the marker), two markers on one line (one finding, not two), a marker on the last line with no trailing newline, and markdown with no markers at all (empty finding list)
 6. Run tests, confirm all pass
 7. Commit: "feat(docx): refuse to render a claim the candidate never verified"
 
@@ -273,7 +281,7 @@ a file exists, so this is where the asymmetry closes.
 - [ ] `python3 -m compileall -q scripts tests` passes
 - [ ] `python3 -m unittest discover -s tests -t .` passes
 - [ ] A markdown file carrying `[verifikasi]` produces a finding whose `line` matches the real 1-based line number, proven against a multi-line fixture
-- [ ] `[ Assumption ]` with inner spaces produces no finding
+- [ ] `[ Assumption ]` with inner spaces produces a finding (Amendment 10 reversed this)
 - [ ] Mutation check: delete the `[Assumption]` half of the pattern and confirm a test fails — a guard that guards only half of what it claims is this repository's documented recurring defect
 - [ ] No placeholder/TODO comments in new code
 - [ ] detect-stack: no stack markers for this project — verification is plan-declared only

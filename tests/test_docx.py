@@ -477,18 +477,41 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
     def test_a_marker_spelled_out_letter_by_letter_is_caught(self):
         self.assertEqual(len(docx.unverified_findings("- ARR [v e r i f i k a s i]\n")), 1)
 
-    def test_a_leading_space_is_still_not_a_match(self):
-        # "[ Assumption ]" stays clean, as the plan pins it. A leading space
-        # is the author writing something else; a space inside the word is a
-        # transformation having split it. The two look similar and are not.
-        self.assertEqual(docx.unverified_findings("x [ Assumption ]\n"), [])
+    def test_a_marker_split_by_a_wrap_after_the_bracket_is_caught(self):
+        """The pure-ASCII leak. No invisible characters, no attack.
+
+        The author types "[Assumption: FY24 baseline]". The line wraps after
+        the bracket, `parse_blocks` joins the continuation with a space, and
+        what reaches the page is "[ Assumption: FY24 baseline]".
+        """
+        markdown = "# CV\n\nCut spend 35% [\nAssumption: FY24 baseline]\n"
+        path = os.path.join(tempfile.mkdtemp(), "cv.docx")
+        with self.assertRaises(docx.UnverifiedClaimError):
+            with contextlib.redirect_stderr(io.StringIO()):
+                docx.render(markdown, path)
+        self.assertFalse(os.path.exists(path))
+
+    def test_a_bullet_wrapped_after_the_bracket_is_caught_too(self):
+        markdown = "# CV\n\n- Grew ARR to $9M\n  [\n  verifikasi]\n"
+        path = os.path.join(tempfile.mkdtemp(), "cv.docx")
+        with self.assertRaises(docx.UnverifiedClaimError):
+            with contextlib.redirect_stderr(io.StringIO()):
+                docx.render(markdown, path)
+        self.assertFalse(os.path.exists(path))
 
     def test_the_loose_pattern_does_not_fire_on_ordinary_bracketed_prose(self):
+        # Measured before widening the pattern, not assumed: allowing a space
+        # after "[" added no new false positive over this corpus.
         for line in (
             "- delivered [very informal kasi] sessions",
             "- ran [a verification step] daily",
             "- shipped [v2] of the API",
             "- see [notes] for the full figure",
+            "- reviewed [ a verification process ] quarterly",
+            "- cited [Smith 2024] in the paper",
+            "- built [ the assumption engine ] for pricing",
+            "- measured p95 [ < 200ms ] under load",
+            "- tagged releases [ v1.2.3 ]",
         ):
             with self.subTest(line=line):
                 self.assertEqual(docx.unverified_findings(line + "\n"), [])
@@ -521,7 +544,6 @@ class TestTheGateSurvivesLaterTransformations(unittest.TestCase):
 
     def test_a_bracketed_word_that_is_not_a_marker_is_still_not_matched(self):
         self.assertEqual(docx.unverified_findings("- shipped [v2] of the API\n"), [])
-        self.assertEqual(docx.unverified_findings("- x [ Assumption ]\n"), [])
 
 
 class TestAtsLintUnverifiedEdgeCases(unittest.TestCase):
@@ -544,10 +566,13 @@ class TestAtsLintUnverifiedEdgeCases(unittest.TestCase):
     def test_a_mixed_case_marker_matches(self):
         self.assertEqual(len(docx.unverified_findings("x [Verifikasi]\n")), 1)
 
-    def test_inner_spaces_are_not_a_match(self):
-        # The convention is exact. Loosening it invites false positives, and a
-        # gate that cries wolf is a gate people learn to pass --allow past.
-        self.assertEqual(docx.unverified_findings("x [ Assumption ]\n"), [])
+    def test_inner_spaces_are_a_match_since_a_wrap_can_create_them(self):
+        # This assertion used to be its inverse. The convention was treated
+        # as exact until a line wrapped right after "[" produced
+        # "[ Assumption: FY24 baseline]" — the space put there by the wrap,
+        # not by the author — and the marker shipped. Owner decision,
+        # 2026-09-19; plan Phase B amended to match.
+        self.assertEqual(len(docx.unverified_findings("x [ Assumption ]\n")), 1)
 
     def test_two_markers_on_one_line_are_one_finding(self):
         markdown = "grew 40% [verifikasi] and 2x headcount [Assumption]\n"

@@ -165,10 +165,11 @@ the document — the override sends the claim, it does not print the user's
 private note to themselves onto a page an employer reads. `notes` reports how
 many markers were removed, so the override is never silent. Report that count.
 
-The gate also matches a marker carrying its reason (`[Assumption: figure from
-memory]`) and one wrapped in emphasis or written as html entities, because
-each of those spellings once got a claim into a rendered CV while the check
-reported clean.
+The gate matches the marker however it is written: carrying its reason
+(`[Assumption: figure from memory]`), wrapped in emphasis, spelled with html
+entities, split by an invisible character, or broken across a line wrap.
+Every one of those spellings once got a claim into a rendered CV while the
+check reported clean, so each is now pinned by a test.
 
 The other refusals: `EmptyDocumentError` when the markdown holds no headings,
 paragraphs or bullets, and `DestinationError` when the output directory does

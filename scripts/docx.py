@@ -316,12 +316,18 @@ def _spaced(word):
 # mid-marker, whose continuation `parse_blocks` joins with a space, and a tag
 # with spaces inside it — "[veri<span>  </span>fikasi]" — which the html
 # cleaner collapses to "[veri fikasi]". Both shipped the claim.
-# No `\s*` after the opening bracket, deliberately. "[ Assumption ]" stays
-# NOT a match, as the plan pins it: a leading space is the author writing
-# something else, while a space INSIDE the word is a transformation having
-# split it. The two cases look similar and are not the same.
+# Whitespace is tolerated after the opening bracket too. The plan originally
+# pinned "[ Assumption ]" as NOT a match, on the reasoning that a leading
+# space means the author wrote something else while a space inside the word
+# means a transformation split it. That reasoning turned out to be false on
+# one path: a line wrapped immediately after "[" arrives as
+# "[ Assumption: FY24 baseline]", the space put there by the wrap and not by
+# the author, and the marker shipped. Measured cost of closing it — zero new
+# false positives over a corpus of bracketed CV prose. Amended in the plan
+# rather than left leaking; the owner decided it on 2026-09-19.
 _UNVERIFIED_LOOSE_RE = re.compile(
-    r"\[(?:" + _spaced("verifikasi") + r"|" + _spaced("assumption") + r")\b[^\]]*\]",
+    r"\[\s*(?:" + _spaced("verifikasi") + r"|" + _spaced("assumption")
+    + r")\b[^\]]*\]",
     re.I,
 )
 
