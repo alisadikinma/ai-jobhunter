@@ -470,6 +470,17 @@ class TestFlattenTables(unittest.TestCase):
         flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n|  |  |\n")
         self.assertIn("Skill:", flat)
 
+    def test_an_empty_first_cell_does_not_steal_the_next_cell_label(self):
+        # "Skill: 5" would have the CV assert that "5" is a skill. The label
+        # is the header of the first cell that actually holds something.
+        flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n|  | 5 |\n")
+        self.assertIn("Years: 5", flat)
+        self.assertNotIn("Skill: 5", flat)
+
+    def test_a_filled_first_cell_still_uses_the_first_header(self):
+        flat, _notes = docx.flatten("| Skill | Years |\n|---|---|\n| Python | 8 |\n")
+        self.assertIn("Skill: Python — 8", flat)
+
     def test_a_sentence_with_a_literal_pipe_survives_unflattened(self):
         markdown = "Ran `cat x | sort | uniq` daily.\nIt replaced a cron job.\n"
         flat, notes = docx.flatten(markdown)
@@ -555,6 +566,12 @@ class TestFlattenNestingAndHtml(unittest.TestCase):
         flat, _notes = docx.flatten("<b>engineer</b>, Amsterdam (NL)\n")
         self.assertNotIn(" ,", flat)
         self.assertIn("(NL)", flat)
+
+    def test_the_note_names_the_tags_it_removed(self):
+        # "<team lead>" is indistinguishable from a tag and is deleted. The
+        # operator has to be able to see that the sentence lost those words.
+        _flat, notes = docx.flatten("Acted as <team lead> for the group\n")
+        self.assertTrue(any("<team lead>" in note for note in notes), notes)
 
     def test_a_short_html_line_does_not_become_the_na_sentinel(self):
         # `ats._clean_description` returns "N/A" below ten characters. Without

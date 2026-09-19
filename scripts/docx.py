@@ -440,22 +440,29 @@ def _flatten_table(lines, start, stop):
     each row its own block.
     """
     headers = _split_row(lines[start])
-    first_header = headers[0] if headers else ""
     out = []
     for row_line in lines[start + 2 : stop]:
         cells = _split_row(row_line)
         if len(cells) < len(headers):
             cells = cells + [""] * (len(headers) - len(cells))
-        values = [cell for cell in cells if cell]
-        body = " — ".join(values)
-        if first_header and body:
-            out.append("- %s: %s" % (first_header, body))
-        elif first_header:
-            # Every cell was empty. The row still carried a position in the
+        padded_headers = headers + [""] * (len(cells) - len(headers))
+
+        # The label is the header of the first NON-EMPTY cell, not simply the
+        # first header. Dropping empties before choosing the label let a row
+        # like "|  | 5 |" render as "Skill: 5" — the CV then asserts that "5"
+        # is a skill. That is corruption, not loss, and the worse of the two.
+        filled = [
+            (header, cell) for header, cell in zip(padded_headers, cells) if cell
+        ]
+        if not filled:
+            # Every cell was empty. The row still held a position in the
             # table, so it is kept rather than silently dropped.
-            out.append("- %s:" % first_header)
-        else:
-            out.append("- %s" % body)
+            out.append("- %s:" % headers[0] if headers else "-")
+            continue
+
+        label, first_value = filled[0]
+        body = " — ".join([first_value] + [cell for _header, cell in filled[1:]])
+        out.append("- %s: %s" % (label, body) if label else "- %s" % body)
     return out
 
 
@@ -508,9 +515,16 @@ def flatten(markdown):
     for index, line in numbered:
         number = index + 1
 
-        if _HTML_TAG_RE.search(line):
+        removed = _HTML_TAG_RE.findall(line)
+        if removed:
             line = strip_html(line)
-            notes.append("line %d: inline html stripped" % number)
+            # Naming what was removed, not just that something was. A phrase
+            # like "<team lead>" is indistinguishable from a tag, and the
+            # operator needs to see that the sentence lost those words.
+            notes.append(
+                "line %d: inline html stripped (%s)"
+                % (number, ", ".join(sorted(set(removed))))
+            )
 
         images = _IMAGE_RE.findall(line)
         if images:
