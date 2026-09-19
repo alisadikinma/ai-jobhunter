@@ -63,6 +63,10 @@ class PrecedenceError(ConfigError):
     """A `profile_sources.precedence` entry names no known tier."""
 
 
+class BudgetTypeError(ConfigError):
+    """A budget value is not a non-negative whole number."""
+
+
 def _is_url(value):
     return "://" in value
 
@@ -92,6 +96,26 @@ def _normalize_min_salary(raw_targets, provenance):
     provenance["targets.min_salary_usd"] = "file"
     if value == 0:
         return None
+    return value
+
+
+def _require_budget_int(name, value):
+    """Budgets are spent, so they must be numbers before anything spends them.
+
+    TOML makes `150` and `"150"` easy to confuse, and a string reaches
+    `plan_budget` as a string and compares wrongly rather than failing. Catch
+    it at the boundary, where the file name and key are still in hand.
+    `bool` is excluded deliberately: `True` is an `int` in Python and a budget
+    of `True` is a typo, not a ceiling of one.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BudgetTypeError(
+            f"budgets.{name} must be a whole number, got {value!r} "
+            f"({type(value).__name__}). Quote marks around a number in TOML "
+            "make it a string."
+        )
+    if value < 0:
+        raise BudgetTypeError(f"budgets.{name} must not be negative, got {value!r}.")
     return value
 
 
@@ -132,7 +156,7 @@ def load(path):
     budgets = {}
     for name, default in _BUDGET_DEFAULTS.items():
         if name in raw_budgets:
-            budgets[name] = raw_budgets[name]
+            budgets[name] = _require_budget_int(name, raw_budgets[name])
             provenance[f"budgets.{name}"] = "file"
         else:
             budgets[name] = default

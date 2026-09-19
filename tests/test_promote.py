@@ -2,6 +2,7 @@ import ast
 import os
 import re
 import sys
+import pathlib
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
@@ -100,16 +101,24 @@ class TestToAddJobUpsertAndWorkplaceType(unittest.TestCase):
 
 
 class TestJobDescriptionFallback(unittest.TestCase):
-    def test_missing_description_becomes_na(self):
+    """Text too short to match is refused, not stored as "N/A".
+
+    Spec section 8 refuses a title-only row. `ats.normalize_*` still writes
+    "N/A" into the queue for such a posting, so the row exists and can be
+    re-fetched later; what must not happen is spending two jobsync requests
+    on a job that can never carry a score.
+    """
+
+    def test_missing_description_is_refused(self):
         row = _scored_row()
         del row["jobDescription"]
-        payload = promote.to_add_job(row)
-        self.assertEqual(payload["jobDescription"], "N/A")
+        with self.assertRaises(promote.TitleOnlyError):
+            promote.to_add_job(row)
 
-    def test_description_of_exactly_9_chars_becomes_na(self):
-        payload = promote.to_add_job(_scored_row(jobDescription="123456789"))
+    def test_description_of_exactly_9_chars_is_refused(self):
         self.assertEqual(len("123456789"), 9)
-        self.assertEqual(payload["jobDescription"], "N/A")
+        with self.assertRaises(promote.TitleOnlyError):
+            promote.to_add_job(_scored_row(jobDescription="123456789"))
 
     def test_description_of_exactly_10_chars_is_kept_verbatim(self):
         ten_chars = "1234567890"
@@ -117,9 +126,13 @@ class TestJobDescriptionFallback(unittest.TestCase):
         payload = promote.to_add_job(_scored_row(jobDescription=ten_chars))
         self.assertEqual(payload["jobDescription"], ten_chars)
 
-    def test_empty_string_description_becomes_na(self):
-        payload = promote.to_add_job(_scored_row(jobDescription=""))
-        self.assertEqual(payload["jobDescription"], "N/A")
+    def test_empty_string_description_is_refused(self):
+        with self.assertRaises(promote.TitleOnlyError):
+            promote.to_add_job(_scored_row(jobDescription=""))
+
+    def test_a_literal_na_from_the_normalizer_is_refused(self):
+        with self.assertRaises(promote.TitleOnlyError):
+            promote.to_add_job(_scored_row(jobDescription="N/A"))
 
 
 class TestRecommendationBoundaries(unittest.TestCase):
@@ -408,3 +421,120 @@ class TestRealAshbyRow(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestScoreReasonsContractName(unittest.TestCase):
+    """Regression: `promote.py` once read `dimension_reasons`, a name nothing
+    else in the repo used, so the per-dimension breakdown never reached
+    jobsync. Spec section 5: a bare number nobody can audit is not useful.
+    """
+
+    def _row(self, **extra):
+        row = {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "jobDescription": " ".join(["word"] * 200),
+            "fit_score": 90,
+            "work_authorization": "open",
+            "suggested_variant": "genai_agents",
+            "skills": ["python"],
+        }
+        row.update(extra)
+        return row
+
+    def test_score_reasons_reaches_match_text(self):
+        text = promote.to_match_text(
+            self._row(score_reasons={"skill": "36/40", "role": "22/25"})
+        )
+        self.assertIn("Score breakdown:", text)
+        self.assertIn("36/40", text)
+        self.assertIn("22/25", text)
+
+    def test_the_old_field_name_is_gone_from_the_source(self):
+        source = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "promote.py"
+        self.assertNotIn("dimension_reasons", source.read_text())
+
+    def test_absent_salary_key_simply_does_not_appear(self):
+        """The salary rule is only visible if the breakdown travels at all."""
+        text = promote.to_match_text(
+            self._row(score_reasons={"skill": "36/40", "remote": "15/15"})
+        )
+        self.assertIn("Score breakdown:", text)
+        self.assertNotIn("salary", text.lower())
+
+
+class TestTitleOnlyRefusal(unittest.TestCase):
+    """Spec section 8: refuse to promote a title-only row and say why."""
+
+    def _row(self, **extra):
+        row = {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "fit_score": 70,
+            "work_authorization": "open",
+            "suggested_variant": "genai_agents",
+            "skills": [],
+        }
+        row.update(extra)
+        return row
+
+    def test_missing_description_is_refused_by_to_add_job(self):
+        with self.assertRaises(promote.TitleOnlyError) as ctx:
+            promote.to_add_job(self._row())
+        self.assertIn("title-only", str(ctx.exception))
+        self.assertIn("AI Engineer", str(ctx.exception))
+
+    def test_description_under_ten_chars_is_refused(self):
+        with self.assertRaises(promote.TitleOnlyError):
+            promote.to_add_job(self._row(jobDescription="short"))
+
+    def test_description_of_exactly_ten_chars_is_accepted(self):
+        payload = promote.to_add_job(self._row(jobDescription="a" * 10))
+        self.assertEqual(payload["jobDescription"], "a" * 10)
+
+    def test_match_text_also_refuses_a_title_only_row(self):
+        with self.assertRaises(promote.TitleOnlyError):
+            promote.to_match_text(self._row())
+
+
+class TestProvisionalMatchQuality(unittest.TestCase):
+    """Spec section 8: a posting under ~150 words still promotes, but the
+    user must be told the match will be flagged Provisional.
+    """
+
+    def _row(self, words):
+        return {
+            "company": "Acme",
+            "jobTitle": "AI Engineer",
+            "jobDescription": " ".join(["word"] * words),
+            "fit_score": 55,
+            "work_authorization": "unclear",
+            "suggested_variant": "genai_agents",
+            "skills": [],
+        }
+
+    def test_long_posting_is_full_quality_and_says_nothing(self):
+        self.assertEqual(promote.match_quality(self._row(200)), "full")
+        self.assertNotIn("Provisional", promote.to_match_text(self._row(200)))
+
+    def test_short_posting_is_provisional_and_says_so(self):
+        self.assertEqual(promote.match_quality(self._row(40)), "provisional")
+        text = promote.to_match_text(self._row(40))
+        self.assertIn("Provisional", text)
+        self.assertIn("150", text)
+
+    def test_exactly_the_threshold_counts_as_full(self):
+        self.assertEqual(
+            promote.match_quality(self._row(promote.FULL_MATCH_MIN_WORDS)), "full"
+        )
+
+    def test_one_word_under_the_threshold_is_provisional(self):
+        self.assertEqual(
+            promote.match_quality(self._row(promote.FULL_MATCH_MIN_WORDS - 1)),
+            "provisional",
+        )
+
+    def test_a_provisional_row_is_still_promotable(self):
+        payload = promote.to_add_job(self._row(40))
+        self.assertTrue(payload["upsert"])
+

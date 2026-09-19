@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import tempfile
 import urllib.parse
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -165,3 +166,47 @@ def iter_unscored(rows):
     for row in rows:
         if row.get("fit_score") is None:
             yield row
+
+
+def update_rows(path, updates, key=row_key):
+    """Rewrite the queue in place, merging `updates` into matching rows.
+
+    `updates` maps a row key to the fields to merge into that row. The queue
+    is append-only for *new* postings, but a row has to change twice in its
+    life: `/ai-jobhunter:score` writes the score onto it, and
+    `/ai-jobhunter:promote` marks it promoted so a later run does not spend a
+    second request re-promoting it. `append_rows` cannot do either — it would
+    see the changed row as a duplicate by `row_key` and drop it.
+
+    Returns `(updated, unmatched)`. An update whose key matches no row on disk
+    is reported rather than silently dropped: a key that matches nothing means
+    the caller and the queue disagree about identity, which is worth knowing.
+
+    The rewrite is atomic — a temporary file in the same directory is renamed
+    over the original — so an interrupted run leaves the old queue intact
+    rather than a half-written one.
+    """
+    rows = load(path)
+    remaining = dict(updates)
+
+    updated = 0
+    for row in rows:
+        fields = remaining.pop(key(row), None)
+        if fields is not None:
+            row.update(fields)
+            updated += 1
+
+    directory = os.path.dirname(path) or "."
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            for row in rows:
+                f.write(json.dumps(row))
+                f.write("\n")
+        os.replace(tmp_path, path)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise
+
+    return updated, sorted(remaining)

@@ -2,7 +2,7 @@
 
 Reads a scored queue row (the shape `jobq`/`ats` rows carry once `/ai-jobhunter:score` has
 written `fit_score`, `work_authorization`, `suggested_variant` and (optionally)
-`dimension_reasons` / `skills` back into it — see spec §5) and builds the exact payload
+`score_reasons` / `skills` back into it — see spec §5) and builds the exact payload
 dicts the `promote` skill later passes, verbatim, to jobsync's MCP tools. This module makes
 no MCP call itself.
 
@@ -26,7 +26,7 @@ trusting a comment.
   variant is a softer defect than a missing score.
 - `skills` — an optional ordered list of matched skill strings, already ranked by the
   scoring step; only the first `MAX_SKILL_TAGS` are kept (see `build_tags`).
-- `dimension_reasons` — an optional `{dimension: reason}` mapping folded into the
+- `score_reasons` — an optional `{dimension: reason}` mapping folded into the
   `matchText` body when present.
 
 ## Refusal is a gate, not a soft warning
@@ -80,6 +80,12 @@ REQUESTS_PER_JOB = 2  # add_job (or one batch item) + save_match_result (or one 
 MAX_REQUESTS_PER_HOUR = 60
 MIN_DESCRIPTION_LEN = 10
 NA_DESCRIPTION = "N/A"
+
+# jobsync gives a full match only to a posting of roughly 150 words or more.
+# Below that it stores the match but flags it *Provisional*; with no posting
+# text at all it refuses to match and tells the agent to fetch the posting
+# first. Both thresholds live here so the two behaviours below cannot drift.
+FULL_MATCH_MIN_WORDS = 150
 MIN_MATCH_TEXT_BODY_LEN = 20
 
 DEFAULT_VARIANT = "unclassified"
@@ -151,6 +157,22 @@ class AuthorizationClosedError(PromoteError):
         )
 
 
+class TitleOnlyError(PromoteError):
+    """The row carries no posting text, so jobsync would refuse to match it.
+
+    Promoting it would spend two requests to store a job that can never carry
+    a score. Re-run `/ai-jobhunter:discover` for the full posting first.
+    """
+
+    def __init__(self, row):
+        super().__init__(
+            "Refusing to promote a title-only row "
+            f"({row.get('company')!r} / {row.get('jobTitle')!r}): jobsync needs "
+            "the posting text to produce a match. Fetch the full posting first."
+        )
+        self.row = row
+
+
 class WorkplaceTypeError(PromoteError):
     """Raised when `workplaceType` cannot be canonicalised to Remote/Hybrid/Onsite."""
 
@@ -194,6 +216,19 @@ def _canonicalize_workplace_type(raw):
     return value
 
 
+def match_quality(row):
+    """Return `"full"` or `"provisional"` for the posting text on this row.
+
+    jobsync flags a match built from a short posting as *Provisional*. Saying
+    so up front is the difference between a user reading a low score as a bad
+    fit and reading it as a thin posting.
+    """
+    text = _clean_description(row.get("jobDescription"))
+    if text == NA_DESCRIPTION:
+        raise TitleOnlyError(row)
+    return "full" if len(text.split()) >= FULL_MATCH_MIN_WORDS else "provisional"
+
+
 def _clean_description(raw):
     text = (raw or "").strip()
     if len(text) < MIN_DESCRIPTION_LEN:
@@ -220,9 +255,12 @@ def to_add_job(row):
     Always sets `upsert: True` (the contract says use upsert on every re-run; `find_job` is
     deliberately not used because it doubles the request cost). Refuses via `PromoteError`
     when `row` has no `fit_score` or is `work_authorization=closed`. Only fields the jobsync
-    contract defines are ever emitted.
+    contract defines are ever emitted. A title-only row is refused too: jobsync needs the
+    posting text to produce a match, so storing one would spend two requests on a job that
+    can never carry a score.
     """
     _require_score(row)
+    match_quality(row)  # raises TitleOnlyError when there is no posting text
 
     payload = {
         "company": row["company"],
@@ -261,7 +299,14 @@ def to_match_text(row):
         f"Work authorization: **{bucket}** — {_WORK_AUTH_SENTENCES[bucket]}",
         f"Suggested variant: {variant}.",
     ]
-    reasons = row.get("dimension_reasons")
+    if match_quality(row) == "provisional":
+        body_lines.append(
+            f"Match confidence: **Provisional** — the posting is under "
+            f"{FULL_MATCH_MIN_WORDS} words, so jobsync will flag this match "
+            "Provisional. A low score here may mean a thin posting rather than "
+            "a poor fit."
+        )
+    reasons = row.get("score_reasons")
     if reasons:
         body_lines.append("")
         body_lines.append("Score breakdown:")

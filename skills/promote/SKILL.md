@@ -78,12 +78,30 @@ the next run.
 - **A row with `work_authorization == "closed"`** — `promote.py` raises
   `promote.AuthorizationClosedError` for it; this row is never sent to
   jobsync, by design (spec §5's visa gate).
+- **A title-only row** — a row whose posting text is missing, under 10
+  characters, or the literal `"N/A"` the normaliser writes for such a
+  posting. `promote.py` raises `promote.TitleOnlyError`. jobsync needs the
+  posting text to produce a match, so storing one would spend two requests on
+  a job that can never carry a score. Report it and tell the user to re-run
+  `/ai-jobhunter:discover` for the full posting.
+
+## Provisional matches
+
+A posting of roughly 150 words or more gets a full match from jobsync. A
+shorter one is still stored, but jobsync flags the match **Provisional**.
+`promote.match_quality(row)` returns `"full"` or `"provisional"`, and
+`promote.to_match_text` adds a line naming it when the posting is short.
+
+Say so in the run summary. Without it, a low score on a thin posting reads as
+a poor fit rather than as a posting nobody bothered to write out.
 
 ## Output
 
 Writes to jobsync only (no local file output). Rows successfully promoted
-are marked in the local queue so a later run of this skill does not
-re-spend a request re-promoting them.
+are marked in the local queue with `jobq.update_rows(path, {jobq.row_key(row):
+{"promoted": True}})`, so a later run of this skill does not re-spend a
+request re-promoting them. `jobq.append_rows` cannot do this — it would drop
+the changed row as a duplicate by `row_key`.
 
 Before finishing, this skill prints: how many rows were eligible, how many
 were sent versus left waiting for budget reasons, how many were skipped for

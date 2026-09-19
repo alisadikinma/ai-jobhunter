@@ -163,3 +163,70 @@ class TestIterUnscored(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUpdateRows(unittest.TestCase):
+    """The queue is append-only for new postings, but a row changes twice:
+    `score` writes the score onto it, `promote` marks it promoted.
+    """
+
+    def _seed(self, tmp):
+        path = os.path.join(tmp, "jobs.jsonl")
+        jobq.append_rows(path, [
+            {"company": "Acme", "jobTitle": "AI Engineer", "jobUrl": "https://a.example/1"},
+            {"company": "Beta", "jobTitle": "ML Engineer", "jobUrl": "https://a.example/2"},
+        ])
+        return path
+
+    def test_merges_fields_into_the_matching_row_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            target = jobq.row_key({"jobUrl": "https://a.example/1"})
+            updated, unmatched = jobq.update_rows(path, {target: {"fit_score": 88}})
+            self.assertEqual((updated, unmatched), (1, []))
+            rows = jobq.load(path)
+            self.assertEqual(rows[0]["fit_score"], 88)
+            self.assertNotIn("fit_score", rows[1])
+
+    def test_updated_row_is_not_dropped_as_a_duplicate(self):
+        """The bug `append_rows` would have caused if used for this."""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            target = jobq.row_key({"jobUrl": "https://a.example/1"})
+            jobq.update_rows(path, {target: {"promoted": True}})
+            self.assertEqual(len(jobq.load(path)), 2)
+
+    def test_row_order_is_preserved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            target = jobq.row_key({"jobUrl": "https://a.example/2"})
+            jobq.update_rows(path, {target: {"fit_score": 50}})
+            self.assertEqual([r["company"] for r in jobq.load(path)], ["Acme", "Beta"])
+
+    def test_unmatched_key_is_reported_not_swallowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            updated, unmatched = jobq.update_rows(path, {"nosuchkey": {"fit_score": 1}})
+            self.assertEqual(updated, 0)
+            self.assertEqual(unmatched, ["nosuchkey"])
+
+    def test_empty_updates_rewrites_the_queue_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            before = jobq.load(path)
+            self.assertEqual(jobq.update_rows(path, {}), (0, []))
+            self.assertEqual(jobq.load(path), before)
+
+    def test_missing_queue_file_is_created_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "absent.jsonl")
+            self.assertEqual(jobq.update_rows(path, {}), (0, []))
+            self.assertEqual(jobq.load(path), [])
+
+    def test_no_temporary_file_is_left_behind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._seed(tmp)
+            jobq.update_rows(path, {})
+            leftovers = [n for n in os.listdir(tmp) if n.endswith(".tmp")]
+            self.assertEqual(leftovers, [])
+

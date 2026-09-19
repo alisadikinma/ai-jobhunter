@@ -24,7 +24,7 @@ skill only edits the local queue; it never writes to jobsync — that is
 
 ## Scripts this skill calls
 
-- `scripts/jobq.py` — `jobq.load`, `jobq.iter_unscored`.
+- `scripts/jobq.py` — `jobq.load`, `jobq.iter_unscored`, `jobq.update_rows`.
 - `scripts/config.py` — `config.load`.
 - No MCP tool is required for scoring itself; the judgement is made by the
   model reading the JD and the profile directly.
@@ -90,7 +90,15 @@ still be the wrong one; keyword lists in this domain rot within months.
 
 ## Output
 
-Rewrites `.jobhunter/queue/jobs.jsonl` in place with the fields above added
+Rewrites `.jobhunter/queue/jobs.jsonl` in place via
+`jobq.update_rows(path, {jobq.row_key(row): fields})`, which merges the
+fields above into each matching row and renames a temporary file over the
+original, so an interrupted run leaves the old queue intact. Do NOT use
+`jobq.append_rows` for this: it would see the scored row as a duplicate of
+the unscored one by `row_key` and drop it. `update_rows` returns
+`(updated, unmatched)` — report both.
+
+The fields written are
 to each row this run scored.
 
 Before finishing, this skill prints: how many rows it read, how many were

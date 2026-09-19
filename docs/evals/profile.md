@@ -33,11 +33,11 @@ overridden."
 ### Case 1 — a metric stated differently in two tiers resolves to the higher-precedence tier
 
 **Source shape:** two sources for the same subject in different tiers —
-concretely, the observed pair from spec §4.2: `ali.md:27` and
-`executive-profile.md:26` state "17+" years of experience, while
-`experience.md:119` and `positioning.md` state "16+." (Which files land in
+concretely, a two-source disagreement of the shape spec §4.2 describes: `profile-card.md:27` and
+`exec-summary.md:26` state "12+" years of experience, while
+`roles.md:119` and `market-note.md` state "11+." (Which files land in
 which tier is set by the user's own `precedence` config; for this eval,
-configure `ali.md` as the `local-primary` tier and `positioning.md` as the
+configure `profile-card.md` as the `local-primary` tier and `market-note.md` as the
 `site` tier, so the two candidate values sit in different, unambiguous
 tiers.)
 
@@ -45,7 +45,7 @@ tiers.)
 - `master-cv.md` states the value from the higher-precedence tier
   (`local-primary` beats `site` per `profile_sources.precedence =
   ["local-primary", "local", "project", "linkedin-pdf", "site"]`) and only
-  that value — not both, not an average, not a hedge like "16-17+."
+  that value — not both, not an average, not a hedge like "11-12+."
 - The rendered bullet's source citation points at the file the winning
   value actually came from.
 - This subject does **not** appear in `conflicts.md` — precedence settled
@@ -57,7 +57,7 @@ tiers.)
 
 **Source shape:** two sources inside the same tier stating different values
 for the same subject, with neither being the file named in
-`profile_sources.primary`. Concretely: put `ali.md` and `experience.md`
+`profile_sources.primary`. Concretely: put `profile-card.md` and `roles.md`
 both in the `local` tier (not `local-primary`), each asserting a different
 "years of experience" figure, with `profile_sources.primary` pointing at a
 third file that says nothing about years of experience.
@@ -69,7 +69,7 @@ third file that says nothing about years of experience.
   subject at all — spec §4.2: "An unresolved conflict blocks that bullet;
   it never picks one silently."
 - A run of this eval that produces a `master-cv.md` bullet stating either
-  "16+" or "17+" for this subject fails the case outright, regardless of
+  "11+" or "12+" for this subject fails the case outright, regardless of
   which of the two values it picked — picking either one silently is the
   exact failure mode this rule exists to prevent.
 
@@ -107,18 +107,18 @@ Led a 12-person engineering team at Acme Corp, 2021-2023.
 
 ### Case 4 — two true statements about different subjects that share a number are NOT fused into one claim
 
-**Source shape:** the observed pair from spec §4.2: `ali.md:27` states
-"products used across 16 countries" (a claim about product reach), and
-`awards.md:42` states a cohort "of 48 entrepreneurs from 16 countries" (a
+**Source shape:** a two-source disagreement of the shape spec §4.2 describes: `profile-card.md:27` states
+"products used across 9 countries" (a claim about product reach), and
+`awards-note.md:42` states a cohort "of 30 founders from 9 countries" (a
 claim about an award cohort's composition). Both are true; both happen to
-say "16 countries"; they are about unrelated subjects.
+say "9 countries"; they are about unrelated subjects.
 
 **Pass criteria:**
 - `master-cv.md` (or the Pass 2 extracted-claims record, checked directly if
   easier) contains these as two separate claims, each citing its own source
   file and line.
 - No rendered bullet states a fused claim such as "products used across 16
-  countries by a cohort of 48 entrepreneurs" or any other sentence whose
+  countries by a cohort of 30 founders" or any other sentence whose
   citation would not actually support the combined statement.
 - This is explicitly **not** treated as a same-subject collision — it must
   not be written to `conflicts.md` either, since there is no actual

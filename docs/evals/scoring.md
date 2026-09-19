@@ -58,6 +58,18 @@ US-phrased "no sponsorship" posting did not occur in the sampled data, and
 that absence is recorded here rather than papered over with an invented
 fixture.
 
+**The `open` bucket has no fixture either, and that is the larger gap.** The
+same search found no posting that *offers* sponsorship or states that the
+company hires globally. So of the three buckets, `closed` (fixture 01) and
+`unclear` (fixture 02) are covered and **`open` is untested**. That matters
+more than the phrasing gap above: `open` is the bucket that decides which
+roles are worth an afternoon, and a scorer that never produces it would look
+correct against this suite while quietly hiding every sponsoring employer.
+
+Closing it needs a real posting from a company that sponsors — an ATS board
+of a known visa sponsor is the obvious place to look. Until one is added,
+treat a green run of this file as evidence about two buckets, not three.
+
 ---
 
 ### Case 1 — capability — `work_authorization` buckets to `closed`

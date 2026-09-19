@@ -334,3 +334,46 @@ class TestResolveProfileSourcesProjectAllowList(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBudgetTypeValidation(unittest.TestCase):
+    """A budget is spent, so it must be a number before anything spends it."""
+
+    def _load_with(self, tmp, line):
+        path = os.path.join(tmp, "config.toml")
+        _write(path, "[budgets]\n" + line + "\n")
+        return config.load(path)
+
+    def test_quoted_number_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.BudgetTypeError) as ctx:
+                self._load_with(tmp, 'firecrawl_credits_per_run = "150"')
+            self.assertIn("firecrawl_credits_per_run", str(ctx.exception))
+            self.assertIn("str", str(ctx.exception))
+
+    def test_float_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.BudgetTypeError):
+                self._load_with(tmp, "jobsync_requests_per_run = 12.5")
+
+    def test_boolean_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.BudgetTypeError):
+                self._load_with(tmp, "jobsync_requests_per_run = true")
+
+    def test_negative_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(config.BudgetTypeError) as ctx:
+                self._load_with(tmp, "firecrawl_credits_per_run = -1")
+            self.assertIn("negative", str(ctx.exception))
+
+    def test_zero_is_accepted_as_a_real_ceiling(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._load_with(tmp, "firecrawl_credits_per_run = 0")
+            self.assertEqual(cfg["budgets"]["firecrawl_credits_per_run"], 0)
+
+    def test_a_valid_integer_passes_through(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._load_with(tmp, "firecrawl_credits_per_run = 42")
+            self.assertEqual(cfg["budgets"]["firecrawl_credits_per_run"], 42)
+
