@@ -145,6 +145,84 @@ class TestRefusalsAreJsonOnStderr(unittest.TestCase):
         self.assertIn("is not accepted", json.loads(err)["message"])
 
 
+class TestConfigShow(unittest.TestCase):
+    """The first command all six SKILL.md run, and until now the only
+    subcommand with no test — while Phase E.5 step 1 named it as THE test to
+    write first."""
+
+    def _config(self, tmp, body):
+        path = os.path.join(tmp, "config.toml")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(body)
+        return path
+
+    def test_resolves_sources_in_the_configured_tier_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "identity"))
+            primary = os.path.join(tmp, "identity", "profile-card.md")
+            open(primary, "w", encoding="utf-8").close()
+            os.makedirs(os.path.join(tmp, "projects", "project-a"))
+            cfg = self._config(tmp, f"""
+[profile_sources]
+sites      = ["https://example.com/"]
+local      = ["{tmp}/identity/"]
+primary    = "{primary}"
+precedence = ["local-primary", "local", "project", "site"]
+
+[profile_sources.projects]
+root    = "{tmp}/projects/"
+allowed = ["project-a"]
+""")
+            code, parsed, _err, text = run(["config-show", "--config", cfg])
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
+        self.assertEqual(
+            [s["tier"] for s in parsed["sources"]],
+            ["local-primary", "local", "project", "site"],
+        )
+
+    def test_an_unlisted_project_directory_never_appears(self):
+        """The allow-list is a privacy control; this is its CLI-level proof."""
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "projects", "project-a"))
+            os.makedirs(os.path.join(tmp, "projects", "client-work"))
+            cfg = self._config(tmp, f"""
+[profile_sources]
+precedence = ["project"]
+
+[profile_sources.projects]
+root    = "{tmp}/projects/"
+allowed = ["project-a"]
+""")
+            _code, parsed, _err, _text = run(["config-show", "--config", cfg])
+        paths = [s["path"] for s in parsed["sources"]]
+        self.assertEqual(len(paths), 1)
+        self.assertNotIn("client-work", paths[0])
+
+    def test_an_unknown_precedence_tier_is_a_named_refusal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp, '[profile_sources]\nprecedence = ["typo-tier"]\n')
+            code, _parsed, err, _text = run(["config-show", "--config", cfg])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "PrecedenceError")
+
+
+class TestArgparseFailuresAreJsonToo(unittest.TestCase):
+    """`parse_args` raises SystemExit outside main()'s try, so a mistyped
+    subcommand printed usage prose and exited 2 — breaking the JSON contract
+    on one of the likelier mistakes a model makes."""
+
+    def test_unknown_subcommand_is_a_json_refusal(self):
+        code, _parsed, err, _text = run(["totally-fake-subcommand"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "UsageError")
+
+    def test_missing_required_flag_is_a_json_refusal(self):
+        code, _parsed, err, _text = run(["queue-list"])
+        self.assertEqual(code, 1)
+        self.assertIn("--queue", json.loads(err)["message"])
+
+
 class TestQueueListUnpromoted(unittest.TestCase):
     """`iter_unpromoted` had zero callers; `--unpromoted` is the caller."""
 

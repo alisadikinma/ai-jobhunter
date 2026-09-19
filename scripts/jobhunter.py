@@ -198,12 +198,35 @@ def cmd_promote_prepare(args):
     )
 
 
+class _JsonArgumentParser(argparse.ArgumentParser):
+    """Emit argparse's own failures as the JSON refusal the skills expect.
+
+    `parse_args` raises `SystemExit` from OUTSIDE `main()`'s try block, so an
+    unknown subcommand or a missing required flag printed usage prose and
+    exited 2 — not `{"error": ..., "message": ...}`. Every SKILL.md tells the
+    model a refusal arrives as JSON on stderr, and a mistyped subcommand is
+    one of the likelier mistakes a model makes.
+    """
+
+    def error(self, message):
+        json.dump(
+            {"error": "UsageError", "message": message},
+            sys.stderr,
+            indent=2,
+            ensure_ascii=False,
+        )
+        sys.stderr.write("\n")
+        raise SystemExit(1)
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(
+    parser = _JsonArgumentParser(
         prog="jobhunter",
         description="Deterministic helpers behind the ai-jobhunter skills.",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(
+        dest="command", required=True, parser_class=_JsonArgumentParser
+    )
 
     p = sub.add_parser("config-show", help="Load config.toml and resolve profile sources")
     p.add_argument("--config", required=True, help="path to .jobhunter/config.toml")
@@ -264,7 +287,13 @@ def build_parser():
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
+    try:
+        args = build_parser().parse_args(argv)
+    except SystemExit as exc:
+        # `--help` exits 0 having already written its text; a usage error
+        # exits 1 having already written its JSON. Either way the message
+        # is out, so just carry the code.
+        return exc.code if isinstance(exc.code, int) else 1
     try:
         args.func(args)
     except Exception as exc:  # noqa: BLE001 — the contract is JSON, never a traceback

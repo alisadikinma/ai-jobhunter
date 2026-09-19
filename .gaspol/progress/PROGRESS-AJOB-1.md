@@ -76,8 +76,11 @@
 **Verification:**
 - [x] `python3 -m compileall -q scripts tests` passes
 - [x] `python3 -m unittest discover -s tests -t . -v` passes
-- [x] No test performs network I/O — every `urlopen` in `tests/` is inside
-      `unittest.mock.patch` (12 patch targets; the 13th mention is a docstring)
+- [x] No test performs network I/O — proven by running the whole suite with
+      `socket.socket.connect`, `connect_ex`, `create_connection` and `getaddrinfo`
+      all raising: 244 tests, 0 failures, 0 errors. (The earlier grep-count phrasing
+      was wrong twice over: `tests/` holds 13 `urlopen` mentions, of which 6 are
+      `unittest.mock.patch` targets — a count is the weaker evidence anyway.)
 - [x] A description under 10 characters normalises to `"N/A"`, satisfying the jobsync minimum
 - [x] An unmappable Greenhouse location leaves `workplaceType` absent rather than guessing
 - [x] An Ashby row with `isListed: false` is dropped
@@ -223,6 +226,24 @@ Dua putaran. Verdict pertama: **BLOCKING** — 3 Critical. Verdict kedua atas di
 | 3 | Penjaga manifest cuma cek nama subcommand, bukan flag — `--unpromted` tetap hijau | Flag ikut dicek ke `--help` subcommand-nya |
 
 Uji mutasi dipakai dua kali: subcommand palsu disisipkan ke SKILL.md untuk membuktikan penjaganya menggigit.
+
+## Audit plan-verifier putaran 2 (2026-09-19)
+
+Dijalankan ulang karena plan bertambah Phase E.5. Verdict: BLOCKING — 1 DROPPED, 2 MISSING.
+57 FOUND, 8 PARTIAL, 1 DIVERGED (pesan commit E.5, diungkap bukan disembunyikan), 0 placeholder.
+
+| # | Temuan | Tindakan |
+|---|---|---|
+| D1 | Aturan spec §8 — *Provisional* untuk posting <150 kata dan penolakan baris judul-saja — ada di kode tapi **tidak pernah masuk plan**. Plan mengaku self-contained; agen yang menjalankannya akan mengirim baris judul-saja | `match_quality`, `TitleOnlyError`, `FULL_MATCH_MIN_WORDS` ditulis ke Phase E step 3 + ladder + kasus uji |
+| M1 | **Penjaga flag putaran 3 memeriksa NOL flag.** Regex per-baris, padahal semua blok perintah di SKILL.md pakai backslash continuation. Uji mutasi saya menaruh typo di baris yang sama — gaya yang tidak dipakai skill mana pun | Regex melipat continuation; 16 flag kini diperiksa; uji mutasi diulang di gaya asli |
+| M2 | Nol tes untuk `config-show` — perintah pertama yang dijalankan keenam skill, dan justru yang disebut plan E.5 step 1 | 3 tes, termasuk bukti daftar putih di level CLI |
+| P1 | `main()` tidak men-JSON-kan kegagalan argparse: subcommand salah ketik keluar usage prose, exit 2 | `_JsonArgumentParser.error` + `SystemExit` ditangkap di `main()` |
+| P2 | `skills/discover/SKILL.md` menyuruh cari `skipped` di stderr; nyatanya kunci JSON di stdout | Prosa diperbaiki |
+| P3 | `DEFAULT_TOP_N = 40` memotong laporan, tidak disebut plan | Ditulis ke ladder Phase D |
+| P4 | Kotak Phase C soal `urlopen` salah hitung — dan hitungan memang bukti yang lemah | Diganti: seluruh suite dijalankan dengan `socket.connect`/`connect_ex`/`create_connection`/`getaddrinfo` melempar — 244 lulus |
+| P5 | `tests/__init__.py` tidak dideklarasikan plan | Ditambahkan ke daftar berkas Phase A |
+
+Tidak ditemukan: bypass daftar putih kedelapan. Enam bentuk serangan baru diuji, semua ditolak.
 
 ## Regression tests
 

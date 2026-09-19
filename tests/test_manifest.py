@@ -190,13 +190,36 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     # The set was {""}, assertTrue passed on a non-empty set and
     # assertIn("", help_text) passed trivially — a guard that would have
     # accepted a completely fictional subcommand.
-    _COMMAND_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)((?:\s+--?[a-z][a-z0-9-]*)*)')
+    # The tail captures the REST of the logical line, not a run of adjacent
+    # flags: `--queue .jobhunter/queue/jobs.jsonl --unscored` puts a value
+    # between the two flags, so a repetition group stops after the first one
+    # and collected exactly one flag per command.
+    _COMMAND_RE = re.compile(r'jobhunter\.py"?\s+([a-z][a-z0-9-]+)(.*)')
+
+    @staticmethod
+    def _join_continuations(text):
+        """Fold shell backslash-continuations into single logical lines.
+
+        Scanning raw lines collected ZERO flags, because every real command
+        block in every SKILL.md is written across continuations:
+
+            python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-list \\
+              --queue .jobhunter/queue/jobs.jsonl --unscored
+
+        A line-scoped regex sees the subcommand on one line and the flags on
+        the next, so `for flag in flags` never ran a single assertion. The
+        mutation test that "proved" the guard put its typo on the same line
+        as the subcommand — the one style no skill actually uses. That is
+        the same defect this guard was written to catch, one level down.
+        """
+        return re.sub(r"\\\s*\n\s*", " ", text)
 
     def _documented_commands(self):
         """Map each documented subcommand to the long flags shown with it."""
         commands = {}
         for skill_md in sorted(pathlib.Path(SKILLS_DIR).glob("*/SKILL.md")):
-            for line in skill_md.read_text().splitlines():
+            joined = self._join_continuations(skill_md.read_text())
+            for line in joined.splitlines():
                 match = self._COMMAND_RE.search(line)
                 if not match:
                     continue

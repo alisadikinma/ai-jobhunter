@@ -112,7 +112,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
   --queue .jobhunter/queue/jobs.jsonl --rows @/tmp/rows.json
 ```
 
-`ats-fetch` reports `skipped` on stderr when a single posting could not be
-normalised; the rest of the board still comes through. Pass the rows through a
-file with `@path` rather than inline — a board is megabytes.
+When a single posting cannot be normalised the rest of the board still comes
+through, and the postings that did not make it are listed in the `skipped` key
+of the JSON **on stdout** — each entry naming the posting and the field that
+moved. stderr carries only a one-line count. Read `skipped`; a board that came
+back short says so there, not in the log. Pass the rows through a file with
+`@path` rather than inline — a board is megabytes.
 

@@ -162,7 +162,7 @@ exactly these names.
 
 **Files:**
 - Create: `scripts/jobq.py`
-- Create: `tests/test_jobq.py`
+- Create: `tests/test_jobq.py`, `tests/__init__.py`
 
 **Steps:**
 1. Write failing test for `jobq.append_rows` writing one JSONL line per row to a temp queue path. Expected error: `ModuleNotFoundError: No module named 'jobq'`
@@ -247,8 +247,8 @@ exactly these names.
 **Verification:**
 - [ ] `python3 -m compileall -q scripts tests` passes
 - [ ] `python3 -m unittest discover -s tests -t . -v` passes
-- [ ] No test performs network I/O — every `urlopen` in `tests/` sits inside
-      `unittest.mock.patch`; no socket is opened
+- [ ] No test performs network I/O — run the suite with `socket.socket.connect`,
+      `connect_ex`, `create_connection` and `getaddrinfo` raising; every test still passes
 - [ ] A description under 10 characters normalises to `"N/A"`, satisfying the jobsync minimum
 - [ ] No placeholder/TODO comments in new code
 
@@ -309,7 +309,7 @@ Two consequences for the implementation:
 7. Commit: "feat(keywords): JD-vs-CV coverage report"
 
 **Completeness ladder:**
-- Happy path: covered and missing terms, ranked by JD frequency.
+- Happy path: covered and missing terms, ranked by JD frequency. The report is truncated to `DEFAULT_TOP_N = 40` terms per list unless `--top` says otherwise — an untruncated report ran to 699 lines and 12.3 KB, which is not a thing a candidate reads before applying. Both headings state the full count so the truncation is never silent..
 - Error paths: empty or whitespace-only input on either side (return an empty report with a stated reason, never divide by zero).
 - Edge cases: substring false positives, hyphenation, casing, repeats, non-ASCII, a CV longer than the JD and the reverse.
 - Observability: the rendered report states how many terms were extracted and how many survived stopword removal.
@@ -332,14 +332,14 @@ Two consequences for the implementation:
 **Steps:**
 1. Write failing test for `promote.to_add_job(row)` producing a dict with `upsert: True` and a `workplaceType` of exactly `Remote`, `Hybrid` or `Onsite`. Expected error: `ModuleNotFoundError: No module named 'promote'`
 2. Run tests, confirm it fails for that reason
-3. Implement `to_add_job(row)` (field mapping per the contract table above), `to_match_text(row)` (the `SCORES: match=<n> recommendation=<...>` first line plus a markdown body that names the work-authorization bucket), `build_tags(row)` (1 visa tag + 1 variant tag + up to 8 skill tags, hard-capped at 10), `chunk(rows, 10)` and `plan_budget(rows, limit)` returning what fits and what waits
-4. Add tests for: a row missing `jobDescription` (emits `"N/A"`), `workplaceType` given as `On-site` and as `REMOTE`, `fit_score` exactly 80 / 79 / 65 / 64 / 50 / 49 / 0 / 100 at each recommendation boundary, 11 skill tags (must truncate to 8 skill tags and keep both the visa and variant tags), a batch of exactly 10 and of 11, a budget of 0, and a `matchText` body under 20 characters (must be padded by the real body, never shipped short)
+3. Implement `to_add_job(row)` (field mapping per the contract table above), `to_match_text(row)` (the `SCORES: match=<n> recommendation=<...>` first line plus a markdown body that names the work-authorization bucket), `build_tags(row)` (1 visa tag + 1 variant tag + up to 8 skill tags, hard-capped at 10), `chunk(rows, 10)`, `plan_budget(rows, limit)` returning what fits and what waits, and `match_quality(row)` implementing spec §8's two posting-text rules: a posting under `FULL_MATCH_MIN_WORDS = 150` words returns `"provisional"` (promote it, but say in `matchText` that the match is *Provisional*), and a title-only row — one whose cleaned `jobDescription` is the `N/A` sentinel — raises `TitleOnlyError` and is never promoted at all, because jobsync cannot produce a match without the posting text
+4. Add tests for: a row missing `jobDescription` (emits `"N/A"`), `workplaceType` given as `On-site` and as `REMOTE`, `fit_score` exactly 80 / 79 / 65 / 64 / 50 / 49 / 0 / 100 at each recommendation boundary, 11 skill tags (must truncate to 8 skill tags and keep both the visa and variant tags), a batch of exactly 10 and of 11, a budget of 0, and a `matchText` body under 20 characters (must be padded by the real body, never shipped short), a posting of exactly 149 and exactly 150 words (provisional vs full), and a title-only row (must raise `TitleOnlyError`, never promote)
 5. Run tests, confirm all pass
 6. Commit: "feat(promote): jobsync payload mapping with tag cap and request budget"
 
 **Completeness ladder:**
 - Happy path: a scored row becomes a valid `add_job` payload plus a valid `save_match_result` payload.
-- Error paths: a row with no score (refuse to promote and say so), an unmappable `workplaceType`, a budget already spent.
+- Error paths: a row with no score (refuse to promote and say so), an unmappable `workplaceType`, a budget already spent, and a title-only row (refuse — spec §8; a match built from a title alone is worse than no match, because it looks like one).
 - Edge cases: every recommendation boundary, tag overflow, batch of exactly 10 and of 11, empty input, a row whose description is exactly 9 and exactly 10 characters.
 - Observability: `plan_budget` returns `(sending, waiting, requests_needed)` so the skill can print what will happen before it happens.
 
