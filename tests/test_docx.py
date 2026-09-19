@@ -1657,6 +1657,178 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
         self.assertEqual(blocks[0]["kind"], "bullet")
 
 
+class TestNestedCodeSpansCannotHideAMarker(unittest.TestCase):
+    """Round 7. Widening `_CODE_RE` made nesting depth author-controlled.
+
+    `strip_inline` peels exactly one code-span layer, and the gate runs it
+    twice — once on the raw markdown, once on the rendered text. Two rounds
+    of one layer is not two layers, so a marker wrapped twice walked through
+    both and printed on the page. The gate must peel to a fixed point.
+    """
+
+    def assert_refused(self, markdown, label):
+        destination = os.path.join(tempfile.mkdtemp(), "out.docx")
+        with self.assertRaises(docx.UnverifiedClaimError, msg=label):
+            docx.render(markdown, destination)
+        self.assertFalse(os.path.exists(destination), label)
+
+    def test_a_doubly_wrapped_marker_in_prose_is_refused(self):
+        self.assert_refused(
+            "# CV\n\nShipped ``` `[**verifikasi**]` ``` last year\n", "prose"
+        )
+
+    def test_a_doubly_wrapped_marker_in_a_bullet_is_refused(self):
+        self.assert_refused(
+            "# CV\n\n- Shipped ``` `[**verifikasi**]` ```\n", "bullet"
+        )
+
+    def test_a_marker_inside_a_fence_is_refused(self):
+        # `flatten` wraps every fenced line in a code span, so a marker that
+        # was already in one arrives at depth 2 for free.
+        self.assert_refused("# CV\n\n```\n`[**verifikasi**]`\n```\n", "fence")
+
+    def test_a_marker_mid_line_inside_a_fence_is_refused(self):
+        self.assert_refused(
+            "# CV\n\n```\nx = `[**verifikasi**]`\n```\n", "fence mid-line"
+        )
+
+    def test_a_marker_inside_indented_code_is_refused(self):
+        self.assert_refused(
+            "# CV\n\npara\n\n    `[**verifikasi**]`\n", "indented code"
+        )
+
+    def test_an_assumption_inside_a_fence_is_refused(self):
+        self.assert_refused(
+            "# CV\n\n```\n`[**Assumption**: FY24]`\n```\n", "assumption"
+        )
+
+    def test_four_layers_of_nesting_are_still_refused(self):
+        # Depth is the author's to choose, so the peel cannot be a fixed
+        # number of rounds. Whatever number is picked, this test picks one
+        # more.
+        self.assert_refused(
+            "# CV\n\nShipped ````` ```` ``` `[verifikasi]` ``` ```` `````\n",
+            "depth 4",
+        )
+
+    def test_ordinary_code_spans_still_render(self):
+        # The peel must not eat real code. `` `__init__` `` still prints.
+        destination = os.path.join(tempfile.mkdtemp(), "out.docx")
+        docx.render("# CV\n\nWrote `__init__` and ``a `b` c``\n", destination)
+        self.assertTrue(os.path.exists(destination))
+
+
+class TestRoundSevenFollowups(unittest.TestCase):
+    """What round 7's two audits found beyond the gate bypass."""
+
+    def blocks(self, markdown):
+        text, notes = docx.flatten(markdown)
+        return docx.parse_blocks(text), notes
+
+    # --- the ordered-list note described the opposite transformation -------
+
+    def test_the_ordered_list_note_says_what_actually_happens(self):
+        _blocks, notes = self.blocks("1. Scoped\n2. Shipped\n")
+        ordered = [n for n in notes if "ordered list" in n]
+        self.assertEqual(
+            ordered,
+            ["lines 1-2: ordered list numbering kept inline, "
+             "list formatting dropped"],
+        )
+
+    def test_the_ordered_list_note_is_one_line_per_run_not_per_item(self):
+        markdown = "".join("%d. item\n" % n for n in range(1, 41))
+        _blocks, notes = self.blocks(markdown)
+        self.assertEqual(len([n for n in notes if "ordered list" in n]), 1)
+
+    def test_two_separated_ordered_runs_get_two_notes(self):
+        _blocks, notes = self.blocks("1. a\n\npara\n\n1. b\n")
+        self.assertEqual(len([n for n in notes if "ordered list" in n]), 2)
+
+    def test_a_paren_delimited_ordered_item_reports_the_rewrite(self):
+        _blocks, notes = self.blocks("1) Scoped\n")
+        self.assertTrue(any('")" rewritten as "."' in n for n in notes), notes)
+
+    # --- a wrapped ordered item was split into an orphan paragraph ---------
+
+    def test_a_wrapped_ordered_item_stays_one_block(self):
+        blocks, _notes = self.blocks(
+            "2. Shipped a shadow pipeline behind a flag, comparing every\n"
+            "   settlement against the batch output for 30 days\n"
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertIn("for 30 days", blocks[0]["text"])
+
+    # --- indented code after a list was mangled in silence ----------------
+
+    def test_indented_code_after_a_list_is_code_not_a_continuation(self):
+        blocks, notes = self.blocks(
+            "- Built the parser\n\n      def __init__(self):\n"
+            "          return a*b*c\n"
+        )
+        rendered = " ".join(b["text"] for b in blocks)
+        self.assertIn("__init__", rendered)
+        self.assertIn("a*b*c", rendered)
+        self.assertTrue(any("indented code" in n for n in notes), notes)
+
+    def test_a_wrapped_bullet_is_still_not_code(self):
+        # The blank-line reset must not undo round 6's fix.
+        blocks, notes = self.blocks(
+            "- Led the migration of a system that needed\n"
+            "    wrapping across lines\n"
+            "    and a third line too\n"
+        )
+        self.assertEqual(len(blocks), 1)
+        self.assertEqual([n for n in notes if "indented code" in n], [])
+
+    # --- the blockquote branch skipped every one of the new note checks ---
+
+    def test_a_setext_underline_under_a_blockquote_is_reported(self):
+        _blocks, notes = self.blocks("> Praise from a manager\n---\n")
+        self.assertTrue(any("setext" in n for n in notes), notes)
+
+    def test_an_ordered_item_inside_a_blockquote_is_reported(self):
+        _blocks, notes = self.blocks("> 1. one\n")
+        self.assertTrue(any("ordered list" in n for n in notes), notes)
+
+    # --- code lines were still run through the prose transformations ------
+
+    def test_fenced_code_keeps_its_angle_brackets(self):
+        blocks, _notes = self.blocks(
+            "```\nList<String> parse(Vec<T> x)\n```\n"
+        )
+        self.assertEqual(blocks[0]["text"], "List<String> parse(Vec<T> x)")
+
+    def test_fenced_code_keeps_its_entities_undecoded(self):
+        blocks, _notes = self.blocks("```\nprint(&#96;x&#96;)\n```\n")
+        self.assertEqual(blocks[0]["text"], "print(&#96;x&#96;)")
+
+    def test_prose_outside_a_fence_still_has_its_tags_stripped(self):
+        blocks, notes = self.blocks("Worked at <b>Acme</b> on AT&amp;T\n")
+        self.assertEqual(blocks[0]["text"], "Worked at Acme on AT&T")
+        self.assertTrue(any("inline html stripped" in n for n in notes), notes)
+
+    # --- an escaped asterisk lost its asterisk and kept its backslash -----
+
+    def test_an_escaped_asterisk_prints_as_an_asterisk(self):
+        blocks, _notes = self.blocks("a \\*literal\\* star\n")
+        self.assertEqual(blocks[0]["text"], "a *literal* star")
+
+    def test_an_escaped_underscore_prints_as_an_underscore(self):
+        blocks, _notes = self.blocks("the \\_private\\_ field\n")
+        self.assertEqual(blocks[0]["text"], "the _private_ field")
+
+    def test_an_escaped_marker_is_still_refused(self):
+        # Unescaping makes the gate STRICTER, which is the right direction.
+        destination = os.path.join(tempfile.mkdtemp(), "out.docx")
+        with self.assertRaises(docx.UnverifiedClaimError):
+            docx.render("# CV\n\n- ARR \\[verifikasi\\]\n", destination)
+
+    def test_real_emphasis_is_still_stripped(self):
+        blocks, _notes = self.blocks("Shipped **on time** and *early*\n")
+        self.assertEqual(blocks[0]["text"], "Shipped on time and early")
+
+
 class TestRoundSixFollowups(unittest.TestCase):
     """The two regressions and three silences round 6's plan-verifier found.
 

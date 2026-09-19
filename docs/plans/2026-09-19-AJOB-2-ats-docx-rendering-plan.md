@@ -157,7 +157,7 @@ Escaping `&` last would double-escape the entities the first two produced.
 
 ## Amendments, 2026-09-19 (post-implementation, owner-approved)
 
-Thirteen points where the pinned text above no longer matches the code. Every
+Fifteen points where the pinned text above no longer matches the code. Every
 one was found by RUNNING the code — on a real CV, through a real document
 extractor, or by an adversarial review — and each is approved. They are
 recorded here rather than silently left to drift, because this document is
@@ -241,6 +241,36 @@ the contract.
     amendment 2's defect, which had returned one line further down; and
     ordered lists, setext underlines and task checkboxes are now each
     reported on stderr, which spec §5 required and they were not doing.
+
+14. **The gate peels inline markup to a fixed point, not once.** Amendment 12
+    widened `_CODE_RE` to multi-backtick spans and made `flatten` wrap every
+    code line in one more span — and together those made code-span NESTING
+    DEPTH something the author chooses. `strip_inline` peels exactly one
+    layer, and the gate runs it twice (raw markdown, then rendered text);
+    two rounds of one layer is not two layers. ``` `[**verifikasi**]` ```
+    walked through both and printed on the page, in plain prose, in a
+    bullet, in a fence and in indented code. `_unmask` now loops
+    `strip_inline` to a fixed point, the same trick it already used for
+    `html.unescape` and for the same reason. Its docstring claimed any
+    future transformation "can only make a marker MORE visible here"; that
+    held for transformations that REMOVE characters and said nothing about
+    one that ADDS delimiters. The claim is corrected rather than deleted.
+
+15. **Code lines are literal past `strip_inline` too, ordered items wrap,
+    and backslash escapes keep their character.** Three further losses, each
+    reproduced by rendering: a fenced `List<String> parse(Vec<T> x)` reached
+    the page as `List parse(Vec x)` because every prose pass still ran over
+    code lines; a wrapped ordered item had no continuation target and left
+    half a sentence as an orphan paragraph; `a \*literal\* star` printed as
+    `a \literal\ star`, the escaped asterisks eaten and the backslashes
+    kept, which is the transformation backwards. Also: a blank line now ends
+    a list item, so an indented code block that merely FOLLOWS a list is
+    code rather than that item still wrapping — amendment 12's fix had left
+    that path destructive and silent. The ordered-list note is one line per
+    RUN and says what actually happens (the number is kept inline, the list
+    formatting is dropped); the old wording described the opposite
+    transformation, forty times for a forty-item list. The blockquote branch
+    now reports the same constructs every other path does.
 
 A further amendment to the gate itself is recorded in the spec: the marker is
 matched with its reason attached, matched on the line as it will finally

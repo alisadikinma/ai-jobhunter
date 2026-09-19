@@ -79,6 +79,9 @@ _EMPTY_BULLET_RE = re.compile(r"^\s*[-*+]\s*$")
 # in the text because order is the point of writing an ordered list, and the
 # glyph is dropped for these so the line does not read "• 1. ".
 _ORDERED_RE = re.compile(r"^\s*(\d{1,3})[.)]\s+(.*)$")
+# "1)" is rewritten to "1." by `parse_blocks`, which is a change to the
+# author's text and therefore owes stderr a line.
+_ORDERED_PAREN_RE = re.compile(r"^\s*\d{1,3}\)\s+")
 
 # A task-list checkbox. "[x] " renders as literal brackets on the page.
 _TASK_RE = re.compile(r"^\[([ xX])\]\s+")
@@ -109,6 +112,8 @@ _ITALIC_RE = re.compile(r"\*(?=\S)([^*]+?)(?<=\S)\*")
 # itself contains.
 _CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)", re.S)
 _BACKTICK_RUN_RE = re.compile(r"`+")
+# Markdown's own escapable set. The character is kept, the backslash is not.
+_ESCAPED_RE = re.compile(r"\\([\\`*_{}\[\]()#+.!|~>-])")
 
 # Underscore emphasis, which models write at least as often as the asterisk
 # form. Both patterns refuse to start or end next to a word character, so
@@ -243,11 +248,29 @@ def _as_code_span(text):
 
 
 def _strip_emphasis(text):
-    """Bold before italic: `**x**` would otherwise read as italic around `*x*`."""
+    """Bold before italic: `**x**` would otherwise read as italic around `*x*`.
+
+    Backslash escapes are hidden first and restored last, without their
+    backslash. `a \\*literal\\* star` used to reach the page as
+    `a \\literal\\ star`: the emphasis pattern ate the asterisks the author
+    had explicitly escaped and left the backslashes behind, which is both
+    halves of the transformation backwards.
+    """
+    escaped = []
+
+    def hide(match):
+        escaped.append(match.group(1))
+        return "\x00%d\x00" % (len(escaped) - 1)
+
+    text = _ESCAPED_RE.sub(hide, text)
     text = _BOLD_RE.sub(r"\1", text)
     text = _BOLD_UNDERSCORE_RE.sub(r"\1", text)
     text = _ITALIC_RE.sub(r"\1", text)
     text = _ITALIC_UNDERSCORE_RE.sub(r"\1", text)
+    if escaped:
+        text = re.sub(
+            r"\x00(\d+)\x00", lambda m: escaped[int(m.group(1))], text
+        )
     return text
 
 
@@ -370,6 +393,10 @@ def parse_blocks(markdown):
                         "text": "%s. %s" % (ordered.group(1), text),
                     }
                 )
+                # An ordered item wraps like any other list item, and without
+                # a continuation target the second line became an orphan
+                # paragraph — half a sentence on the page the employer reads.
+                open_bullet = blocks[-1]
             continue
 
         if _EMPTY_BULLET_RE.match(line):
@@ -476,6 +503,13 @@ def _unmask(line):
     closes the ones nobody has thought of yet: any future transformation that
     removes characters can only make a marker MORE visible here, never less.
 
+    That reasoning holds for transformations that REMOVE characters and said
+    nothing about one that ADDS protective delimiters. `flatten` now wraps
+    every fenced and indented code line in a code span, and `_CODE_RE` accepts
+    a backtick run of any length, so nesting depth became the author's to
+    choose. The inline strip below therefore runs to a fixed point rather
+    than once.
+
     Tags are removed with no separator on purpose. That is stricter than the
     html cleaner, which substitutes a space — `[verif<i>ikasi</i>]` rejoins
     into the marker here and is refused, rather than being caught by luck.
@@ -510,7 +544,18 @@ def _unmask(line):
     text = unicodedata.normalize("NFKC", text)
     text = _HTML_TAG_RE.sub("", text)
     text = _remove_invisible(text)
-    return strip_inline(text)
+    # To a fixed point, like the entity decoding above, and for a reason a
+    # single pass never had: `_CODE_RE` matches a backtick run of any length,
+    # so how many code-span layers wrap a marker is the AUTHOR's to choose.
+    # `strip_inline` peels exactly one. Peeling one layer twice — once here,
+    # once again on the rendered text — is not peeling two, and
+    # ``` `[**verifikasi**]` ``` walked through both and printed on the page.
+    # This terminates because every pass only removes characters.
+    previous = None
+    while text != previous:
+        previous = text
+        text = strip_inline(text)
+    return text
 
 
 def _is_table_row(line):
@@ -827,6 +872,14 @@ def flatten(markdown):
 
     out = []
     for number, line in numbered:
+        if _CODE_RE.fullmatch(line):
+            # A line that is entirely one code span is code, and every pass
+            # below rewrites PROSE. Running them over it deleted the
+            # candidate's own characters: `List<String> parse(Vec<T> x)`
+            # arrived as `List parse(Vec x)`, and `&#96;` decoded into a real
+            # backtick that unbalanced the span it sat in.
+            out.append(line)
+            continue
 
         removed = _HTML_TAG_RE.findall(line)
         has_entities = _ENTITY_RE.search(line)
@@ -1240,6 +1293,27 @@ def _is_paragraph_line(text):
     return not (_BULLET_RE.match(text) or _ORDERED_RE.match(text))
 
 
+def _note_subset_constructs(content, number, notes, previous_was_paragraph):
+    """Report what `parse_blocks` changes but has no notes list to say so.
+
+    Called from the blockquote path as well as the ordinary one: that branch
+    used to `continue` past these checks, so "> Praise\n---\n" became a
+    heading and "> 1. one" lost its list, both in silence.
+    """
+    bullet = _BULLET_RE.match(content)
+    if bullet and _TASK_RE.match(bullet.group(1)):
+        notes.append("line %d: task checkbox dropped" % number)
+    if _ORDERED_PAREN_RE.match(content):
+        notes.append(
+            'line %d: ordered list marker ")" rewritten as "."' % number
+        )
+    if previous_was_paragraph and (
+        _SETEXT_H1_RE.match(content) or _SETEXT_H2_RE.match(content)
+    ):
+        notes.append("line %d: setext underline converted to a heading" % number)
+    return _is_paragraph_line(content)
+
+
 def _flatten_blocks(lines):
     """Blockquotes, code, footnotes and reference definitions.
 
@@ -1269,6 +1343,19 @@ def _flatten_blocks(lines):
     in_indented_code = False
     last_was_list_item = False
     previous_was_paragraph = False
+    # One note per RUN of ordered items, not one per item: a forty-item list
+    # produced forty identical lines on stderr, which is noise, not a report.
+    ordered_from = None
+    ordered_to = None
+
+    def close_ordered_run():
+        nonlocal ordered_from, ordered_to
+        if ordered_from is not None:
+            notes.append(
+                "lines %d-%d: ordered list numbering kept inline, "
+                "list formatting dropped" % (ordered_from, ordered_to)
+            )
+            ordered_from = ordered_to = None
     for index, line in enumerate(lines):
         number = index + 1
 
@@ -1313,8 +1400,25 @@ def _flatten_blocks(lines):
         quoted = _BLOCKQUOTE_RE.match(line)
         if quoted and line.lstrip().startswith(">"):
             notes.append("line %d: blockquote marker dropped" % number)
-            out.append((number, quoted.group(1).strip()))
+            content = quoted.group(1).strip()
+            if _ORDERED_RE.match(content):
+                if ordered_from is None:
+                    ordered_from = number
+                ordered_to = number
+            else:
+                close_ordered_run()
+            previous_was_paragraph = _note_subset_constructs(
+                content, number, notes, previous_was_paragraph
+            )
+            out.append((number, content))
             continue
+
+        if not line.strip():
+            # A blank line ends a list item. Without this, an indented code
+            # block that merely FOLLOWS a list was taken for that item still
+            # wrapping: `def __init__` reached the page as `def init` and
+            # `a*b*c` as `abc`, with nothing on stderr.
+            last_was_list_item = False
 
         indented = _INDENTED_CODE_RE.match(line)
         if indented and not last_was_list_item:
@@ -1342,27 +1446,22 @@ def _flatten_blocks(lines):
                 )
 
         # Spec 5: everything outside the supported subset is flattened or
-        # dropped WITH a line on stderr. These three change the document and
-        # said nothing, because `parse_blocks` — which has no notes list —
-        # is where they are actually transformed.
-        bullet = _BULLET_RE.match(line)
-        if bullet and _TASK_RE.match(bullet.group(1)):
-            notes.append("line %d: task checkbox dropped" % number)
+        # dropped WITH a line on stderr. These change the document and said
+        # nothing, because `parse_blocks` — which has no notes list — is
+        # where they are actually transformed.
         if _ORDERED_RE.match(line):
-            notes.append(
-                "line %d: ordered list rendered as a bullet, numbering dropped"
-                % number
-            )
-        if previous_was_paragraph and (
-            _SETEXT_H1_RE.match(line) or _SETEXT_H2_RE.match(line)
-        ):
-            notes.append(
-                "line %d: setext underline converted to a heading" % number
-            )
-        previous_was_paragraph = _is_paragraph_line(line)
+            if ordered_from is None:
+                ordered_from = number
+            ordered_to = number
+        elif line.strip():
+            close_ordered_run()
+        previous_was_paragraph = _note_subset_constructs(
+            line, number, notes, previous_was_paragraph
+        )
 
         out.append((number, line))
 
+    close_ordered_run()
     if in_fence:
         notes.append("unclosed code fence: its text was kept as ordinary lines")
 
