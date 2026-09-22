@@ -22,6 +22,7 @@ import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+import apify  # noqa: E402
 import jobhunter  # noqa: E402
 
 
@@ -1037,6 +1038,384 @@ class TestTemplateCheckHelp(unittest.TestCase):
         code, _parsed, _err, text = run(["--help"])
         self.assertEqual(code, 0)
         self.assertIn("template-check", text)
+
+
+_LINKEDIN_FIXTURE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "apify_linkedin.json"
+)
+
+
+class TestLinkedinFetch(unittest.TestCase):
+    def _config(self, tmp, budgets_toml="", linkedin_toml=None):
+        path = os.path.join(tmp, "config.toml")
+        if linkedin_toml is None:
+            linkedin_toml = (
+                '[linkedin]\nkeywords = ["software engineer"]\n'
+                'locations = ["United States"]\n'
+            )
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(linkedin_toml)
+            f.write("\n[budgets]\n")
+            f.write(budgets_toml)
+        return path
+
+    def _fetch_result(self, dest):
+        shutil.copyfile(_LINKEDIN_FIXTURE, dest)
+        return {"run_id": "run1", "status": "SUCCEEDED", "returned": 5, "usd_charged": 0.0011}
+
+    def test_emits_report_with_apify_patched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            with unittest.mock.patch(
+                "apify.fetch_linkedin", side_effect=lambda *a, **k: self._fetch_result(dest)
+            ) as fetch_mock, unittest.mock.patch(
+                "apify.remaining_credit_usd", return_value=10.0
+            ):
+                code, parsed, _err, text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
+            fetch_mock.assert_called_once()
+            self.assertEqual(parsed["new"], 5)
+            self.assertEqual(parsed["duplicate"], 0)
+            self.assertEqual(parsed["usd_charged"], 0.0011)
+            self.assertEqual(parsed["credit_remaining_usd"], 10.0 - 0.0011)
+
+    def test_budget_zero_skips_with_no_network_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp, budgets_toml="apify_max_items_per_run = 0\n")
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            with unittest.mock.patch("apify.fetch_linkedin") as fetch_mock:
+                code, parsed, _err, _text = run(
+                    ["linkedin-fetch", "--config", cfg, "--queue", queue, "--dest", dest]
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(parsed["skipped_source"], "linkedin")
+            fetch_mock.assert_not_called()
+
+    def test_missing_linkedin_section_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp, linkedin_toml="")
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            code, _parsed, err, _text = run(
+                ["linkedin-fetch", "--config", cfg, "--queue", queue, "--dest", dest]
+            )
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "ConfigError")
+
+    def test_no_token_raises_apify_token_missing_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, "does-not-exist.env")
+            with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("APIFY_TOKEN", None)
+                code, _parsed, err, _text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "ApifyTokenMissingError")
+
+    def test_credit_below_cap_refuses_before_fetch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            with unittest.mock.patch(
+                "apify.remaining_credit_usd", return_value=0.0
+            ), unittest.mock.patch("apify.fetch_linkedin") as fetch_mock:
+                code, _parsed, err, _text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "ApifyCreditError")
+            fetch_mock.assert_not_called()
+
+    def test_second_run_dedupes_against_the_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            with unittest.mock.patch(
+                "apify.fetch_linkedin", side_effect=lambda *a, **k: self._fetch_result(dest)
+            ), unittest.mock.patch("apify.remaining_credit_usd", return_value=10.0):
+                _code1, parsed1, _err1, _t1 = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+                _code2, parsed2, _err2, _t2 = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(parsed2["new"], 0)
+            self.assertEqual(parsed2["duplicate"], parsed1["new"])
+
+    def test_failed_fetch_leaves_state_file_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            state_path = os.path.join(tmp, "linkedin-state.json")
+            with unittest.mock.patch(
+                "apify.fetch_linkedin", side_effect=apify.ApifyError("run FAILED")
+            ), unittest.mock.patch("apify.remaining_credit_usd", return_value=10.0):
+                code, _parsed, err, _text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 1)
+            payload = json.loads(err[err.index("{"):])
+            self.assertEqual(payload["error"], "ApifyError")
+            self.assertFalse(os.path.exists(state_path))
+
+    def test_help_lists_all_four_flags(self):
+        code, _parsed, _err, text = run(["linkedin-fetch", "--help"])
+        self.assertEqual(code, 0)
+        for flag in ("--config", "--queue", "--dest", "--env-file"):
+            self.assertIn(flag, text)
+
+
+class TestFirecrawlAndKeysCheck(unittest.TestCase):
+    def _config(self, tmp, credits_per_run=150):
+        path = os.path.join(tmp, "config.toml")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"[budgets]\nfirecrawl_credits_per_run = {credits_per_run}\n")
+        return path
+
+    def test_keys_check_reports_present_missing_without_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=super-secret-value\n")
+            code, parsed, _err, text = run(["keys-check", "--env-file", env_file])
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["APIFY_TOKEN"], "present")
+        self.assertEqual(parsed["FIRECRAWL_API_KEY"], "missing")
+        self.assertNotIn("super-secret-value", text)
+
+    def test_search_happy_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            run_state = os.path.join(tmp, "run-state.json")
+            dest = os.path.join(tmp, "search.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("FIRECRAWL_API_KEY=fc-test\n")
+
+            def fake_search(key, query, limit, dest_path, *, tbs=None, location=None):
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    json.dump([{"url": "https://a.example.com"}], f)
+                return 1, 4
+
+            with unittest.mock.patch(
+                "firecrawl.remaining_credits", return_value=100
+            ), unittest.mock.patch("firecrawl.search", side_effect=fake_search) as search_mock:
+                code, parsed, _err, text = run(
+                    [
+                        "firecrawl-search",
+                        "--config", cfg,
+                        "--run-state", run_state,
+                        "--query", "software engineer",
+                        "--limit", "2",
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
+        search_mock.assert_called_once()
+        self.assertEqual(parsed["results"], 1)
+        self.assertEqual(parsed["credits_spent_run"], 4)
+
+    def test_budget_exhausted_refuses_and_never_calls_search(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp, credits_per_run=1)
+            run_state = os.path.join(tmp, "run-state.json")
+            dest = os.path.join(tmp, "search.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("FIRECRAWL_API_KEY=fc-test\n")
+
+            with unittest.mock.patch(
+                "firecrawl.remaining_credits", return_value=100
+            ), unittest.mock.patch("firecrawl.search") as search_mock:
+                code, _parsed, err, _text = run(
+                    [
+                        "firecrawl-search",
+                        "--config", cfg,
+                        "--run-state", run_state,
+                        "--query", "x",
+                        "--limit", "10",
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "FirecrawlBudgetError")
+        search_mock.assert_not_called()
+
+    def test_missing_key_raises_firecrawl_key_missing_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            run_state = os.path.join(tmp, "run-state.json")
+            dest = os.path.join(tmp, "search.json")
+            env_file = os.path.join(tmp, "does-not-exist.env")
+            with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("FIRECRAWL_API_KEY", None)
+                code, _parsed, err, _text = run(
+                    [
+                        "firecrawl-search",
+                        "--config", cfg,
+                        "--run-state", run_state,
+                        "--query", "x",
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "FirecrawlKeyMissingError")
+
+    def test_scrape_happy_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            run_state = os.path.join(tmp, "run-state.json")
+            dest = os.path.join(tmp, "scrape.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("FIRECRAWL_API_KEY=fc-test\n")
+
+            def fake_scrape(key, url, dest_path):
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    json.dump({"markdown": "# Page"}, f)
+                return 1
+
+            with unittest.mock.patch(
+                "firecrawl.remaining_credits", return_value=100
+            ), unittest.mock.patch("firecrawl.scrape", side_effect=fake_scrape):
+                code, parsed, _err, text = run(
+                    [
+                        "firecrawl-scrape",
+                        "--config", cfg,
+                        "--run-state", run_state,
+                        "--url", "https://example.com",
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
+        self.assertEqual(parsed["url"], "https://example.com")
+        self.assertEqual(parsed["credits_spent_run"], 1)
+
+    def test_run_state_file_accumulates_across_two_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            run_state = os.path.join(tmp, "run-state.json")
+            dest = os.path.join(tmp, "search.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("FIRECRAWL_API_KEY=fc-test\n")
+
+            def fake_search(key, query, limit, dest_path, *, tbs=None, location=None):
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    json.dump([], f)
+                return 0, 4
+
+            with unittest.mock.patch(
+                "firecrawl.remaining_credits", return_value=100
+            ), unittest.mock.patch("firecrawl.search", side_effect=fake_search):
+                _c1, parsed1, _e1, _t1 = run(
+                    [
+                        "firecrawl-search",
+                        "--config", cfg,
+                        "--run-state", run_state,
+                        "--query", "x",
+                        "--limit", "1",
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+                _c2, parsed2, _e2, _t2 = run(
+                    [
+                        "firecrawl-search",
+                        "--config", cfg,
+                        "--run-state", run_state,
+                        "--query", "x",
+                        "--limit", "1",
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+        self.assertEqual(parsed1["credits_spent_run"], 4)
+        self.assertEqual(parsed2["credits_spent_run"], 8)
+
+    def test_help_lists_search_flags(self):
+        code, _parsed, _err, text = run(["firecrawl-search", "--help"])
+        self.assertEqual(code, 0)
+        for flag in ("--config", "--run-state", "--query", "--limit", "--dest", "--env-file", "--tbs", "--location"):
+            self.assertIn(flag, text)
+
+    def test_help_lists_scrape_flags(self):
+        code, _parsed, _err, text = run(["firecrawl-scrape", "--help"])
+        self.assertEqual(code, 0)
+        for flag in ("--config", "--run-state", "--url", "--dest", "--env-file"):
+            self.assertIn(flag, text)
+
+    def test_help_lists_keys_check_flags(self):
+        code, _parsed, _err, text = run(["keys-check", "--help"])
+        self.assertEqual(code, 0)
+        self.assertIn("--env-file", text)
 
 
 if __name__ == "__main__":

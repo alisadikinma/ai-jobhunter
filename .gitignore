@@ -1,3 +1,6 @@
+# secrets
+.env
+
 # gaspol worktrees
 .claude/worktrees/
 

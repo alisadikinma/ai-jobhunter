@@ -79,9 +79,17 @@ geo = ["US-remote", "global-remote"]
 min_salary_usd = 0                      # 0 means unset, not "pays zero"
 companies = []                          # ATS slugs for direct polling
 
+[linkedin]
+# Fetched through the Apify actor bebity/linkedin-jobs-scraper. The token is
+# APIFY_TOKEN in .env, never here. Every keyword is searched in every location.
+keywords   = ["AI engineer"]
+locations  = ["United States"]
+work_types = ["remote"]                 # on-site | remote | hybrid; checked again on output
+
 [budgets]
 firecrawl_credits_per_run = 150         # hard cap; the run aborts at the ceiling
 jobsync_requests_per_run = 50           # stays under the 60/hour MCP limit
+apify_max_items_per_run = 100           # LinkedIn postings per run; 0 turns LinkedIn off
 
 [tracking]
 # Declared, validated, and currently read by nothing: the promote skill checks

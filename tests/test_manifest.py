@@ -86,7 +86,7 @@ class TestPluginJson(unittest.TestCase):
     def test_parses_and_has_required_fields(self):
         data = json.loads(_read(PLUGIN_JSON))
         self.assertEqual(data["name"], "gaspol-jobhunter")
-        self.assertEqual(data["version"], "0.3.0")
+        self.assertEqual(data["version"], "0.4.0")
         self.assertTrue(data.get("description"))
         self.assertTrue(data.get("keywords"))
         license_value = data.get("license")
@@ -548,6 +548,37 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
             {"--cv", "--template", "--letter", "--level", "--company", "--role"},
         )
 
+    def test_linkedin_fetch_and_all_four_of_its_flags_are_collected(self):
+        """AJOB-5's newest subcommand must actually be seen by the guard,
+        same reasoning as the render-pdf/template-check guards above."""
+        commands = self._documented_commands()
+        self.assertIn("linkedin-fetch", commands)
+        self.assertEqual(
+            commands["linkedin-fetch"],
+            {"--config", "--queue", "--dest", "--env-file"},
+        )
+
+    def test_firecrawl_search_flags_are_collected(self):
+        commands = self._documented_commands()
+        self.assertIn("firecrawl-search", commands)
+        self.assertEqual(
+            commands["firecrawl-search"],
+            {"--config", "--run-state", "--query", "--limit", "--dest", "--env-file"},
+        )
+
+    def test_firecrawl_scrape_flags_are_collected(self):
+        commands = self._documented_commands()
+        self.assertIn("firecrawl-scrape", commands)
+        self.assertEqual(
+            commands["firecrawl-scrape"],
+            {"--config", "--run-state", "--url", "--dest", "--env-file"},
+        )
+
+    def test_keys_check_is_collected(self):
+        commands = self._documented_commands()
+        self.assertIn("keys-check", commands)
+        self.assertEqual(commands["keys-check"], {"--env-file"})
+
     def test_every_documented_subcommand_exists_in_the_cli(self):
         help_text = self._cli_help()
         documented = self._documented_commands()
@@ -573,6 +604,49 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
                     sub_help,
                     f"{name} {flag} is documented in a skill but "
                     f"{name} accepts no such flag",
+                )
+
+
+class TestDiscoverDropsFirecrawlMcp(unittest.TestCase):
+    def test_no_mcp_firecrawl_tool_references_remain(self):
+        text = _read(os.path.join(SKILLS_DIR, "discover", "SKILL.md"))
+        self.assertNotIn("mcp__firecrawl__", text)
+
+
+class TestDiscoverErrorClassesExist(unittest.TestCase):
+    """`discover/SKILL.md` quotes these class names verbatim so a model can
+    look them up; a renamed class would leave the prose lying."""
+
+    _CLASSES = {
+        "apify": ("ApifyError", "ApifyTokenMissingError", "ApifyCreditError"),
+        "firecrawl": (
+            "FirecrawlError",
+            "FirecrawlKeyMissingError",
+            "FirecrawlCreditError",
+            "FirecrawlBudgetError",
+        ),
+    }
+
+    def test_every_named_error_class_exists_as_a_module_attribute(self):
+        import sys
+
+        sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
+        import apify  # noqa: E402
+        import firecrawl  # noqa: E402
+
+        modules = {"apify": apify, "firecrawl": firecrawl}
+        text = _read(os.path.join(SKILLS_DIR, "discover", "SKILL.md"))
+        for module_name, class_names in self._CLASSES.items():
+            for class_name in class_names:
+                self.assertIn(
+                    f"{module_name}.{class_name}",
+                    text,
+                    f"discover/SKILL.md does not quote {module_name}.{class_name}",
+                )
+                self.assertTrue(
+                    hasattr(modules[module_name], class_name),
+                    f"{module_name}.{class_name} is quoted in discover/SKILL.md "
+                    "but does not exist",
                 )
 
 
