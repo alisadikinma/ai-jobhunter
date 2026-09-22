@@ -194,4 +194,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase H done — 722 lulus, versi 0.3.0 (RED: '0.2.0' != '0.3.0'), real run City of Hope: technical/mid/other, 2 temuan heading diperbaiki, CV+letter ok: true, cv.pdf 2 hlm, xberg urut — NEXT: plan-verifier + gaspol-verify
 - 2026-09-22 plan-verifier round 1 BLOCKING → semua 7 butir diperbaiki (3 commit), 734 lulus — NEXT: plan-verifier round 2
 - 2026-09-22 plan-verifier round 2 CLEAN — 734 lulus, real run ok: true — NEXT: gaspol-finish (merge atas keputusan Ali)
-\n- 2026-09-22 gaspol-review Tier 1: 1 Important + 3 Minor diperbaiki, 742 lulus — NEXT: re-review fix diff, lalu merge\n
+- 2026-09-22 gaspol-review Tier 1: 1 Important + 3 Minor diperbaiki, 742 lulus — NEXT: re-review fix diff, lalu merge
