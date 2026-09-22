@@ -1,8 +1,12 @@
+import datetime
+import io
 import json
 import os
 import sys
 import tempfile
 import unittest
+import unittest.mock
+import urllib.error
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
@@ -163,6 +167,311 @@ class TestNormalizeLinkedinJob(unittest.TestCase):
             path = _write_json(tmp, "d.json", {"not": "a list"})
             with self.assertRaises(apify.ApifyError):
                 apify.normalize_linkedin(path)
+
+
+class _FakeAPIResponse:
+    def __init__(self, body_bytes, status=200):
+        self.status = status
+        self._body = body_bytes
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+    def read(self, size=-1):
+        chunk, self._body = self._body, b""
+        return chunk
+
+
+def _json_response(payload, status=200):
+    return _FakeAPIResponse(json.dumps(payload).encode("utf-8"), status=status)
+
+
+def _http_error(url, code, payload, reason="Error"):
+    body = json.dumps(payload).encode("utf-8") if payload is not None else b""
+    return urllib.error.HTTPError(url, code, reason, None, io.BytesIO(body))
+
+
+class _FakeUrlopen:
+    """Returns canned responses/exceptions in order; records every Request."""
+
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.requests = []
+
+    def __call__(self, request, timeout=None):
+        self.requests.append(request)
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+
+_RUN_START = {"data": {"id": "run1", "status": "RUNNING", "defaultDatasetId": "ds1"}}
+_RUN_POLL_RUNNING = {"data": {"id": "run1", "status": "RUNNING", "defaultDatasetId": "ds1"}}
+_RUN_POLL_SUCCEEDED = {
+    "data": {
+        "id": "run1",
+        "status": "SUCCEEDED",
+        "defaultDatasetId": "ds1",
+        "usageTotalUsd": 0.0075,
+    }
+}
+_ITEMS = [{"title": "Software Engineer", "companyName": "Acme"}]
+
+
+class TestFetchLinkedinSuccess(unittest.TestCase):
+    def _fake(self, extra_responses=()):
+        responses = [
+            _json_response(_RUN_START, status=201),
+            _json_response(_RUN_POLL_RUNNING),
+            _json_response(_RUN_POLL_SUCCEEDED),
+            _json_response(_ITEMS),
+            *extra_responses,
+        ]
+        return _FakeUrlopen(responses)
+
+    def test_success_path_returns_report_and_writes_dataset(self):
+        fake = self._fake()
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                result = apify.fetch_linkedin({"titles": ["x"]}, 5, "secret-token", dest)
+            with open(dest, "r", encoding="utf-8") as f:
+                self.assertEqual(json.load(f), _ITEMS)
+        self.assertEqual(result["run_id"], "run1")
+        self.assertEqual(result["status"], "SUCCEEDED")
+        self.assertEqual(result["returned"], 1)
+        self.assertEqual(result["usd_charged"], 0.0075)
+
+    def test_bearer_header_present_on_every_request(self):
+        fake = self._fake()
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                apify.fetch_linkedin({"titles": ["x"]}, 5, "secret-token", dest)
+        self.assertEqual(len(fake.requests), 4)
+        for req in fake.requests:
+            self.assertEqual(req.get_header("Authorization"), "Bearer secret-token")
+
+    def test_no_request_url_contains_the_token(self):
+        fake = self._fake()
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                apify.fetch_linkedin({"titles": ["x"]}, 5, "secret-token", dest)
+        for req in fake.requests:
+            self.assertNotIn("secret-token", req.full_url)
+
+    def test_start_url_has_max_items_and_charge_cap_for_100_items(self):
+        responses = [
+            _json_response(
+                {"data": {"id": "r", "status": "SUCCEEDED", "defaultDatasetId": "d", "usageTotalUsd": 0.1}},
+                status=201,
+            ),
+            _json_response([]),
+        ]
+        fake = _FakeUrlopen(responses)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                apify.fetch_linkedin({"titles": ["x"]}, 100, "tok", dest)
+        start_url = fake.requests[0].full_url
+        self.assertIn("maxItems=100", start_url)
+        self.assertIn("maxTotalChargeUsd=0.225", start_url)
+
+    def test_empty_dataset_returns_zero_no_error(self):
+        responses = [
+            _json_response(
+                {"data": {"id": "r", "status": "SUCCEEDED", "defaultDatasetId": "d", "usageTotalUsd": 0}},
+                status=201,
+            ),
+            _json_response([]),
+        ]
+        fake = _FakeUrlopen(responses)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                result = apify.fetch_linkedin({"titles": ["x"]}, 5, "tok", dest)
+        self.assertEqual(result["returned"], 0)
+
+
+class TestBuildActorInputRows(unittest.TestCase):
+    def test_two_keywords_one_location_100_items_gives_50_rows(self):
+        cfg = {"keywords": ["a", "b"], "locations": ["US"], "work_types": []}
+        actor_input = apify.build_actor_input(cfg, 100, "r604800")
+        self.assertEqual(actor_input["rows"], 50)
+
+    def test_three_keywords_one_location_100_items_gives_34_rows(self):
+        cfg = {"keywords": ["a", "b", "c"], "locations": ["US"], "work_types": []}
+        actor_input = apify.build_actor_input(cfg, 100, "r604800")
+        self.assertEqual(actor_input["rows"], 34)
+
+    def test_work_types_omitted_when_empty(self):
+        cfg = {"keywords": ["a"], "locations": ["US"], "work_types": []}
+        actor_input = apify.build_actor_input(cfg, 10, "r604800")
+        self.assertNotIn("workTypes", actor_input)
+
+    def test_work_types_mapped_to_codes(self):
+        cfg = {"keywords": ["a"], "locations": ["US"], "work_types": ["remote", "hybrid"]}
+        actor_input = apify.build_actor_input(cfg, 10, "r604800")
+        self.assertEqual(actor_input["workTypes"], ["2", "3"])
+
+
+class TestFetchLinkedinErrors(unittest.TestCase):
+    def _run_with(self, responses):
+        fake = _FakeUrlopen(responses)
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                apify.fetch_linkedin({"titles": ["x"]}, 5, "secret-token", dest)
+
+    def test_401_raises_apify_error_naming_status(self):
+        responses = [_http_error("url", 401, {"error": {"message": "bad token"}})]
+        with self.assertRaises(apify.ApifyError) as ctx:
+            self._run_with(responses)
+        self.assertIn("HTTP 401", str(ctx.exception))
+
+    def test_402_raises_apify_credit_error(self):
+        responses = [_http_error("url", 402, {"error": {"message": "no credit"}})]
+        with self.assertRaises(apify.ApifyCreditError):
+            self._run_with(responses)
+
+    def test_404_raises_apify_error(self):
+        responses = [_http_error("url", 404, {"error": {"message": "not found"}})]
+        with self.assertRaises(apify.ApifyError) as ctx:
+            self._run_with(responses)
+        self.assertIn("HTTP 404", str(ctx.exception))
+
+    def test_429_raises_apify_error(self):
+        responses = [_http_error("url", 429, {"error": {"message": "rate limited"}})]
+        with self.assertRaises(apify.ApifyError) as ctx:
+            self._run_with(responses)
+        self.assertIn("HTTP 429", str(ctx.exception))
+
+    def test_terminal_failed_status_raises_naming_status(self):
+        responses = [
+            _json_response({"data": {"id": "r", "status": "FAILED", "defaultDatasetId": "d"}}, status=201),
+        ]
+        with self.assertRaises(apify.ApifyError) as ctx:
+            self._run_with(responses)
+        self.assertIn("FAILED", str(ctx.exception))
+
+    def test_terminal_aborted_status_raises_naming_status(self):
+        responses = [
+            _json_response({"data": {"id": "r", "status": "ABORTED", "defaultDatasetId": "d"}}, status=201),
+        ]
+        with self.assertRaises(apify.ApifyError) as ctx:
+            self._run_with(responses)
+        self.assertIn("ABORTED", str(ctx.exception))
+
+    def test_terminal_timed_out_status_raises_naming_status(self):
+        responses = [
+            _json_response({"data": {"id": "r", "status": "TIMED-OUT", "defaultDatasetId": "d"}}, status=201),
+        ]
+        with self.assertRaises(apify.ApifyError) as ctx:
+            self._run_with(responses)
+        self.assertIn("TIMED-OUT", str(ctx.exception))
+
+    def test_non_json_body_raises_apify_error(self):
+        fake = _FakeUrlopen([_FakeAPIResponse(b"<html>not json</html>", status=201)])
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                with self.assertRaises(apify.ApifyError):
+                    apify.fetch_linkedin({"titles": ["x"]}, 5, "tok", dest)
+
+    def test_token_absent_from_error_message_and_stderr(self):
+        responses = [_http_error("url", 401, {"error": {"message": "bad token"}})]
+        buf = io.StringIO()
+        with self.assertRaises(apify.ApifyError) as ctx:
+            with unittest.mock.patch("sys.stderr", buf):
+                self._run_with(responses)
+        self.assertNotIn("secret-token", str(ctx.exception))
+        self.assertNotIn("secret-token", buf.getvalue())
+
+
+class TestFetchLinkedinCeiling(unittest.TestCase):
+    def test_ceiling_aborts_and_raises(self):
+        responses = [
+            _json_response({"data": {"id": "run1", "status": "RUNNING", "defaultDatasetId": "d"}}, status=201),
+            _json_response({"data": {"id": "run1", "status": "ok"}}),  # abort POST response
+        ]
+        fake = _FakeUrlopen(responses)
+        fake_clock = iter([0, 1000])  # second call exceeds _CEILING_SECONDS
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = os.path.join(tmp, "items.json")
+            with unittest.mock.patch("urllib.request.urlopen", fake):
+                with self.assertRaises(apify.ApifyError) as ctx:
+                    apify.fetch_linkedin(
+                        {"titles": ["x"]}, 5, "tok", dest, clock=lambda: next(fake_clock)
+                    )
+        self.assertIn("aborted after 900 s", str(ctx.exception))
+        self.assertEqual(len(fake.requests), 2)
+        self.assertEqual(fake.requests[1].get_method(), "POST")
+        self.assertIn("/abort", fake.requests[1].full_url)
+
+
+class TestRemainingCreditUsd(unittest.TestCase):
+    def test_arithmetic(self):
+        payload = {"data": {"limits": {"maxMonthlyUsageUsd": 50}, "current": {"monthlyUsageUsd": 12.5}}}
+        fake = _FakeUrlopen([_json_response(payload)])
+        with unittest.mock.patch("urllib.request.urlopen", fake):
+            remaining = apify.remaining_credit_usd("tok")
+        self.assertEqual(remaining, 37.5)
+
+
+class TestChooseWindow(unittest.TestCase):
+    def test_no_file_returns_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            now = datetime.datetime(2026, 9, 22, tzinfo=datetime.timezone.utc)
+            self.assertEqual(apify.choose_window(path, now), "r2592000")
+
+    def test_3_hours_ago_returns_24h_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            now = datetime.datetime(2026, 9, 22, 12, 0, tzinfo=datetime.timezone.utc)
+            last = now - datetime.timedelta(hours=3)
+            apify.write_state(path, last)
+            self.assertEqual(apify.choose_window(path, now), "r86400")
+
+    def test_30_hours_ago_returns_7day_window(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            now = datetime.datetime(2026, 9, 22, 12, 0, tzinfo=datetime.timezone.utc)
+            last = now - datetime.timedelta(hours=30)
+            apify.write_state(path, last)
+            self.assertEqual(apify.choose_window(path, now), "r604800")
+
+    def test_8_days_ago_returns_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            now = datetime.datetime(2026, 9, 22, 12, 0, tzinfo=datetime.timezone.utc)
+            last = now - datetime.timedelta(days=8)
+            apify.write_state(path, last)
+            self.assertEqual(apify.choose_window(path, now), "r2592000")
+
+    def test_garbage_file_returns_fallback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("not json{{{")
+            now = datetime.datetime(2026, 9, 22, tzinfo=datetime.timezone.utc)
+            self.assertEqual(apify.choose_window(path, now), "r2592000")
+
+
+class TestWriteStateRoundTrip(unittest.TestCase):
+    def test_round_trip(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "state.json")
+            now = datetime.datetime(2026, 9, 22, 12, 0, tzinfo=datetime.timezone.utc)
+            apify.write_state(path, now)
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.assertEqual(data["last_success_at"], now.isoformat())
 
 
 if __name__ == "__main__":
