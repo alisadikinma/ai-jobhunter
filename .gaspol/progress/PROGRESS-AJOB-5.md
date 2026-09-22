@@ -16,10 +16,50 @@
 
 - 2026-09-22 Monitor Firecrawl dihapus dari discover — diputuskan Ali di review spec.
 - 2026-09-22 Phase J (live end-to-end) tidak dijalankan agent — Ali test sendiri setelah merge.
+- 2026-09-22 Phase C workType gate: tanpa enrichCompany, workType kosong di 5/5 item. Ali pilih
+  enrichCompany=true (+$0.001/job). Re-run: workType terisi 4/5 ("On-site" x2, "Hybrid" x2, 1
+  kosong). Field name dipakai di normalizer: `workType`. Spend capture: Apify $0.0001 (run 1,
+  companyProfile=false enrichCompany=false) + $0.0011 (run 2, enrichCompany=true) = $0.0012 total.
+  Firecrawl search: 4 credits.
+- 2026-09-22 Phase D selesai (`213f9ee`), 784 tes lulus — NEXT: Phase E
+- 2026-09-22 Phase E selesai (`1248cd4`), 810 tes lulus — NEXT: Phase F
+- 2026-09-22 Phase F selesai (`394ed4c`), 818 tes lulus. CLAUDE.md subcommand list ditambah `linkedin-fetch` di luar rencana Phase F supaya drift-guard tetap hijau — sisa update dokumentasi Phase I lengkap tetap di Phase I — NEXT: Phase G
+- 2026-09-22 Phase G selesai (`02d8b5a`), 842 tes lulus — NEXT: Phase H
+- 2026-09-22 Phase H selesai (`8917b6f`), 851 tes lulus — NEXT: Phase I
+- 2026-09-22 Phase I selesai (`1235fef`), 857 tes lulus. Plugin version 0.4.0. Phase A-I semua selesai — Phase J dilewati sesuai keputusan awal, Ali test live sendiri setelah merge.
+- 2026-09-22 plan-verifier round 1 (BLOCKING): 41 FOUND, 3 PARTIAL, 1 MISSING, 3 DIVERGED. Diperbaiki:
+  1. **Bug uang nyata** — `_PRICE_PER_JOB_USD` cuma hitung harga dataset-item ($0.0015), padahal
+     `build_actor_input` default `enrich_company=True` (keputusan gate Phase C) nambah premium-company
+     $0.001/job. Cap lama `$0.225` untuk 100 item < biaya asli ~`$0.25` → run bisa `ABORTED` di
+     tengah jalan dengan uang sudah keluar tapi nol baris masuk queue. Diperbaiki: `_PRICE_PER_JOB_USD
+     = 0.0015 + 0.001`, cap 100 item sekarang `$0.375`. Test `test_start_url_has_max_items_and_charge_cap_for_100_items`
+     disesuaikan. Plan/ledger di atas (baris "maxTotalChargeUsd=0.225", "usd_charged ≤ 0.0113") tetap
+     apa adanya sebagai catatan sejarah spec — angka aktual sekarang lebih tinggi dan itu benar.
+  2. **Phase C step 6 yang terlewat** — `GET /v2/team/credit-usage` sekarang benar dipanggil live
+     (gratis, tidak masuk budget). Respons: top-level keys `['data', 'success']`, `data` keys
+     `['billingPeriodEnd', 'billingPeriodStart', 'planCredits', 'remainingCredits']` — persis
+     yang diasumsikan `firecrawl.remaining_credits` (`data.remainingCredits`). Cocok.
+  3. **Dataset LinkedIn tidak streaming** — `apify.fetch_linkedin` dulu `json.loads` seluruh dataset
+     ke memori lalu `json.dump` balik, menyalahi pola `ats.fetch` yang di-referensikan spec.
+     Diperbaiki: `apify._stream_items` menulis body respons ke disk per-chunk 65536 byte seperti
+     `ats.fetch`, baru re-read sekali untuk hitung `returned`.
+  4. **Dead code** — parameter `sleep=time.sleep` di `fetch_linkedin` tidak pernah dipakai (polling
+     pakai long-poll server-side `waitForFinish=60`, bukan sleep klien) — dihapus dari signature.
+     `firecrawl._BACKOFF_SECONDS` punya nilai ketiga (8s) yang tidak pernah tercapai karena
+     `_RETRIES=3` cuma punya 2 interval backoff (antara percobaan 1→2 dan 2→3); tuple dipangkas
+     jadi `(2, 4)`.
+  Tidak diperbaiki, dicatat sebagai keterbatasan yang diketahui (non-blocking, bukan risiko uang):
+  - **`usageTotalUsd` dari run nyata jauh lebih kecil dari model harga PPE** (run 1: $0.0001 untuk
+    5 job, model memprediksi ~$0.0075). Arahnya aman — `remaining_credit_usd` yang dipakai
+    credit-brake SELALU query live ke `/users/me/limits` di awal tiap run, bukan dari akumulasi
+    `usd_charged` kita sendiri, jadi bookkeeping yang terlalu rendah tidak bisa menyebabkan
+    overspend di run berikutnya. `credit_remaining_usd` di laporan JSON murni informasional.
+     Direkonsiliasi kalau sempat saat Phase J live.
+  - 857 tes tetap lulus setelah semua perbaikan di atas.
 
 ## Checklist
 
-### [ ] Phase A: `.env` key reader
+### [x] Phase A: `.env` key reader
 - [ ] Write failing test for `read_key` returning the env var over the file value. Expected error: `ModuleNotFoundError: No module named 'envfile'`
 - [ ] Run `python3 -m unittest tests.test_envfile`, confirm it fails for that reason.
 - [ ] Add tests (each its own method): file fallback; `export KEY=v`; `KEY="v"` and `KEY='v'`;
@@ -37,7 +77,7 @@
 - [ ] Mutation of env-precedence made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase B: config `[linkedin]` + `apify_max_items_per_run`
+### [x] Phase B: config `[linkedin]` + `apify_max_items_per_run`
 - [ ] Write failing test for `load` returning `budgets["apify_max_items_per_run"] == 100` by default. Expected error: `KeyError: 'apify_max_items_per_run'`
 - [ ] Run it, confirm the failure.
 - [ ] Add tests: file value 25 kept with provenance `file`; `"25"` → `BudgetTypeError`; `-1` →
@@ -57,7 +97,7 @@
 - [ ] Both mutations made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase C: capture real fixtures (needs the user's keys)
+### [x] Phase C: capture real fixtures (needs the user's keys)
 - [ ] Write failing test for the fixture's shape in `tests/test_apify.py`: the file loads as a JSON
   list of ≥ 1 objects each having `title`, `companyName`, `description`, `jobUrl`. Expected error: `FileNotFoundError: ... tests/fixtures/apify_linkedin.json`
 - [ ] Run it, confirm the failure.
@@ -90,7 +130,7 @@
 - [ ] Security: no key in any committed file (`git grep -n "fc-" tests/` shows only doc text, if any); no personal profile data in fixtures
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase D: `normalize_linkedin`
+### [x] Phase D: `normalize_linkedin`
 - [ ] Write failing test for `normalize_linkedin` on the real fixture returning rows with `source ==
   "LinkedIn"` and canonical `jobUrl`. Expected error: `ModuleNotFoundError: No module named 'apify'`
 - [ ] Run it, confirm the failure.
@@ -110,7 +150,7 @@
 - [ ] Mutation made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase E: Apify fetch, credit brake, window state
+### [x] Phase E: Apify fetch, credit brake, window state
 - [ ] Write failing test for `fetch_linkedin` success path with a fake `urlopen` (a sequence of
   canned responses: start 201 → poll RUNNING → poll SUCCEEDED with `usageTotalUsd` 0.0075 →
   items). Expected error: `AttributeError: module 'apify' has no attribute 'fetch_linkedin'`
@@ -133,7 +173,7 @@
 - [ ] Both mutations made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase F: `linkedin-fetch` subcommand
+### [x] Phase F: `linkedin-fetch` subcommand
 - [ ] Write failing test for `linkedin-fetch` emitting the report with `apify.fetch_linkedin` and
   `apify.remaining_credit_usd` patched and the real fixture copied to `--dest`. Expected error: argparse `invalid choice: 'linkedin-fetch'` in the JSON usage error on stderr.
 - [ ] Run it, confirm the failure.
@@ -151,7 +191,7 @@
 - [ ] Mutation made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase G: Firecrawl REST client and run budget
+### [x] Phase G: Firecrawl REST client and run budget
 - [ ] Write failing test for `search` writing `data.web` from the real fixture (served by a fake
   `urlopen`) to `dest`. Expected error: `ModuleNotFoundError: No module named 'firecrawl'`
 - [ ] Run it, confirm the failure.
@@ -170,7 +210,7 @@
 - [ ] Both mutations made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase H: `firecrawl-search`, `firecrawl-scrape`, `keys-check` subcommands
+### [x] Phase H: `firecrawl-search`, `firecrawl-scrape`, `keys-check` subcommands
 - [ ] Write failing test for `keys-check` reporting `present`/`missing` without the value. Expected error: argparse `invalid choice: 'keys-check'`.
 - [ ] Run it, confirm the failure.
 - [ ] Add tests: search happy path with `firecrawl.search` / `remaining_credits` patched; budget
@@ -186,7 +226,7 @@
 - [ ] Mutation made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase I: `discover` SKILL.md, manifest guards, CLAUDE.md
+### [x] Phase I: `discover` SKILL.md, manifest guards, CLAUDE.md
 - [ ] Write failing test in `tests/test_manifest.py` asserting `linkedin-fetch` is collected with
   flags `{"--config", "--queue", "--dest", "--env-file"}`. Expected error: `AssertionError: 'linkedin-fetch' not found in ...`
 - [ ] Run it, confirm the failure.
@@ -225,15 +265,15 @@
 
 | Phase | Status | Commit |
 |---|---|---|
-| A: `.env` key reader | pending | — |
-| B: config `[linkedin]` + `apify_max_items_per_run` | pending | — |
-| C: capture real fixtures | pending | — |
-| D: `normalize_linkedin` | pending | — |
-| E: Apify fetch, credit brake, window state | pending | — |
-| F: `linkedin-fetch` subcommand | pending | — |
-| G: Firecrawl REST client and run budget | pending | — |
-| H: `firecrawl-search`, `firecrawl-scrape`, `keys-check` | pending | — |
-| I: `discover` SKILL.md, manifest guards, CLAUDE.md | pending | — |
+| A: `.env` key reader | done | `edb11e3` |
+| B: config `[linkedin]` + `apify_max_items_per_run` | done | `09f4edd` |
+| C: capture real fixtures | done | `832e98c` |
+| D: `normalize_linkedin` | done | `213f9ee` |
+| E: Apify fetch, credit brake, window state | done | `1248cd4` |
+| F: `linkedin-fetch` subcommand | done | `394ed4c` |
+| G: Firecrawl REST client and run budget | done | `02d8b5a` |
+| H: `firecrawl-search`, `firecrawl-scrape`, `keys-check` | done | `8917b6f` |
+| I: `discover` SKILL.md, manifest guards, CLAUDE.md | done | `1235fef` |
 | J: live end-to-end run | dilewati — Ali test sendiri | — |
 
 ## Utang terbuka
@@ -242,3 +282,7 @@
 
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
+- 2026-09-22 Phase A selesai (`edb11e3`), 758 tes lulus — NEXT: Phase B
+- 2026-09-22 Phase B selesai (`09f4edd`), 769 tes lulus — NEXT: Phase C (butuh key user, hard-stop)
+- 2026-09-22 Phase C selesai (`832e98c`), 771 tes lulus. workType gate: enrichCompany dipilih,
+  field `workType` dipakai Phase D. Spend $0.0012 Apify + 4 kredit Firecrawl — NEXT: Phase D
