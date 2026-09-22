@@ -25,7 +25,12 @@ budgets all arrive at runtime through `.jobhunter/` in the user's own project.
 - **`tailor` writes nothing before the agreement gate.** The requirements map
   (JD requirement → `master-cv.md` evidence, or `gap`) is walked with the user;
   no `cv.md` exists until `requirements-map.md` carries `approved: <date>`. A
-  `gap` never reaches a CV or cover letter. Output is PDF only.
+  `gap` never reaches a CV or cover letter. Output is PDF always, plus DOCX
+  only when the portal is Workday, Taleo or iCIMS.
+- **A CV sits on one of three templates; a letter on one format.** `hybrid`,
+  `technical`, `leadership` under `templates/cv/`, and `templates/cover-letter.md`.
+  Nothing renders until `template-check` returns `"ok": true` for both — the
+  text is fixed and re-checked, never rendered over findings.
 
 ## Stack
 
@@ -33,7 +38,7 @@ Python 3 **standard library only** — no pip, no pytest, no PyYAML. Tests are
 `unittest`; config is TOML via `tomllib`.
 
 ```bash
-python3 -m unittest discover -s tests -t .   # unit  (632 tests)
+python3 -m unittest discover -s tests -t .   # unit  (722 tests)
 python3 -m compileall -q scripts tests       # static
 ```
 
@@ -68,7 +73,11 @@ prints the report. Logging goes to stderr. A refusal is
 | `scripts/docx.py` | markdown → ATS-readable `.docx`. Hand-written OOXML, five parts, `zipfile` only. Owns `prepare()`, the marker gate both renderers share |
 | `scripts/pdf.py` | markdown → text PDF 1.4 (what `tailor` ships). Hand-written, Helvetica / WinAnsi, stdlib only; refuses characters outside WinAnsi |
 | `skills/{profile,discover,score,promote,tailor,outreach}/` | the six commands |
+| `scripts/templates.py` | template loader and checker — `list_cv_templates`, `load_cv_template`, `check_cv`, `letter_levels`, `check_letter` |
 | `templates/config.toml` | the config example; byte-identical to spec §4 and the plan's copy, guarded by a test |
+| `templates/cv/` | the three CV structures; each file's leading `cv-template` comment block is its section list, and its `## ` headings must equal it |
+| `templates/cover-letter.md` | the letter format: word bands per level (entry 200-250, mid 250-400, executive 400-450), four paragraphs, salutation and sign-off rules |
+| `docs/research/` | the sources behind every template and letter rule, with evidence strength |
 | `docs/evals/` | judgement evals for the non-deterministic steps, plus 7 real JD fixtures |
 
 ## Contracts worth knowing
@@ -96,7 +105,7 @@ files lie): `config.{ConfigError, ConfigMissingError, ProjectSourceError,
 PrecedenceError, BudgetTypeError, SalaryTypeError}`, `ats.{AtsError,
 MissingFieldError}`, `keywords.KeywordsError`, `docx.{DocxError, UnverifiedClaimError,
 EmptyDocumentError, DestinationError}`, `pdf.{PdfError,
-UnsupportedCharacterError}`, `promote.{PromoteError,
+UnsupportedCharacterError}`, `templates.TemplateError`, `promote.{PromoteError,
 ScoreMissingError, AuthorizationClosedError, TitleOnlyError, WorkplaceTypeError,
 FieldMissingError}`.
 

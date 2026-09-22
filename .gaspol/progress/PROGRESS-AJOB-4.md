@@ -127,19 +127,19 @@
 - [x] every rule in `templates/cover-letter.md` traces to a cited source in the summary
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase H: docs sync, version, real run
-- [ ] Write failing test for plugin version `0.3.0` (update the pin in `tests/test_manifest.py`). Expected error: `AssertionError: '0.2.0' != '0.3.0'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Bump version; CLAUDE.md: Subcommands line adds `template-check` (guarded by `TestClaudeMdNamesEverySubcommand`), layout rows `scripts/templates.py` and `templates/cv/`, `templates/cover-letter.md`, error class `templates.TemplateError`, hard-rule line for templates, test count measured; README tailor row mentions templates and the letter format
-- [ ] Real run in the main checkout's `.jobhunter/` with the user: pick a real JD the user provides (or the existing application directory's `jd.md`), run tailor end to end — template proposed and confirmed, level chosen, check returns `ok: true` for both, PDFs (and DOCX if enterprise portal) rendered, xberg round-trip of `cv.pdf` complete and in order. Record in ledger
-- [ ] Full suite; commit docs: `docs(AJOB-4): CLAUDE.md, README and 0.3.0 for templates`
+### [x] Phase H: docs sync, version, real run
+- [x] Write failing test for plugin version `0.3.0` (update the pin in `tests/test_manifest.py`). Expected error: `AssertionError: '0.2.0' != '0.3.0'`
+- [x] Run it, confirm it fails for that reason — confirmed exactly: `AssertionError: '0.2.0' != '0.3.0'`
+- [x] Bump version; CLAUDE.md: Subcommands line already carried `template-check` (Phase E); added layout rows `scripts/templates.py`, `templates/cv/`, `templates/cover-letter.md`, `docs/research/`; error class `templates.TemplateError`; hard-rule line for templates; tailor hard rule now says PDF always + DOCX for Workday/Taleo/iCIMS; test count measured 722. README tailor row mentions templates, letter format, template-check, enterprise DOCX
+- [x] Real run in main checkout `.jobhunter/applications/city-of-hope-ai-automation-engineer/` (existing `jd.md`, approved map from AJOB-3). Ali chose template `technical`, level `mid`; portal unknown to Ali (JD copied from LinkedIn) so `portal: other`, PDF only — not guessed as enterprise. Findings before: `template-check --cv --template technical` → 2 (`unknown-section` 'Core Skills' L11, `missing-section` 'Technical Skills') — correct, not a false positive: the old CV used AJOB-3 headings. Fix: renamed 3 headings to canonical names (Summary→Professional Summary, Core Skills→Technical Skills, Experience→Work Experience), no content change. After: CV `ok: true`, 0 findings; letter (306 words, mid) `ok: true`, 0 findings. `render-pdf`: cv.pdf 2 pages / 54 blocks / 0 notes; cover-letter.pdf 1 page / 10 blocks. DOCX path also exercised to scratchpad (54 and 10 blocks, 0 notes). xberg round-trip of cv.pdf: every section present, order Professional Summary → Technical Skills → Work Experience (7 roles, reverse-chronological) → Education → Certifications → Awards; no `cv-template`/`sections:` leak
+- [x] Full suite; commit docs: `docs(AJOB-4): CLAUDE.md, README and 0.3.0 for templates`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] CLAUDE.md test count equals the measured count
-- [ ] real run: both `template-check` calls `ok: true`; xberg round-trip complete
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 722 lulus
+- [x] CLAUDE.md test count equals the measured count (722)
+- [x] real run: both `template-check` calls `ok: true`; xberg round-trip complete
+- [x] No placeholder/TODO comments in new code
 
 ## Phase log
 
@@ -152,6 +152,7 @@
 | E — CLI template-check | DONE | `7441e67` |
 | F — tailor flow | DONE | `45fb17a` |
 | G — research + evals | DONE | `50bdafc` |
+| H — docs, 0.3.0, real run | DONE | (this commit) |
 
 ## Utang terbuka
 
@@ -168,3 +169,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase E done — 718 lulus, mutasi (hapus cek both-flags) → test_both_cv_and_letter_flags_is_refused gagal — NEXT: Phase F
 - 2026-09-22 Phase F done — 720 lulus, mutasi (--level → --lvl di doc) → test_template_check_and_all_six_of_its_flags_are_collected gagal — NEXT: Phase G
 - 2026-09-22 Phase G done — 722 lulus, mutasi (ganti nama heading case 11) → test_cover_letter_format_case_present gagal; PARITY_ORACLE tailoring.md di-update (konten berubah, bukan perilaku docx.render) — NEXT: Phase H
+- 2026-09-22 Phase H done — 722 lulus, versi 0.3.0 (RED: '0.2.0' != '0.3.0'), real run City of Hope: technical/mid/other, 2 temuan heading diperbaiki, CV+letter ok: true, cv.pdf 2 hlm, xberg urut — NEXT: plan-verifier + gaspol-verify
