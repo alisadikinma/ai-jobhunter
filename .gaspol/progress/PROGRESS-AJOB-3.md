@@ -8,8 +8,8 @@
 
 | Gate | Result |
 |---|---|
-| Git clean | belum dijalankan — isi saat eksekusi |
-| Baseline suite | saat plan ditulis: `python3 -m unittest discover -s tests -t .`, 553 lulus / 0 gagal (`7d2d291`) |
+| Git clean | PASS — baseline `4a8a14c`, porcelain kosong |
+| Baseline suite | PASS pre-flight 2026-09-22 (553 lulus). Saat plan ditulis: `python3 -m unittest discover -s tests -t .`, 553 lulus / 0 gagal (`7d2d291`) |
 | detect-stack | nol baris (tidak ada penanda stack) — perintah dari CLAUDE.md: static `python3 -m compileall -q scripts tests`, unit `python3 -m unittest discover -s tests -t .` |
 
 ## Keputusan saat jalan
@@ -21,19 +21,19 @@
 
 ## Checklist
 
-### [ ] Phase A: keep the real CV out of git
-- [ ] Write failing test for `.gitignore` listing `data/` as an ignored path (`TestGitignore.test_data_dir_is_ignored`, reads `.gitignore` lines, asserts `"data/"` present). Expected error: `AssertionError: 'data/' not found`
-- [ ] Run `python3 -m unittest tests.test_manifest -k data_dir`, confirm it fails for that reason
-- [ ] Add `data/` to `.gitignore` under the existing "runtime user data" comment
-- [ ] Mutation: remove the line, see the test fail, restore
-- [ ] Run full suite, confirm green
-- [ ] Commit: `chore(AJOB-3): ignore data/ — it holds a real candidate's CV`
+### [x] Phase A: keep the real CV out of git
+- [x] Write failing test for `.gitignore` listing `data/` as an ignored path (`TestGitignore.test_data_dir_is_ignored`, reads `.gitignore` lines, asserts `"data/"` present). Expected error: `AssertionError: 'data/' not found`
+- [x] Run `python3 -m unittest tests.test_manifest -k data_dir`, confirm it fails for that reason
+- [x] Add `data/` to `.gitignore` under the existing "runtime user data" comment
+- [x] Mutation: remove the line, see the test fail, restore
+- [x] Run full suite, confirm green
+- [x] Commit: `chore(AJOB-3): ignore data/ — it holds a real candidate's CV`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] `git check-ignore data/master-cv.pdf` prints a match (run in the main checkout)
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] `git check-ignore data/master-cv.pdf` prints a match — di worktree `.gitignore:6:data/`; di main berlaku setelah merge
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase B: extract `docx.prepare()` without changing docx output
 - [ ] Write failing test for `docx.prepare("# T\n\nBody\n", "x.md")` returning `([{"kind":"heading","level":1,"text":"T"},{"kind":"paragraph","text":"Body"}], [])`. Expected error: `AttributeError: module 'docx' has no attribute 'prepare'`
@@ -166,6 +166,7 @@
 
 | Phase | Status | Commit |
 |---|---|---|
+| A — ignore data/ | DONE | `724f41c` |
 
 ## Utang terbuka
 
@@ -175,3 +176,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
+- 2026-09-22 Phase A done — suite 554 lulus, mutasi (hapus baris) → test gagal — NEXT: Phase B
