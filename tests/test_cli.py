@@ -959,6 +959,25 @@ class TestTemplateCheckLetter(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(json.loads(err)["error"], "TemplateError")
 
+    # gaspol-review (AJOB-4 finish): a flag that belongs to the other mode
+    # was silently ignored, so a caller believed it had been checked.
+    def test_letter_flags_with_cv_are_refused(self):
+        cv = self.write("# X\n", name="cv.md")
+        for extra in (["--company", "Acme"], ["--role", "Engineer"], ["--level", "mid"]):
+            code, _parsed, err, _text = run(
+                ["template-check", "--cv", cv, "--template", "technical"] + extra
+            )
+            self.assertEqual(code, 1, extra)
+            self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_template_flag_with_letter_is_refused(self):
+        letter = self.write(self._valid_letter_body(), name="cover-letter.md")
+        code, _parsed, err, _text = run(
+            ["template-check", "--letter", letter, "--level", "mid", "--template", "technical"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
     def test_neither_cv_nor_letter_flag_is_refused(self):
         code, _parsed, err, _text = run(["template-check"])
         self.assertEqual(code, 1)

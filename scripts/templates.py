@@ -361,6 +361,17 @@ _WEAK_OPENING_RE = re.compile(r"(?:^|[.!?]\s+)I am writing\b", re.IGNORECASE)
 _WEAK_CLOSE_RE = re.compile(r"hope to hear from you", re.IGNORECASE)
 _TOKEN_RE = re.compile(r"\S+")
 
+
+def _names(text, name):
+    """Whether `text` names `name` as a whole phrase, ignoring case.
+
+    A substring test counted "metadata" as naming "Meta" and "harmony" as
+    naming "Arm" — a false pass (gaspol-review, AJOB-4). Lookarounds rather
+    than `\\b`, so a name ending in punctuation ("C++") still matches.
+    """
+    pattern = r"(?<!\w)" + re.escape(name.strip()) + r"(?!\w)"
+    return re.search(pattern, text, re.IGNORECASE) is not None
+
 # Private, like `_CV_DIR`, so a test can point it at a scratch file
 # (`unittest.mock.patch`) to exercise error paths without a broken file
 # sitting in the real `templates/cover-letter.md`.
@@ -530,7 +541,9 @@ def check_letter(markdown, level, company=None, role=None):
     search_from = salutation_index + 1 if salutation_index is not None else 0
     sign_off_index = None  # 0-based
     for index in range(search_from, len(lines)):
-        if lines[index].strip() in sign_offs:
+        # Case-insensitive: "Best Regards," is the same sign-off, and a miss
+        # here suppresses every body check until it is "fixed".
+        if lines[index].strip().lower() in {s.lower() for s in sign_offs}:
             sign_off_index = index
             break
     if sign_off_index is None:
@@ -576,7 +589,7 @@ def check_letter(markdown, level, company=None, role=None):
     if body_blocks:
         p1_line, p1_lines = body_blocks[0]
         p1_text = " ".join(p1_lines)
-        if company and company.lower() not in p1_text.lower():
+        if company and not _names(p1_text, company):
             findings.append(
                 _finding(
                     "opening-company",
@@ -584,7 +597,7 @@ def check_letter(markdown, level, company=None, role=None):
                     "opening paragraph does not name the company (%r)" % company,
                 )
             )
-        if role and role.lower() not in p1_text.lower():
+        if role and not _names(p1_text, role):
             findings.append(
                 _finding(
                     "opening-role",

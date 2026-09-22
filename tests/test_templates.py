@@ -700,6 +700,25 @@ class TestCheckLetterOpeningCompanyRole(unittest.TestCase):
         findings = templates.check_letter(markdown, "entry", role="Backend Engineer")
         self.assertNotIn("opening-role", [f["rule"] for f in findings])
 
+    # gaspol-review (AJOB-4 finish): a plain substring match let "metadata"
+    # count as naming "Meta" — a false pass.
+    def test_company_inside_another_word_does_not_count(self):
+        for company, lead in (("Meta", "My metadata work fits."), ("Arm", "I bring harmony.")):
+            markdown = _letter([50, 60, 60, 55], lead_texts={0: lead})
+            findings = templates.check_letter(markdown, "entry", company=company)
+            self.assertIn("opening-company", [f["rule"] for f in findings], company)
+
+    def test_company_with_punctuation_is_matched_as_a_whole(self):
+        markdown = _letter(
+            [50, 60, 60, 55], lead_texts={0: "At City of Hope, the AI team."}
+        )
+        findings = templates.check_letter(markdown, "entry", company="city of hope")
+        self.assertNotIn("opening-company", [f["rule"] for f in findings])
+
+    def test_sign_off_case_does_not_matter(self):
+        markdown = _letter_total_words(225, sign_off="Best Regards,")
+        self.assertEqual(templates.check_letter(markdown, "entry"), [])
+
     def test_role_missing_from_p1_is_flagged(self):
         markdown = _letter_total_words(225)
         findings = templates.check_letter(markdown, "entry", role="Backend Engineer")

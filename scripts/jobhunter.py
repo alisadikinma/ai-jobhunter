@@ -303,6 +303,15 @@ def cmd_template_check(args):
     if not have_cv and not have_letter:
         raise templates.TemplateError("pass one of --cv or --letter")
 
+    # A flag from the other mode is refused, not ignored: ignoring it let a
+    # caller believe `--company` was checked on a CV (gaspol-review, AJOB-4).
+    if have_cv:
+        for flag, value in (("--level", args.level), ("--company", args.company), ("--role", args.role)):
+            if value:
+                raise templates.TemplateError("%s applies to --letter, not --cv" % flag)
+    elif args.template:
+        raise templates.TemplateError("--template applies to --cv, not --letter")
+
     if have_cv:
         if not args.template:
             raise templates.TemplateError("--cv requires --template")
