@@ -151,9 +151,19 @@ class TestNoCandidateSpecificContentBeyondSkills(unittest.TestCase):
 
     def test_no_candidate_specific_strings_outside_skills(self):
         offenders = []
+        scanned = {}
+
+        def _raise(error):
+            raise error
+
         for rel_root in _EXTRA_SCAN_ROOTS:
             root_dir = os.path.join(REPO_ROOT, rel_root)
-            for root, dirs, files in os.walk(root_dir):
+            # `os.walk` on a missing directory yields nothing and the guard
+            # reports clean on a tree it never saw — the AJOB-1 fail-open.
+            # Hence the explicit isdir, `onerror` that raises, and a count.
+            self.assertTrue(os.path.isdir(root_dir), f"scan root missing: {rel_root}")
+            scanned[rel_root] = 0
+            for root, dirs, files in os.walk(root_dir, onerror=_raise):
                 dirs[:] = [d for d in dirs if d != "__pycache__"]
                 for fname in files:
                     path = os.path.join(root, fname)
@@ -164,8 +174,11 @@ class TestNoCandidateSpecificContentBeyondSkills(unittest.TestCase):
                             text = f.read()
                     except (UnicodeDecodeError, OSError):
                         continue  # a binary fixture (e.g. the sample .docx)
+                    scanned[rel_root] += 1
                     if _CANDIDATE_SPECIFIC_RE.search(text):
                         offenders.append(os.path.relpath(path, REPO_ROOT))
+        for rel_root, count in scanned.items():
+            self.assertGreater(count, 0, f"guard read no file under {rel_root}")
         self.assertEqual(
             offenders, [], f"candidate-specific strings found in: {offenders}"
         )
@@ -229,7 +242,12 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         be back, in words a reader would actually recognise."""
         text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
         self.assertIn("quantified metric", text)
-        self.assertIn("table", text)
+        # A bare "table" matched "stable across re-runs" and passed with the
+        # whole flattening paragraph deleted. Whitespace is collapsed first
+        # because the prose wraps mid-phrase.
+        prose = " ".join(text.split())
+        self.assertIn("a table becomes one bullet per row", prose)
+        self.assertIn("every cell keeping its own header", prose)
 
     def test_tailor_no_longer_renders_docx(self):
         """AJOB-3 reverses AJOB-2: tailor ships PDF only. `render-docx` stays
