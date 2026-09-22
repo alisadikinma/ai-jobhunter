@@ -37,7 +37,7 @@ _CANDIDATE_SPECIFIC_RE = re.compile(
 # hold the pattern (in the comment above and in the regex literal itself) to
 # define it, and neither occurrence is a leak.
 _MANIFEST_TEST_PATH = os.path.abspath(__file__)
-_EXTRA_SCAN_ROOTS = ("tests", "scripts", os.path.join("docs", "evals"))
+_EXTRA_SCAN_ROOTS = ("tests", "scripts", os.path.join("docs", "evals"), "templates")
 
 _EXPECTED_SKILLS = frozenset(
     {"profile", "discover", "score", "promote", "tailor", "outreach"}
