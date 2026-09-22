@@ -353,7 +353,11 @@ _SALUTATION_RE = re.compile(r"^Dear\s")
 _GENERIC_SALUTATION_RE = re.compile(
     r"to whom it may concern|dear sir or madam", re.IGNORECASE
 )
-_WEAK_OPENING_RE = re.compile(r"^I am writing\b", re.IGNORECASE)
+# Anchored at the start of any SENTENCE, not just the paragraph: spec §6 says
+# no body sentence starts with it, and "Hello there. I am writing to apply"
+# passed the paragraph-only check (plan-verifier, AJOB-4). "The service I am
+# writing about" stays clean — the phrase must follow a sentence boundary.
+_WEAK_OPENING_RE = re.compile(r"(?:^|[.!?]\s+)I am writing\b", re.IGNORECASE)
 _WEAK_CLOSE_RE = re.compile(r"hope to hear from you", re.IGNORECASE)
 _TOKEN_RE = re.compile(r"\S+")
 
@@ -591,9 +595,9 @@ def check_letter(markdown, level, company=None, role=None):
 
     for block_line, block_lines in body_blocks:
         block_text = " ".join(block_lines).strip()
-        if _WEAK_OPENING_RE.match(block_text):
+        if _WEAK_OPENING_RE.search(block_text):
             findings.append(
-                _finding("weak-opening", block_line, "paragraph opens with 'I am writing'")
+                _finding("weak-opening", block_line, "a sentence opens with 'I am writing'")
             )
         if _WEAK_CLOSE_RE.search(block_text):
             findings.append(

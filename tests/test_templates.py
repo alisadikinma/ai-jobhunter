@@ -430,6 +430,23 @@ class TestLetterLevels(unittest.TestCase):
             {"entry": (200, 250), "mid": (250, 400), "executive": (400, 450)},
         )
 
+    # Each refusal of the letter template's own comment block, so a broken
+    # shipped file fails loudly instead of checking letters against nothing.
+    def test_a_comment_without_levels_is_refused(self):
+        text = "<!-- gaspol-jobhunter cover-letter\nsign-offs: Sincerely,\n-->\n# L\n"
+        with self.assertRaisesRegex(templates.TemplateError, "no 'levels:' entries"):
+            templates._parse_letter_template_text(text, "t.md")
+
+    def test_a_comment_without_sign_offs_is_refused(self):
+        text = "<!-- gaspol-jobhunter cover-letter\nlevels:\n- mid 250-400\n-->\n# L\n"
+        with self.assertRaisesRegex(templates.TemplateError, "missing 'sign-offs:'"):
+            templates._parse_letter_template_text(text, "t.md")
+
+    def test_a_never_closed_comment_is_refused(self):
+        text = "<!-- gaspol-jobhunter cover-letter\nlevels:\n- mid 250-400\n"
+        with self.assertRaisesRegex(templates.TemplateError, "never closed"):
+            templates._parse_letter_template_text(text, "t.md")
+
 
 class TestLetterTemplateFileParsesAndRenders(unittest.TestCase):
     """The shipped file itself must parse (via `letter_levels`, already
@@ -681,6 +698,27 @@ class TestCheckLetterWeakLanguage(unittest.TestCase):
         )
         findings = templates.check_letter(markdown, "entry")
         self.assertIn("weak-opening", [f["rule"] for f in findings])
+
+    # Spec §6 says no body SENTENCE starts with it; checking only the start
+    # of each paragraph let "Hello there. I am writing to apply" through
+    # (plan-verifier round 1).
+    def test_weak_opening_mid_paragraph_sentence_is_flagged(self):
+        for lead in (
+            "Hello there. I am writing to apply for this role.",
+            "Is this the team? I am writing to apply.",
+            "Great news! i am writing to apply.",
+        ):
+            markdown = _letter([50, 60, 60, 55], lead_texts={1: lead})
+            findings = templates.check_letter(markdown, "entry")
+            self.assertIn("weak-opening", [f["rule"] for f in findings], lead)
+
+    def test_i_am_writing_inside_a_sentence_is_not_flagged(self):
+        markdown = _letter(
+            [50, 60, 60, 55],
+            lead_texts={1: "The service I am writing about cut latency by half."},
+        )
+        findings = templates.check_letter(markdown, "entry")
+        self.assertNotIn("weak-opening", [f["rule"] for f in findings])
 
     def test_weak_close_is_flagged(self):
         markdown = _letter(
