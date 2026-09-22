@@ -160,7 +160,7 @@
 | E — CLI template-check | DONE | `7441e67` |
 | F — tailor flow | DONE | `45fb17a` |
 | G — research + evals | DONE | `50bdafc` |
-| H — docs, 0.3.0, real run | DONE | (this commit) |
+| H — docs, 0.3.0, real run | DONE | `d115076` |
 
 ## Utang terbuka
 
@@ -183,3 +183,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase G done — 722 lulus, mutasi (ganti nama heading case 11) → test_cover_letter_format_case_present gagal; PARITY_ORACLE tailoring.md di-update (konten berubah, bukan perilaku docx.render) — NEXT: Phase H
 - 2026-09-22 Phase H done — 722 lulus, versi 0.3.0 (RED: '0.2.0' != '0.3.0'), real run City of Hope: technical/mid/other, 2 temuan heading diperbaiki, CV+letter ok: true, cv.pdf 2 hlm, xberg urut — NEXT: plan-verifier + gaspol-verify
 - 2026-09-22 plan-verifier round 1 BLOCKING → semua 7 butir diperbaiki (3 commit), 734 lulus — NEXT: plan-verifier round 2
+- 2026-09-22 plan-verifier round 2 CLEAN — 734 lulus, real run ok: true — NEXT: gaspol-finish (merge atas keputusan Ali)
