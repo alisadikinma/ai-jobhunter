@@ -14,7 +14,7 @@
 
 ## Keputusan saat jalan
 
-- 2026-09-22, Ali (gate E2E): lanjut walau JD hanya untuk AS; 13 match disetujui; pasangan pendidikan BINUS=BCS, PCR=Diploma benar; 7 partial tetap partial; celah dikonfirmasi: #3 Microsoft, #11 S2, #12/#14/#15/#20/#26 kesehatan; #27 diisi bukti user (plugin Claude Code di gaspol-one).
+- 2026-09-22, Ali (gate E2E): lanjut walau JD membatasi lokasi; semua baris peta disetujui satu per satu (match / partial / gap), satu bukti ditambahkan user. Rincian ada di `.jobhunter/` (gitignored), sengaja tidak dicatat di repo.
 - 2026-09-22, Claude: `Kind` di peta hanya `required`/`preferred` (kontrak) — tugas & skill → `required`, software → `preferred`.
 - 2026-09-22, Claude: bug ditemukan saat E2E — PDF (dan DOCX sejak AJOB-2) keluar mode 0600 karena `mkstemp`; diperbaiki dengan `docx.output_mode()` (TDD, 4 test, mutasi ditangkap).
 
