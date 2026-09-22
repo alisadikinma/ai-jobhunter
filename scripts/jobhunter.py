@@ -38,6 +38,7 @@ import config  # noqa: E402
 import docx  # noqa: E402
 import jobq  # noqa: E402
 import keywords  # noqa: E402
+import pdf  # noqa: E402
 import promote  # noqa: E402
 
 _NORMALIZERS = {
@@ -234,6 +235,53 @@ def cmd_render_docx(args):
     )
 
 
+def cmd_render_pdf(args):
+    """Render a tailored CV or cover letter to a hand-written PDF 1.4.
+
+    Mirrors `cmd_render_docx` exactly, refusal for refusal: same suffix
+    check, same same-file check, same two-channel notes. Only the renderer
+    (`pdf.render` instead of `docx.render`) and the file extension differ —
+    `pdf.render` itself shares the unverified-claim gate with `docx.render`
+    through `docx.prepare`, so a candidate's CV is refused identically by
+    both output formats.
+    """
+    if not args.out.lower().endswith(".pdf"):
+        # Same reasoning as render-docx: a typo in --out overwrites whatever
+        # it names, and this command only ever produces one kind of file.
+        raise docx.DestinationError(
+            "refusing to write to %s: --out must end in .pdf, and this "
+            "command writes nothing else." % args.out
+        )
+
+    if _same_file(args.input_path, args.out):
+        raise docx.DestinationError(
+            "refusing to write the .pdf over its own source markdown (%s). "
+            "Give --out a different path." % args.input_path
+        )
+
+    with open(args.input_path, "r", encoding="utf-8") as f:
+        markdown = f.read()
+
+    result = pdf.render(
+        markdown,
+        args.out,
+        allow_unverified=args.allow_unverified,
+        source=os.path.basename(args.input_path),
+        page=args.page,
+    )
+    for note in result["notes"]:
+        print("render-pdf: %s" % note, file=sys.stderr)
+    _emit(
+        {
+            "out": result["out"],
+            "pages": result["pages"],
+            "blocks": result["blocks"],
+            "notes": result["notes"],
+            "bytes": result["bytes"],
+        }
+    )
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -382,6 +430,34 @@ def build_parser():
         ),
     )
     p.set_defaults(func=cmd_render_docx)
+
+    p = sub.add_parser(
+        "render-pdf", help="Render tailored markdown to a hand-written PDF 1.4"
+    )
+    p.add_argument(
+        "--in",
+        dest="input_path",
+        required=True,
+        help="path to the tailored markdown, e.g. .jobhunter/applications/<slug>/cv.md",
+    )
+    p.add_argument("--out", required=True, help="path to write the .pdf to")
+    p.add_argument(
+        "--page",
+        choices=["letter", "a4"],
+        default="letter",
+        help="page size",
+    )
+    p.add_argument(
+        "--allow-unverified",
+        action="store_true",
+        help=(
+            "render even though the markdown still carries [verifikasi] or "
+            "[Assumption]. This is an opt-in escape from a safety gate, decided "
+            "per run by the person whose name is on the CV — never a config "
+            "default and never the skill's choice."
+        ),
+    )
+    p.set_defaults(func=cmd_render_pdf)
 
     return parser
 
