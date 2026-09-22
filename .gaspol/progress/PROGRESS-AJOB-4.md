@@ -112,19 +112,20 @@
 - [x] no candidate-specific strings under `skills/`
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase G: research summary and evals
-- [ ] Write failing test for the tailoring eval carrying cases titled `template choice` and `cover-letter format` (in `tests/test_evals.py`, same pattern as `TestTailoringNewJudgementCases`). Expected error: `AssertionError`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Write the curated research summary from the two raw files: each format rule → the source(s) that support it → evidence strength (field experiment / large observational / survey / advice), including the disagreements (metrics: Zety 4% vs guides; motivation 63% vs 9%; keywords ATS 70% vs humans 2%) and the arXiv tapering result. Cite source URLs from the raw files' source lists; invent nothing
-- [ ] Add eval cases 10 (template choice: a leadership JD → `leadership` proposed with reason; an engineering JD → `technical`; the user can switch) and 11 (cover-letter format: `template-check --letter` returns `ok: true`, P1 names role and company, one SCAR story from one approved row, no gap row, no invented personal detail) using committed fixtures only
-- [ ] Mutation: rename case 11 heading → test fails; restore
-- [ ] Commit: `docs(AJOB-4): research summary and tailoring evals for templates`
+### [x] Phase G: research summary and evals
+- [x] Write failing test for the tailoring eval carrying cases titled `template choice` and `cover-letter format` (in `tests/test_evals.py`, same pattern as `TestTailoringNewJudgementCases`). Expected error: `AssertionError`
+- [x] Run it, confirm it fails for that reason — confirmed: `AssertionError: [] is not true` for both new cases
+- [x] Wrote the curated research summary `docs/research/2026-09-22-cover-letter-callback.md` from the two raw files: every `templates/cover-letter.md` rule AND every CV-template universal rule mapped to source(s) → evidence strength (field experiment / large observational / survey / advice), including the disagreements (Zety 4% vs guides; motivation 63% vs 9%; keywords ATS 70% vs humans 2%), the arXiv tapering result, and a section stating plainly which rules rest on survey/advice alone. Every number traced to one of the two raw files; source URLs copied from their `## Sources` lists
+- [x] Added eval cases 10 (template choice: fixture 06 → `leadership` proposed with reason; fixture 07 → `technical`; user can switch, `template-check --cv --template` must return `ok: true` for the confirmed name) and 11 (cover-letter format: fixture 04, `template-check --letter` `ok: true`, P1 names role and company, one SCAR story from one approved row, no gap row, no invented personal detail when none given) using only already-committed fixtures
+- [x] Mutation: renamed case 11 heading → `test_cover_letter_format_case_present` failed (`AssertionError: [] is not true`); restored
+- [x] Side effect handled: editing `docs/evals/tailoring.md` changed its rendered docx byte content, so `tests/test_docx.py`'s `PARITY_ORACLE` entry for `"tailoring.md"` needed its recorded sha256/notes updated to the newly-measured values (`docx.render`'s behaviour itself is unchanged — verified by re-running Phase A's own oracle cases, all still pass unchanged)
+- [x] Commit: `docs(AJOB-4): research summary and tailoring evals for templates` (`50bdafc`)
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] every rule in `templates/cover-letter.md` traces to a cited source in the summary
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 722 lulus
+- [x] every rule in `templates/cover-letter.md` traces to a cited source in the summary
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase H: docs sync, version, real run
 - [ ] Write failing test for plugin version `0.3.0` (update the pin in `tests/test_manifest.py`). Expected error: `AssertionError: '0.2.0' != '0.3.0'`
@@ -150,6 +151,7 @@
 | D — cover-letter format + check_letter | DONE | `d5d1e0c` |
 | E — CLI template-check | DONE | `7441e67` |
 | F — tailor flow | DONE | `45fb17a` |
+| G — research + evals | DONE | `50bdafc` |
 
 ## Utang terbuka
 
@@ -165,3 +167,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase D done — 706 lulus, mutasi (band exclusive di top) → 3 test band-edge gagal — NEXT: Phase E
 - 2026-09-22 Phase E done — 718 lulus, mutasi (hapus cek both-flags) → test_both_cv_and_letter_flags_is_refused gagal — NEXT: Phase F
 - 2026-09-22 Phase F done — 720 lulus, mutasi (--level → --lvl di doc) → test_template_check_and_all_six_of_its_flags_are_collected gagal — NEXT: Phase G
+- 2026-09-22 Phase G done — 722 lulus, mutasi (ganti nama heading case 11) → test_cover_letter_format_case_present gagal; PARITY_ORACLE tailoring.md di-update (konten berubah, bukan perilaku docx.render) — NEXT: Phase H
