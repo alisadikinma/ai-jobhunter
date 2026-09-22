@@ -91,6 +91,38 @@ class TestEachEvalNamesAtLeastFiveCasesWithPassCriteria(unittest.TestCase):
         self._assert_min_cases_with_pass_criteria(PROFILE_MD)
 
 
+class TestTailoringNewJudgementCases(unittest.TestCase):
+    """AJOB-3 Phase H: tailoring.md must carry a case for each of the three
+    new judgements `skills/tailor/SKILL.md` now makes — a pasted JD, the
+    blocking agreement gate, and a `gap` row never reaching rendered output.
+    """
+
+    def setUp(self):
+        self.text = _read(TAILORING_MD)
+        self.cases = _cases(self.text)
+
+    def _case_headings_containing(self, phrase):
+        return [h for h, _b in self.cases if phrase.lower() in h.lower()]
+
+    def test_pasted_jd_case_present(self):
+        self.assertTrue(
+            self._case_headings_containing("pasted JD"),
+            "no case heading in tailoring.md contains 'pasted JD'",
+        )
+
+    def test_agreement_gate_case_present(self):
+        self.assertTrue(
+            self._case_headings_containing("agreement gate"),
+            "no case heading in tailoring.md contains 'agreement gate'",
+        )
+
+    def test_gap_never_rendered_case_present(self):
+        self.assertTrue(
+            self._case_headings_containing("gap never rendered"),
+            "no case heading in tailoring.md contains 'gap never rendered'",
+        )
+
+
 class TestScoringRegressionCases(unittest.TestCase):
     """The plan's verification checklist names these regression cases
     explicitly; a scoring.md missing any of them is not the eval Phase G
