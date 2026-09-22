@@ -38,7 +38,7 @@ Python 3 **standard library only** — no pip, no pytest, no PyYAML. Tests are
 `unittest`; config is TOML via `tomllib`.
 
 ```bash
-python3 -m unittest discover -s tests -t .   # unit  (744 tests)
+python3 -m unittest discover -s tests -t .   # unit  (857 tests)
 python3 -m compileall -q scripts tests       # static
 ```
 
@@ -65,10 +65,13 @@ prints the report. Logging goes to stderr. A refusal is
 
 | Path | What it holds |
 | --- | --- |
-| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, twelve subcommands |
+| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, sixteen subcommands |
 | `scripts/config.py` | TOML loader + `resolve_profile_sources`; owns the allow-list |
 | `scripts/jobq.py` | local JSONL queue — `load`, `append_rows`, `row_key`, `iter_unscored`, `iter_unpromoted`, `update_rows` |
 | `scripts/ats.py` | `fetch` (the only network call, GET) + `normalize_{greenhouse,lever,ashby}` |
+| `scripts/envfile.py` | `.env`/process-env key reader — `read_key`, `key_status`; env always wins over the file |
+| `scripts/apify.py` | LinkedIn through Apify's bebity actor — `fetch_linkedin`, `normalize_linkedin`, `build_actor_input`, `choose_window`, `write_state`, `remaining_credit_usd` |
+| `scripts/firecrawl.py` | board search/scrape over Firecrawl REST v2 — `search`, `scrape`, `remaining_credits`, `estimate`, `Budget` (this run's own credit ceiling) |
 | `scripts/keywords.py` | JD-vs-CV overlap report. **Not an ATS score** |
 | `scripts/promote.py` | jobsync payload building and request budget. No network imports |
 | `scripts/docx.py` | markdown → ATS-readable `.docx`. Hand-written OOXML, five parts, `zipfile` only. Owns `prepare()`, the marker gate both renderers share |
@@ -104,7 +107,10 @@ one job costs 2 requests.
 **Error classes** (SKILL.md prose quotes these verbatim — renaming one makes six
 files lie): `config.{ConfigError, ConfigMissingError, ProjectSourceError,
 PrecedenceError, BudgetTypeError, SalaryTypeError}`, `ats.{AtsError,
-MissingFieldError}`, `keywords.KeywordsError`, `docx.{DocxError, UnverifiedClaimError,
+MissingFieldError}`, `apify.{ApifyError, ApifyTokenMissingError,
+ApifyCreditError}`, `firecrawl.{FirecrawlError, FirecrawlKeyMissingError,
+FirecrawlCreditError, FirecrawlBudgetError}`, `keywords.KeywordsError`,
+`docx.{DocxError, UnverifiedClaimError,
 EmptyDocumentError, DestinationError}`, `pdf.{PdfError,
 UnsupportedCharacterError}`, `templates.TemplateError`, `promote.{PromoteError,
 ScoreMissingError, AuthorizationClosedError, TitleOnlyError, WorkplaceTypeError,
