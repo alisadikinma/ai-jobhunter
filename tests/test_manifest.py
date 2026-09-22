@@ -176,6 +176,16 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         self.assertIn("render-pdf", text)
         self.assertIn("no cv.md or cover-letter.md is written until", text)
 
+    def test_tailor_states_the_quantified_metric_preference_and_table_flattening(self):
+        """AJOB-3 verifier round 1: the AJOB-2 tailor SKILL.md had two rules
+        this rewrite dropped — "prefer bullets carrying a quantified metric"
+        (a selection rule) and the explanation of what `render-pdf` flattens
+        (tables to one bullet per row, keeping each cell's header). Both must
+        be back, in words a reader would actually recognise."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        self.assertIn("quantified metric", text)
+        self.assertIn("table", text)
+
     def test_tailor_no_longer_renders_docx(self):
         """AJOB-3 reverses AJOB-2: tailor ships PDF only. `render-docx` stays
         in the CLI (and in its own tests), but tailor's SKILL.md must not

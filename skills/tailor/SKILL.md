@@ -43,8 +43,9 @@ document.
 candidate has ever claimed, ordered for nobody in particular. **It is never
 sent as-is** — not as the CV, not embedded unedited into the cover letter.
 Every run of this skill re-selects, reorders and rewords evidence from
-`master-cv.md` specifically for the JD it just read. There is no output path
-that copies `master-cv.md` through unchanged.
+`master-cv.md` specifically for the JD it just read; it does not invent new
+bullets. There is no output path that copies `master-cv.md` through
+unchanged.
 
 ## Location check
 
@@ -122,7 +123,8 @@ absent from `master-cv.md`; a claim `master-cv.md` carries as
 `verified: false` is never rendered into any outward document — not
 `master-cv.md`, not a tailored CV, not a cover letter. This suppression rule
 is not specific to the master CV; it applies to every outward document this
-plugin writes.
+plugin writes. Prefer bullets carrying a quantified metric when several are
+otherwise equally relevant.
 
 Choose the role variant (from `.jobhunter/profile/variants.toml`) whose
 prose description and example JDs best match this specific posting, the
@@ -204,16 +206,22 @@ Run it once per document — the cover letter is a second run with
 (default) or `a4` — e.g. `--page a4` for a JD restricted to one country
 whose norm is A4.
 
-The PDF is deliberately plain: single column, real selectable text, no
-tables, no images, Helvetica throughout, `WinAnsiEncoding` only. Every one
-of those is a construct a resume parser either drops or scrambles, and a CV
-that looks beautiful and parses into empty fields has failed at its only
-job. A character outside `WinAnsiEncoding` — most CJK text, emoji, an arrow
-glyph like `→` — is refused rather than dropped or replaced with `?`; fix
-the text instead (`→` becomes `-`), never pass a flag to force it through.
-Each note is reported on stderr as `render-pdf: line N: ...` and in the
-`notes` array on stdout. Report what changed — do not re-render to try to
-avoid it.
+The PDF is deliberately plain: single column, real selectable text, Helvetica
+throughout, `WinAnsiEncoding` only. `render-pdf` shares its markdown gate
+(`docx.prepare`) with the plugin's `.docx` renderer, so tables, images, links
+and nested bullets in the markdown are flattened automatically before
+rendering, the same way they are for `.docx`. A table becomes one bullet per
+row, every cell keeping its own header: `| Skill | Years |` with `| Python | 8 |` reads
+`Skill: Python — Years: 8`, so a parser never meets a number with nothing
+saying what it measures. Images and links are flattened to plain text, and a
+nested bullet is flattened to one level. Every one of those is a construct a
+resume parser either drops or scrambles, and a CV that looks beautiful and
+parses into empty fields has failed at its only job. A character outside
+`WinAnsiEncoding` — most CJK text, emoji, an arrow glyph like `→` — is
+refused rather than dropped or replaced with `?`; fix the text instead
+(`→` becomes `-`), never pass a flag to force it through. Each change is
+reported on stderr as `render-pdf: line N: ...` and in the `notes` array on
+stdout. Report what changed — do not re-render to try to avoid it.
 
 ### When `render-pdf` refuses
 
