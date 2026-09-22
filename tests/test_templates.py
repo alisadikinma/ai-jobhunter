@@ -448,6 +448,28 @@ class TestLetterLevels(unittest.TestCase):
             templates._parse_letter_template_text(text, "t.md")
 
 
+class TestTemplatesCarryTheUniversalRules(unittest.TestCase):
+    """Spec §3 and §4 rules the guidance text must state; plan-verifier
+    round 1 found the pronoun and header/footer rules in no CV template and
+    the two letter prohibitions nowhere in the letter format."""
+
+    def _prose(self, *parts):
+        path = os.path.join(REPO_ROOT, "templates", *parts)
+        with open(path, "r", encoding="utf-8") as handle:
+            return " ".join(handle.read().lower().split())
+
+    def test_every_cv_template_states_pronoun_and_contact_rules(self):
+        for name in templates.list_cv_templates():
+            prose = self._prose("cv", name + ".md")
+            for fragment in ("no first-person pronouns", "header or footer"):
+                self.assertIn(fragment, prose, "%s.md lacks %r" % (name, fragment))
+
+    def test_the_letter_format_states_its_two_prohibitions(self):
+        prose = self._prose("cover-letter.md")
+        self.assertIn("never restate the cv bullet list", prose)
+        self.assertIn("what the job would do for you", prose)
+
+
 class TestLetterTemplateFileParsesAndRenders(unittest.TestCase):
     """The shipped file itself must parse (via `letter_levels`, already
     proven above) and render through `pdf.render` with no refusal — the

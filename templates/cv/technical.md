@@ -15,6 +15,8 @@ sections:
 
 <City, Country> · <email> · <phone> · <linkedin url>
 
+<The contact line stays plain text directly under the name — never in a page header or footer, where many parsers read nothing.>
+
 ## Professional Summary
 
 <2 to 4 sentences: target role, years of experience, core technical stack, and one quantified achievement. Work authorization is stated only if the user has explicitly provided it — never invent or assume it.>
@@ -30,7 +32,7 @@ sections:
 
 ## Work Experience
 
-<Reverse-chronological entries. One page under about 10 years of experience, two pages above it. Dates use "Mon YYYY" and the exact word "Present" for a current role, never "Current" or "Ongoing".>
+<Reverse-chronological entries. One page under about 10 years of experience, two pages above it. Dates use "Mon YYYY" and the exact word "Present" for a current role, never "Current" or "Ongoing". Bullets carry no first-person pronouns — no "I", "my", "we" or "our".>
 
 ### <Job title> — <Employer>
 

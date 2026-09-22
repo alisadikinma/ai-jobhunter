@@ -256,14 +256,18 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         word "enterprise" — not a bare, unconditional call."""
         text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
         self.assertIn("render-docx", text)
-        paragraphs = text.split("\n\n")
-        matches = [
-            p for p in paragraphs if "render-docx" in p and "enterprise" in p
+        # EVERY paragraph naming it, not just one: "some paragraph pairs them"
+        # stayed green with an unconditional render-docx paragraph added
+        # beside the conditional one (plan-verifier round 1).
+        unconditional = [
+            p
+            for p in text.split("\n\n")
+            if "render-docx" in p and "enterprise" not in p
         ]
-        self.assertTrue(
-            matches,
-            "no paragraph in tailor/SKILL.md pairs 'render-docx' with "
-            "'enterprise'",
+        self.assertEqual(
+            unconditional,
+            [],
+            "tailor/SKILL.md names 'render-docx' without 'enterprise'",
         )
 
     def test_tailor_states_templates_and_letter_format(self):
@@ -280,7 +284,10 @@ class TestNamedHardRulesInProse(unittest.TestCase):
             "myworkdayjobs.com",
             "taleo.net",
             "icims.com",
-            "never guess",
+            # The portal sentence itself: a bare "never guess" also matched
+            # the AJOB-3 "never guesses a company or title" line, so deleting
+            # the portal rule left this test green.
+            "never guess one from the company name",
             "letter-level:",
             "template:",
             "portal:",
@@ -288,6 +295,33 @@ class TestNamedHardRulesInProse(unittest.TestCase):
             "render-docx",
         ):
             self.assertIn(fragment, prose, f"tailor/SKILL.md is missing {fragment!r}")
+
+    def test_tailor_states_the_universal_cv_and_letter_rules(self):
+        """Spec §3 puts the universal CV rules "into every template and into
+        `tailor`", and §4 the two letter prohibitions; plan-verifier round 1
+        found tailor carrying none of them."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        prose = " ".join(text.split())
+        for fragment in (
+            "directly under the name",
+            "header or footer",
+            "mon yyyy – mon yyyy",
+            "`present`",
+            "action verb",
+            "no first-person pronouns",
+            "1 page under about 10 years",
+            "work authorization is stated only if the user supplies it",
+            "never restates the cv bullet list",
+            "what the job would do for the candidate",
+        ):
+            self.assertIn(fragment, prose, f"tailor/SKILL.md is missing {fragment!r}")
+
+    def test_tailor_section_order_comes_from_the_template_not_the_variant(self):
+        """The AJOB-3 line "let that variant's framing ... shape the summary
+        and section ordering" contradicted the template rule next to it."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        prose = " ".join(text.split())
+        self.assertNotIn("summary and section ordering", prose)
 
 
 class TestSkillsNameARunnableEntrypoint(unittest.TestCase):

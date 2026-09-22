@@ -167,6 +167,18 @@ fixed format: opening (role, company, top evidence), one SCAR proof
 paragraph, a fit paragraph, and a close — the same P1-P4 shape the format
 file spells out in full.
 
+Every CV, whichever template, keeps the same rules: the contact line is
+plain text directly under the name, never in a page header or footer;
+dates are `Mon YYYY – Mon YYYY`, with `Present` for a current role;
+each bullet starts with an action verb and carries a metric where the
+evidence has one; bullets use no first-person pronouns; 1 page under about
+10 years of experience, 2 pages above. Work authorization is stated only if
+the user supplies it — never inferred from a location or a name.
+
+The cover letter never restates the CV bullet list — P2 tells one story,
+it does not list achievements — and never dwells on what the job would do
+for the candidate; every paragraph is about what the candidate brings.
+
 `cv.md` and `cover-letter.md` are written from **approved rows only**. JD
 wording is mirrored only where an approved row evidences it. A row marked
 `gap` never appears in either document — not the requirement's own wording,
@@ -186,8 +198,9 @@ otherwise equally relevant.
 Choose the role variant (from `.jobhunter/profile/variants.toml`) whose
 prose description and example JDs best match this specific posting, the
 same judgement-over-keywords approach `/gaspol-jobhunter:score` uses, and let
-that variant's framing (not a hardcoded template) shape the summary and
-section ordering.
+that variant's framing shape the summary and which bullets lead each
+section. Section order is never the variant's call — it comes from the
+approved template.
 
 ## Template check
 
