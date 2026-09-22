@@ -582,6 +582,30 @@ class TestGateParityWithDocx(PdfTempDirCase):
                 self.assertFalse(os.path.exists(path))
 
 
+class TestMultiLineHtmlCommentDoesNotReachThePdf(PdfTempDirCase):
+    """AJOB-4 Phase A, through `pdf.render` — `docx.prepare` is the shared
+    gate both renderers go through, so the fix lands here too without any
+    change to `pdf.py` itself.
+    """
+
+    def test_a_cv_template_style_comment_leaves_no_trace_in_the_pdf_text(self):
+        markdown = (
+            "<!-- gaspol-jobhunter cv-template\n"
+            "name: technical\n"
+            "sections:\n"
+            "- A\n"
+            "-->\n"
+            "# CV\n\nBody\n"
+        )
+        path = self.out()
+        pdf.render(markdown, path)
+        parsed = read_pdf(open(path, "rb").read())
+        joined = " ".join(parsed["texts"])
+        self.assertNotIn("sections:", joined)
+        self.assertNotIn("cv-template", joined)
+        self.assertEqual(parsed["texts"], ["CV", "Body"])
+
+
 class TestFailedWriteLeavesNoFileAndNoTempFile(PdfTempDirCase):
     def test_a_failed_replace_leaves_no_file_and_no_temp_file(self):
         path = self.out()

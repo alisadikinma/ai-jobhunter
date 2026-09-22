@@ -999,6 +999,213 @@ class TestFlattenNestingAndHtml(unittest.TestCase):
         self.assertNotIn("\x00", flat)
 
 
+class TestFlattenMultiLineHtmlComments(unittest.TestCase):
+    """AJOB-4 Phase A: `<!--` … `-->` spanning more than one line.
+
+    `_HTML_TAG_RE` (the regex behind `test_inline_html_is_stripped` above) is
+    applied per line, so a comment whose `-->` lands on a LATER line survives
+    it whole — the plan's own measurement: `prepare("<!-- template: x\\n
+    sections:\\n- A | B\\n-->\\n# Name\\n\\nline\\n")` used to return three
+    blocks carrying the raw comment. A CV template file opens with exactly
+    this kind of multi-line comment, so a candidate's rendered CV would have
+    shipped it as visible text.
+    """
+
+    def test_a_comment_spanning_lines_is_stripped_not_rendered(self):
+        blocks, notes = docx.prepare("<!-- a\nb\n-->\n# Name\n\nline\n", "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "Name"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 1-3: html comment stripped", notes)
+
+    def test_a_comment_at_the_very_start_of_the_document(self):
+        # The exact shape a CV template file opens with (Architecture
+        # Context's own measurement): a multi-line comment, then the H1.
+        markdown = "<!-- template: x\nsections:\n- A | B\n-->\n# Name\n\nline\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "Name"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 1-4: html comment stripped", notes)
+
+    def test_a_comment_in_the_middle_of_the_document(self):
+        markdown = "# CV\n\nBefore\n\n<!-- hidden\nmore hidden\n-->\n\nAfter\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "CV"},
+                {"kind": "paragraph", "text": "Before"},
+                {"kind": "paragraph", "text": "After"},
+            ],
+        )
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_a_comment_trailing_at_the_end_of_the_document(self):
+        markdown = "# CV\n\nBody\n\n<!-- trailing\ncomment\n-->\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "CV"},
+                {"kind": "paragraph", "text": "Body"},
+            ],
+        )
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_two_separate_comments_each_get_their_own_note(self):
+        markdown = "<!-- one\n-->\n# CV\n\n<!-- two\nmore\n-->\n\nBody\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "CV"},
+                {"kind": "paragraph", "text": "Body"},
+            ],
+        )
+        self.assertIn("lines 1-2: html comment stripped", notes)
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_an_unterminated_comment_is_left_in_place_not_crashed_on(self):
+        flat, notes = docx.flatten("# CV\n\n<!-- never closes\nstill going\n")
+        self.assertIn("<!-- never closes", flat)
+        self.assertIn(
+            "line 3: unterminated html comment left in place", notes
+        )
+
+    def test_a_comment_inside_a_fenced_code_block_is_kept(self):
+        markdown = "# CV\n\n```\n<!-- inside\ncode -->\n```\n\nAfter\n"
+        flat, _notes = docx.flatten(markdown)
+        self.assertIn("<!-- inside", flat)
+        self.assertIn("code -->", flat)
+        blocks = docx.parse_blocks(flat)
+        self.assertEqual(
+            [b["text"] for b in blocks],
+            ["CV", "<!-- inside", "code -->", "After"],
+        )
+
+    def test_single_line_comment_behaviour_is_unchanged(self):
+        # Opens and closes on the same line — the per-line `_HTML_TAG_RE`
+        # pass's job, not this function's. Left untouched here on purpose.
+        flat, notes = docx.flatten("<!-- note --> Text\n")
+        self.assertEqual(flat.strip(), "Text")
+        self.assertTrue(any("html" in note for note in notes), notes)
+
+    def test_a_later_notes_line_number_is_unchanged_by_the_strip(self):
+        # Blanking, not removing, the comment's lines is what keeps this
+        # true: an off-by-N here would send the operator looking at the
+        # wrong line for the html-tag note below.
+        markdown = "<!-- c1\n-->\n# CV\n\n<b>Bold</b> after\n"
+        _flat, notes = docx.flatten(markdown)
+        self.assertTrue(
+            any(note.startswith("line 5: inline html stripped") for note in notes),
+            notes,
+        )
+
+    # plan-verifier round 1 (AJOB-4): the scan asked only "is there a `-->`
+    # after the FIRST `<!--` on this line?", so a closed comment earlier on
+    # the line hid a multi-line opener after it, and jumping past the closing
+    # line skipped an opener that shared it. Both leaked text to the page.
+
+    def test_a_multi_line_opener_after_a_closed_comment_on_the_same_line(self):
+        markdown = "# N\n\n<!-- x --> text <!-- open\nsecret sections:\n-->\nline\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "N"},
+                # The blanked span separates the two: lines are emptied, not
+                # removed, so what surrounded the comment becomes two blocks.
+                {"kind": "paragraph", "text": "text"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 3-5: html comment stripped", notes)
+
+    def test_a_multi_line_opener_on_the_closing_line_of_another(self):
+        markdown = "# N\n\n<!-- a\nb\n--> <!-- c\nsecret2\n-->\nline\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "N"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 3-5: html comment stripped", notes)
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    # gaspol-review (AJOB-4 finish): the strip ran AFTER `_flatten_blocks`,
+    # which had already marked an indented line inside the comment as code;
+    # the scan stopped there and printed a private note on the CV, with a
+    # false "unterminated" note on a closed comment.
+
+    def test_an_indented_line_inside_a_comment_is_stripped_with_it(self):
+        for body in ("    keep private: left Acme", "\tkeep private: left Acme"):
+            markdown = "# Ann\n\nJakarta\n\n<!-- draft note\n%s\n-->\n\n## Summary\n\nText.\n" % body
+            blocks, notes = docx.prepare(markdown, "t.md")
+            self.assertEqual(
+                [b["text"] for b in blocks], ["Ann", "Jakarta", "Summary", "Text."], body
+            )
+            self.assertIn("lines 5-7: html comment stripped", notes)
+            self.assertFalse(any("unterminated" in note for note in notes), notes)
+
+    def test_a_fence_inside_a_comment_is_stripped_with_it(self):
+        markdown = "# Ann\n\n<!-- old block\n```\nprivate code\n```\n-->\n\nText.\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual([b["text"] for b in blocks], ["Ann", "Text."])
+        self.assertIn("lines 3-7: html comment stripped", notes)
+
+    def test_an_indented_code_block_carrying_a_comment_opener_is_kept(self):
+        # Four-space code after a blank line is the author's literal text;
+        # only a comment that STARTS outside code is a comment.
+        flat, _notes = docx.flatten("# CV\n\n    <!-- literal\n    still code -->\n\nAfter\n")
+        self.assertIn("<!-- literal", flat)
+
+    # gaspol-review re-run: the strip called any 4-space line code, while
+    # `_flatten_blocks` reads one under a list item as that item's
+    # continuation — the opener was skipped and the note printed in the
+    # bullet. Both passes must share one answer to "is this line code".
+    def test_a_comment_indented_under_a_list_item_is_stripped(self):
+        cases = (
+            ("# N\n\n- Built X\n    <!-- private note\n    salary floor 150k\n    -->\n- Next\n",
+             ["N", "Built X", "Next"]),
+            ("# N\n\n1. Led team\n    <!-- private\n    note -->\n", ["N", "1. Led team"]),
+            ("# N\n\n- Built X\n\n    <!-- private\n    note\n    -->\n", ["N", "Built X"]),
+        )
+        for markdown, expected in cases:
+            blocks, notes = docx.prepare(markdown, "t.md")
+            self.assertEqual([b["text"] for b in blocks], expected, markdown)
+            self.assertTrue(any("html comment stripped" in n for n in notes), notes)
+
+    def test_an_unclosed_fence_inside_one_comment_does_not_hide_the_next(self):
+        # Read before the first strip, the lone ``` would open a fence that
+        # never closes and mark every later line as code.
+        markdown = "# N\n\n<!-- old\n```\n-->\n\nText\n\n<!-- private\nnote\n-->\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual([b["text"] for b in blocks], ["N", "Text"])
+        self.assertIn("lines 9-11: html comment stripped", notes)
+
+    def test_crlf_input_is_stripped_the_same_way(self):
+        blocks, notes = docx.prepare("<!-- a\r\nb\r\n-->\r\n# Name\r\n\r\nline\r\n", "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "Name"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 1-3: html comment stripped", notes)
+
+
 class TestFlattenOverARealMessyCV(unittest.TestCase):
     def setUp(self):
         self.flat, self.notes = docx.flatten(read_fixture(MESSY_CV))
@@ -2394,10 +2601,13 @@ PARITY_ORACLE = [
         ["line 33: table flattened to 7 line(s)"],
     ),
     (
+        # AJOB-4 Phase G added eval cases 10-11 (template choice, cover-letter
+        # format), which is why this hash and its notes differ from AJOB-3's
+        # recorded value — the content changed, not `docx.render`'s behaviour.
         "tailoring.md",
         _eval_md("tailoring.md"),
         {},
-        "b734e6c9245fba8e42fcefad9b5b594276820410abcdee444cb7ceb57bf36a9f",
+        "d9d51677b7cb716010c3af1131fd279b23e397e42fe4a7c444ecc152726c0013",
         [
             "line 14: inline html stripped (<slug>)",
             "line 31: table flattened to 4 line(s)",
@@ -2407,6 +2617,9 @@ PARITY_ORACLE = [
             "line 182: inline html stripped (<slug>)",
             "line 184: inline html stripped (<slug>)",
             "line 204: inline html stripped (<slug>)",
+            "line 263: inline html stripped (<confirmed name>)",
+            "line 281: inline html stripped (<level>)",
+            "line 296: inline html stripped (<Team>)",
         ],
     ),
     (

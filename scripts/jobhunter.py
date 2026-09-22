@@ -40,6 +40,7 @@ import jobq  # noqa: E402
 import keywords  # noqa: E402
 import pdf  # noqa: E402
 import promote  # noqa: E402
+import templates  # noqa: E402
 
 _NORMALIZERS = {
     "greenhouse": ats.normalize_greenhouse,
@@ -282,6 +283,72 @@ def cmd_render_pdf(args):
     )
 
 
+def cmd_template_check(args):
+    """Check a tailored CV or cover letter against its chosen template.
+
+    Read-only, like every other check in this CLI: the input file is only
+    ever opened for reading, `templates.check_cv` / `check_letter` touch no
+    other file, and nothing here executes a path. `--template`/`--level`
+    are validated against the real files under `templates/` (through
+    `check_cv`/`check_letter`, which load them), never a hard-coded
+    argparse `choices=` list, so a fourth CV template dropped into
+    `templates/cv/` is usable here with no code change.
+    """
+    have_cv = bool(args.cv)
+    have_letter = bool(args.letter)
+    if have_cv and have_letter:
+        raise templates.TemplateError(
+            "pass exactly one of --cv or --letter, not both"
+        )
+    if not have_cv and not have_letter:
+        raise templates.TemplateError("pass one of --cv or --letter")
+
+    # A flag from the other mode is refused, not ignored: ignoring it let a
+    # caller believe `--company` was checked on a CV (gaspol-review, AJOB-4).
+    if have_cv:
+        for flag, value in (("--level", args.level), ("--company", args.company), ("--role", args.role)):
+            if value:
+                raise templates.TemplateError("%s applies to --letter, not --cv" % flag)
+    elif args.template:
+        raise templates.TemplateError("--template applies to --cv, not --letter")
+
+    if have_cv:
+        if not args.template:
+            raise templates.TemplateError("--cv requires --template")
+        if not os.path.isfile(args.cv):
+            raise templates.TemplateError("no such file: %s" % args.cv)
+        with open(args.cv, "r", encoding="utf-8") as f:
+            markdown = f.read()
+        findings = templates.check_cv(markdown, args.template)
+        _emit(
+            {
+                "kind": "cv",
+                "template": args.template,
+                "findings": findings,
+                "ok": len(findings) == 0,
+            }
+        )
+        return
+
+    if not args.level:
+        raise templates.TemplateError("--letter requires --level")
+    if not os.path.isfile(args.letter):
+        raise templates.TemplateError("no such file: %s" % args.letter)
+    with open(args.letter, "r", encoding="utf-8") as f:
+        markdown = f.read()
+    findings = templates.check_letter(
+        markdown, args.level, company=args.company, role=args.role
+    )
+    _emit(
+        {
+            "kind": "letter",
+            "level": args.level,
+            "findings": findings,
+            "ok": len(findings) == 0,
+        }
+    )
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -458,6 +525,29 @@ def build_parser():
         ),
     )
     p.set_defaults(func=cmd_render_pdf)
+
+    p = sub.add_parser(
+        "template-check",
+        help="Check a tailored CV or cover letter against its template/format",
+    )
+    p.add_argument("--cv", help="path to a tailored CV markdown file")
+    p.add_argument(
+        "--template", help="CV template name from templates/cv/, required with --cv"
+    )
+    p.add_argument("--letter", help="path to a tailored cover-letter markdown file")
+    p.add_argument(
+        "--level",
+        help="cover-letter level (entry/mid/executive), required with --letter",
+    )
+    p.add_argument(
+        "--company",
+        help="checked against the letter's opening paragraph; --letter only",
+    )
+    p.add_argument(
+        "--role",
+        help="checked against the letter's opening paragraph; --letter only",
+    )
+    p.set_defaults(func=cmd_template_check)
 
     return parser
 

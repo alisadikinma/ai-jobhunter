@@ -123,6 +123,32 @@ class TestTailoringNewJudgementCases(unittest.TestCase):
         )
 
 
+class TestTailoringTemplateJudgementCases(unittest.TestCase):
+    """AJOB-4 Phase G: tailoring.md must carry a case for each of the two new
+    judgements the templates ticket adds — proposing a CV template per JD,
+    and producing a cover letter on the fixed research-backed format.
+    """
+
+    def setUp(self):
+        self.text = _read(TAILORING_MD)
+        self.cases = _cases(self.text)
+
+    def _case_headings_containing(self, phrase):
+        return [h for h, _b in self.cases if phrase.lower() in h.lower()]
+
+    def test_template_choice_case_present(self):
+        self.assertTrue(
+            self._case_headings_containing("template choice"),
+            "no case heading in tailoring.md contains 'template choice'",
+        )
+
+    def test_cover_letter_format_case_present(self):
+        self.assertTrue(
+            self._case_headings_containing("cover-letter format"),
+            "no case heading in tailoring.md contains 'cover-letter format'",
+        )
+
+
 class TestScoringRegressionCases(unittest.TestCase):
     """The plan's verification checklist names these regression cases
     explicitly; a scoring.md missing any of them is not the eval Phase G

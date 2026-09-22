@@ -37,7 +37,7 @@ _CANDIDATE_SPECIFIC_RE = re.compile(
 # hold the pattern (in the comment above and in the regex literal itself) to
 # define it, and neither occurrence is a leak.
 _MANIFEST_TEST_PATH = os.path.abspath(__file__)
-_EXTRA_SCAN_ROOTS = ("tests", "scripts", os.path.join("docs", "evals"))
+_EXTRA_SCAN_ROOTS = ("tests", "scripts", os.path.join("docs", "evals"), "templates")
 
 _EXPECTED_SKILLS = frozenset(
     {"profile", "discover", "score", "promote", "tailor", "outreach"}
@@ -86,7 +86,7 @@ class TestPluginJson(unittest.TestCase):
     def test_parses_and_has_required_fields(self):
         data = json.loads(_read(PLUGIN_JSON))
         self.assertEqual(data["name"], "gaspol-jobhunter")
-        self.assertEqual(data["version"], "0.2.0")
+        self.assertEqual(data["version"], "0.3.0")
         self.assertTrue(data.get("description"))
         self.assertTrue(data.get("keywords"))
         license_value = data.get("license")
@@ -249,12 +249,79 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         self.assertIn("a table becomes one bullet per row", prose)
         self.assertIn("every cell keeping its own header", prose)
 
-    def test_tailor_no_longer_renders_docx(self):
-        """AJOB-3 reverses AJOB-2: tailor ships PDF only. `render-docx` stays
-        in the CLI (and in its own tests), but tailor's SKILL.md must not
-        call it any more."""
-        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md"))
-        self.assertNotIn("render-docx", text)
+    def test_tailor_renders_docx_only_for_enterprise_portals(self):
+        """AJOB-4 reverses AJOB-3's blanket ban: `render-docx` is back in
+        tailor's SKILL.md, but only inside the portal-detection / render
+        prose that names it as an enterprise-portal thing, alongside the
+        word "enterprise" — not a bare, unconditional call."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        self.assertIn("render-docx", text)
+        # EVERY paragraph naming it, not just one: "some paragraph pairs them"
+        # stayed green with an unconditional render-docx paragraph added
+        # beside the conditional one (plan-verifier round 1).
+        unconditional = [
+            p
+            for p in text.split("\n\n")
+            if "render-docx" in p and "enterprise" not in p
+        ]
+        self.assertEqual(
+            unconditional,
+            [],
+            "tailor/SKILL.md names 'render-docx' without 'enterprise'",
+        )
+
+    def test_tailor_states_templates_and_letter_format(self):
+        """AJOB-4 Phase F: tailor must name the CV templates directory, the
+        fixed cover-letter format, the deterministic check, portal detection
+        (never guessed), the letter level, and that no personal detail is
+        invented when the user gives none."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        prose = " ".join(text.split())
+        for fragment in (
+            "templates/cv/",
+            "templates/cover-letter.md",
+            "template-check",
+            "myworkdayjobs.com",
+            "taleo.net",
+            "icims.com",
+            # The portal sentence itself: a bare "never guess" also matched
+            # the AJOB-3 "never guesses a company or title" line, so deleting
+            # the portal rule left this test green.
+            "never guess one from the company name",
+            "letter-level:",
+            "template:",
+            "portal:",
+            "nothing is invented",
+            "render-docx",
+        ):
+            self.assertIn(fragment, prose, f"tailor/SKILL.md is missing {fragment!r}")
+
+    def test_tailor_states_the_universal_cv_and_letter_rules(self):
+        """Spec §3 puts the universal CV rules "into every template and into
+        `tailor`", and §4 the two letter prohibitions; plan-verifier round 1
+        found tailor carrying none of them."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        prose = " ".join(text.split())
+        for fragment in (
+            "directly under the name",
+            "header or footer",
+            "mon yyyy – mon yyyy",
+            "`present`",
+            "action verb",
+            "no first-person pronouns",
+            "1 page under about 10 years",
+            "work authorization is stated only if the user supplies it",
+            "never restates the cv bullet list",
+            "what the job would do for the candidate",
+        ):
+            self.assertIn(fragment, prose, f"tailor/SKILL.md is missing {fragment!r}")
+
+    def test_tailor_section_order_comes_from_the_template_not_the_variant(self):
+        """The AJOB-3 line "let that variant's framing ... shape the summary
+        and section ordering" contradicted the template rule next to it."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        prose = " ".join(text.split())
+        self.assertNotIn("summary and section ordering", prose)
 
 
 class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
@@ -466,6 +533,19 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         self.assertEqual(
             commands["render-pdf"],
             {"--in", "--out", "--page", "--allow-unverified"},
+        )
+
+    def test_template_check_and_all_six_of_its_flags_are_collected(self):
+        """Same reasoning as `test_render_pdf_and_all_four_of_its_flags_are_
+        collected` above, one ticket later: AJOB-4's newest subcommand must
+        actually be seen by the guard, across its two documented command
+        blocks (one for `--cv`/`--template`, one for `--letter`/`--level`/
+        `--company`/`--role`) in `tailor/SKILL.md`."""
+        commands = self._documented_commands()
+        self.assertIn("template-check", commands)
+        self.assertEqual(
+            commands["template-check"],
+            {"--cv", "--template", "--letter", "--level", "--company", "--role"},
         )
 
     def test_every_documented_subcommand_exists_in_the_cli(self):
