@@ -38,7 +38,7 @@ Python 3 **standard library only** — no pip, no pytest, no PyYAML. Tests are
 `unittest`; config is TOML via `tomllib`.
 
 ```bash
-python3 -m unittest discover -s tests -t .   # unit  (742 tests)
+python3 -m unittest discover -s tests -t .   # unit  (744 tests)
 python3 -m compileall -q scripts tests       # static
 ```
 

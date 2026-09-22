@@ -1170,6 +1170,30 @@ class TestFlattenMultiLineHtmlComments(unittest.TestCase):
         flat, _notes = docx.flatten("# CV\n\n    <!-- literal\n    still code -->\n\nAfter\n")
         self.assertIn("<!-- literal", flat)
 
+    # gaspol-review re-run: the strip called any 4-space line code, while
+    # `_flatten_blocks` reads one under a list item as that item's
+    # continuation — the opener was skipped and the note printed in the
+    # bullet. Both passes must share one answer to "is this line code".
+    def test_a_comment_indented_under_a_list_item_is_stripped(self):
+        cases = (
+            ("# N\n\n- Built X\n    <!-- private note\n    salary floor 150k\n    -->\n- Next\n",
+             ["N", "Built X", "Next"]),
+            ("# N\n\n1. Led team\n    <!-- private\n    note -->\n", ["N", "1. Led team"]),
+            ("# N\n\n- Built X\n\n    <!-- private\n    note\n    -->\n", ["N", "Built X"]),
+        )
+        for markdown, expected in cases:
+            blocks, notes = docx.prepare(markdown, "t.md")
+            self.assertEqual([b["text"] for b in blocks], expected, markdown)
+            self.assertTrue(any("html comment stripped" in n for n in notes), notes)
+
+    def test_an_unclosed_fence_inside_one_comment_does_not_hide_the_next(self):
+        # Read before the first strip, the lone ``` would open a fence that
+        # never closes and mark every later line as code.
+        markdown = "# N\n\n<!-- old\n```\n-->\n\nText\n\n<!-- private\nnote\n-->\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual([b["text"] for b in blocks], ["N", "Text"])
+        self.assertIn("lines 9-11: html comment stripped", notes)
+
     def test_crlf_input_is_stripped_the_same_way(self):
         blocks, notes = docx.prepare("<!-- a\r\nb\r\n-->\r\n# Name\r\n\r\nline\r\n", "t.md")
         self.assertEqual(

@@ -861,8 +861,11 @@ def _strip_multiline_html_comments(lines):
     that in the per-line pass `flatten` runs afterward.
 
     Only the OPENER's position decides whether this is a comment. A `<!--`
-    inside a fenced block, or on a line indented as code (four spaces or a
-    tab), is the author's literal text and is kept. Once a comment has
+    on a line `_flatten_blocks` reads as code (fenced, or indented code) is
+    the author's literal text and is kept. That answer is taken FROM
+    `_flatten_blocks`, not re-derived: calling every 4-space line code made
+    a comment indented under a list item — which that pass reads as the
+    item's continuation — skip the strip and print inside the bullet. Once a comment has
     opened outside code, everything up to its `-->` belongs to it —
     indented lines and fences included — which is how CommonMark reads an
     HTML comment block too.
@@ -874,15 +877,15 @@ def _strip_multiline_html_comments(lines):
     out = list(lines)
     notes = []
     total = len(out)
-    in_fence = False
+    def code_line_numbers():
+        pairs, _block_notes = _flatten_blocks(out)
+        return {number for number, _text, is_code in pairs if is_code}
+
+    code_numbers = code_line_numbers()
     index = 0
     while index < total:
         line = out[index]
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            index += 1
-            continue
-        if in_fence or _INDENTED_CODE_RE.match(line):
+        if (index + 1) in code_numbers:
             index += 1
             continue
         # Comments that open and close on this line are the per-line pass's
@@ -916,6 +919,9 @@ def _strip_multiline_html_comments(lines):
             out[between] = ""
         out[end_index] = out[end_index][close_at + len(_COMMENT_CLOSE) :]
         notes.append("lines %d-%d: html comment stripped" % (index + 1, end_index + 1))
+        # Re-read what is code now that the span is gone: a lone fence
+        # inside the comment had marked every later line as code.
+        code_numbers = code_line_numbers()
         # Re-scan the closing line rather than moving past it: what follows
         # its `-->` can open the next multi-line comment. The remainder is
         # strictly shorter each time, so this terminates.
