@@ -154,6 +154,7 @@
 - [x] Minor: company/role whole-phrase match (`Meta` vs `metadata`), sign-off case-insensitive, `template-check` refuses cross-mode flags — RED 4 tests first
 - [x] Plan-artifact lane minors: plan `LETTER_LEVELS`→`letter_levels()`, weak-opening wording; spec per-arm ResumeGo rates removed (not in raw); research summary sign-off row now says no source
 - [x] Suite 742 lulus; CLAUDE.md count 742; real run still `ok: true` both
+- [x] Re-review (scoped 217c804..8e7e3b6): 1 Important regression — comment indented under a list item leaked. Strip now uses `_flatten_blocks`' own code marks, re-read after each strip. RED 2 tests; all earlier reviewer inputs re-run clean; real CV 2 pages / 54 blocks unchanged. Suite 744
 
 ## Phase log
 
@@ -195,3 +196,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 plan-verifier round 1 BLOCKING → semua 7 butir diperbaiki (3 commit), 734 lulus — NEXT: plan-verifier round 2
 - 2026-09-22 plan-verifier round 2 CLEAN — 734 lulus, real run ok: true — NEXT: gaspol-finish (merge atas keputusan Ali)
 - 2026-09-22 gaspol-review Tier 1: 1 Important + 3 Minor diperbaiki, 742 lulus — NEXT: re-review fix diff, lalu merge
+- 2026-09-22 re-review regression diperbaiki, 744 lulus — NEXT: re-review round 2, lalu merge
