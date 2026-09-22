@@ -156,5 +156,272 @@ class TestTemplateHeadingsMatchDefinition(unittest.TestCase):
                 self.assertEqual(found, expected)
 
 
+_VALID_TECHNICAL_CV = """# Rin Halvorsen
+
+Berlin, Germany · rin@example.com · +49 000 0000 · linkedin.com/in/rin
+
+## Professional Summary
+
+Backend engineer with 8 years shipping distributed systems at scale.
+
+## Technical Skills
+
+- Languages: Python, Go
+- Frameworks: FastAPI, gRPC
+
+## Work Experience
+
+### Staff Engineer — Example Corp
+
+Jan 2022 – Present · Berlin, Germany
+
+- Cut p99 latency by 40% by rewriting the hot path in Go
+
+## Education
+
+BSc Computer Science, Example University, 2015
+
+## Certifications
+
+## Awards
+"""
+
+
+_VALID_HYBRID_CV = """# Rin Halvorsen
+
+Berlin, Germany · rin@example.com · +49 000 0000 · linkedin.com/in/rin
+
+## Professional Summary
+
+Product-minded generalist with 6 years across ops and engineering.
+
+## Core Skills
+
+- Ops: SQL, Python
+
+## Work Experience
+
+### Ops Lead — Example Corp
+
+Jan 2022 – Present · Berlin, Germany
+
+- Reduced ticket backlog by 30% by rebuilding the triage pipeline
+
+## Education
+
+BA Economics, Example University, 2016
+"""
+
+_VALID_LEADERSHIP_CV = """# Rin Halvorsen
+
+Berlin, Germany · rin@example.com · +49 000 0000 · linkedin.com/in/rin
+
+## Executive Summary
+
+VP Engineering with P&L responsibility for a 120-person org.
+
+## Work Experience
+
+### VP Engineering — Example Corp
+
+Jan 2020 – Present · Berlin, Germany
+
+- Grew ARR from $10M to $40M while cutting infrastructure spend 20%
+
+## Education
+
+MBA, Example University, 2012
+"""
+
+
+class TestCheckCvValidInput(unittest.TestCase):
+    def test_a_valid_technical_cv_has_no_findings(self):
+        self.assertEqual(templates.check_cv(_VALID_TECHNICAL_CV, "technical"), [])
+
+    def test_a_valid_hybrid_cv_has_no_findings(self):
+        self.assertEqual(templates.check_cv(_VALID_HYBRID_CV, "hybrid"), [])
+
+    def test_a_valid_leadership_cv_has_no_findings(self):
+        self.assertEqual(templates.check_cv(_VALID_LEADERSHIP_CV, "leadership"), [])
+
+
+def _cv(headings):
+    """Build a minimal technical-shaped CV: an H1, a contact line, then one
+    `## <heading>` block per entry in `headings`, each with a blank line
+    and one plain (non-bullet) paragraph. Returns `(markdown, heading_line)`
+    where `heading_line[heading]` is that heading's 1-based line number —
+    exact, not guessed, so tests can assert a finding's line precisely."""
+    lines = ["# Rin Halvorsen", "", "Berlin, Germany"]
+    heading_line = {}
+    for heading in headings:
+        lines.append("")
+        heading_line[heading] = len(lines) + 1
+        lines.append("## %s" % heading)
+        lines.append("")
+        lines.append("Placeholder body text.")
+    return "\n".join(lines) + "\n", heading_line
+
+
+def _rule_lines(findings, rule):
+    return sorted(f["line"] for f in findings if f["rule"] == rule)
+
+
+class TestCheckCvSectionRules(unittest.TestCase):
+    def test_alias_heading_is_accepted(self):
+        markdown, _ = _cv(["Professional Summary", "Technical Skills", "Experience"])
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(_rule_lines(findings, "unknown-section"), [])
+
+    def test_heading_case_and_whitespace_variants_are_accepted(self):
+        markdown, _ = _cv(["PROFESSIONAL    SUMMARY"])
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(_rule_lines(findings, "unknown-section"), [])
+
+    def test_unknown_section(self):
+        markdown, heading_line = _cv(["Hobbies"])
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(
+            _rule_lines(findings, "unknown-section"), [heading_line["Hobbies"]]
+        )
+
+    def test_order_education_before_work_experience(self):
+        markdown, heading_line = _cv(
+            ["Professional Summary", "Education", "Work Experience"]
+        )
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(
+            _rule_lines(findings, "order"), [heading_line["Work Experience"]]
+        )
+
+    def test_duplicate_section(self):
+        markdown, heading_line = _cv(["Professional Summary", "Professional Summary"])
+        findings = templates.check_cv(markdown, "technical")
+        duplicate_line = [
+            index for index, line in enumerate(markdown.splitlines(), start=1)
+            if line == "## Professional Summary"
+        ][1]
+        self.assertEqual(_rule_lines(findings, "duplicate-section"), [duplicate_line])
+
+    def test_missing_section_no_education(self):
+        markdown, _ = _cv(["Professional Summary", "Technical Skills", "Work Experience"])
+        findings = templates.check_cv(markdown, "technical")
+        missing = [f for f in findings if f["rule"] == "missing-section"]
+        self.assertEqual(len(missing), 1)
+        self.assertIn("Education", missing[0]["message"])
+        self.assertEqual(missing[0]["line"], len(markdown.splitlines()) + 1)
+
+    def test_optional_sections_omitted_produce_no_finding(self):
+        markdown, _ = _cv(["Professional Summary", "Technical Skills", "Work Experience", "Education"])
+        self.assertEqual(templates.check_cv(markdown, "technical"), [])
+
+
+def _bullet_cv(bullet_text):
+    """A minimal CV with exactly one bullet line, under `## Work
+    Experience` at a fixed, known line number (7)."""
+    return "# Rin Halvorsen\n\nBerlin, Germany\n\n## Work Experience\n\n%s\n" % bullet_text
+
+
+class TestCheckCvPronounRule(unittest.TestCase):
+    def test_i_led_is_flagged(self):
+        findings = templates.check_cv(_bullet_cv("- I led the migration"), "technical")
+        self.assertEqual(_rule_lines(findings, "pronoun"), [7])
+
+    def test_my_team_is_flagged(self):
+        findings = templates.check_cv(_bullet_cv("- Grew my team's throughput"), "technical")
+        self.assertEqual(_rule_lines(findings, "pronoun"), [7])
+
+    def test_we_built_is_flagged_case_insensitively(self):
+        findings = templates.check_cv(_bullet_cv("- We built the pipeline"), "technical")
+        self.assertEqual(_rule_lines(findings, "pronoun"), [7])
+
+    def test_our_is_flagged(self):
+        findings = templates.check_cv(_bullet_cv("- Owned our roadmap"), "technical")
+        self.assertEqual(_rule_lines(findings, "pronoun"), [7])
+
+    def test_ai_is_not_flagged(self):
+        findings = templates.check_cv(
+            _bullet_cv("- Deployed AI models to production"), "technical"
+        )
+        self.assertEqual(_rule_lines(findings, "pronoun"), [])
+
+    def test_iot_is_not_flagged(self):
+        findings = templates.check_cv(
+            _bullet_cv("- Instrumented IoT devices for telemetry"), "technical"
+        )
+        self.assertEqual(_rule_lines(findings, "pronoun"), [])
+
+    def test_i_slash_o_is_not_flagged(self):
+        findings = templates.check_cv(
+            _bullet_cv("- Wired I/O buffers for the driver"), "technical"
+        )
+        self.assertEqual(_rule_lines(findings, "pronoun"), [])
+
+    def test_mine_is_not_flagged_word_boundary(self):
+        findings = templates.check_cv(
+            _bullet_cv("- Reduced downtime at Acme Mine Corp"), "technical"
+        )
+        self.assertEqual(_rule_lines(findings, "pronoun"), [])
+
+    def test_pronoun_in_a_non_bullet_paragraph_is_not_flagged(self):
+        markdown = "# Rin Halvorsen\n\nBerlin, Germany\n\n## Work Experience\n\nI led the migration.\n"
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(_rule_lines(findings, "pronoun"), [])
+
+
+class TestCheckCvNameAndContact(unittest.TestCase):
+    def test_no_name(self):
+        markdown = "Just prose.\n\n## Work Experience\n\nBody\n"
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(_rule_lines(findings, "no-name"), [1])
+
+    def test_no_contact_h1_followed_directly_by_heading(self):
+        markdown = "# Rin Halvorsen\n\n## Work Experience\n\nBody\n"
+        findings = templates.check_cv(markdown, "technical")
+        self.assertEqual(_rule_lines(findings, "no-contact"), [3])
+
+    def test_empty_markdown_is_no_name(self):
+        # Empty input is also missing every required section, so `no-name`
+        # is not the only finding — it is the one this test targets.
+        findings = templates.check_cv("", "technical")
+        self.assertEqual(_rule_lines(findings, "no-name"), [1])
+
+
+class TestCheckCvCrlfAndSorting(unittest.TestCase):
+    def test_crlf_input_is_handled_like_lf(self):
+        markdown, _ = _cv(["Professional Summary", "Technical Skills", "Work Experience", "Education"])
+        crlf = markdown.replace("\n", "\r\n")
+        self.assertEqual(templates.check_cv(crlf, "technical"), [])
+
+    def test_findings_are_sorted_by_line(self):
+        # Missing-section findings land at `len(lines) + 1` — deliberately
+        # the LAST line in the document — while a pronoun finding earlier
+        # in the same CV sits at a small line number. Without the explicit
+        # sort at the end of `check_cv`, the missing-section finding
+        # (computed after the section scan, before the pronoun scan) would
+        # sit ahead of it in the raw, unsorted append order.
+        markdown = _bullet_cv("- I led the migration")  # Education is missing here
+        findings = templates.check_cv(markdown, "technical")
+        rules = [f["rule"] for f in findings]
+        self.assertIn("pronoun", rules)
+        self.assertIn("missing-section", rules)
+        lines = [f["line"] for f in findings]
+        self.assertEqual(lines, sorted(lines))
+        self.assertLess(findings[0]["line"], findings[-1]["line"])
+
+
+class TestCheckCvTemplatesPassTheirOwnCheck(unittest.TestCase):
+    """The templates are the reference — if `check_cv` finds anything wrong
+    with a template file checked against its own name, either the file or
+    the rules have drifted from each other."""
+
+    def test_each_template_has_no_findings_against_itself(self):
+        for name in CV_TEMPLATE_NAMES:
+            with self.subTest(name=name):
+                path = os.path.join(REPO_ROOT, "templates", "cv", "%s.md" % name)
+                with open(path, "r", encoding="utf-8") as handle:
+                    markdown = handle.read()
+                self.assertEqual(templates.check_cv(markdown, name), [])
+
+
 if __name__ == "__main__":
     unittest.main()

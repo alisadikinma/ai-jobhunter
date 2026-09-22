@@ -192,3 +192,141 @@ def load_cv_template(name):
     with open(path, "r", encoding="utf-8") as handle:
         text = handle.read()
     return _parse_cv_template_text(text, path)
+
+
+def _finding(rule, line, message):
+    return {"rule": rule, "line": line, "message": message}
+
+
+def _build_section_lookup(sections):
+    """Map every normalized canonical name AND alias to
+    `(template_order_index, canonical_name)`. A heading in the CV matches a
+    section the moment it normalizes to any name in that section's list —
+    canonical or alias, case- and whitespace-insensitive."""
+    lookup = {}
+    for index, section in enumerate(sections):
+        for candidate in [section["name"]] + section["aliases"]:
+            lookup[_normalize_heading(candidate)] = (index, section["name"])
+    return lookup
+
+
+def check_cv(markdown, name):
+    """Check `markdown` against the CV template `name`'s section list.
+
+    Returns a list of `{"rule", "line", "message"}` findings, sorted by
+    line (1-based, same numbering as the input). Rule ids: `no-name`,
+    `no-contact`, `unknown-section`, `order`, `duplicate-section`,
+    `missing-section`, `pronoun`. Raises `TemplateError` for an unknown
+    `name`, via `load_cv_template`.
+    """
+    template = load_cv_template(name)
+    sections = template["sections"]
+    lookup = _build_section_lookup(sections)
+
+    lines = markdown.splitlines()
+    findings = []
+
+    # --- name (H1) and the contact line directly under it -----------------
+    h1_line = None
+    for index, line in enumerate(lines, start=1):
+        if _H1_RE.match(line):
+            h1_line = index
+            break
+
+    if h1_line is None:
+        findings.append(
+            _finding("no-name", 1, "no top-level '# <name>' heading found")
+        )
+    else:
+        # Blank lines are skipped; the first non-blank line after the name
+        # must be plain text, not another heading — and it has to exist at
+        # all, which a template cut off right after its name heading would
+        # fail too.
+        cursor = h1_line  # 0-based index of the line right after the H1
+        while cursor < len(lines) and lines[cursor].strip() == "":
+            cursor += 1
+        if cursor >= len(lines):
+            findings.append(
+                _finding(
+                    "no-contact",
+                    h1_line + 1,
+                    "no contact line found after the name heading",
+                )
+            )
+        elif _H1_RE.match(lines[cursor]) or _SECTION_HEADING_RE.match(lines[cursor]):
+            findings.append(
+                _finding(
+                    "no-contact",
+                    cursor + 1,
+                    "a heading appears immediately after the name heading, "
+                    "with no contact line in between",
+                )
+            )
+
+    # --- sections: unknown / order / duplicate -----------------------------
+    seen_canonical = set()
+    last_index = -1
+    for index, line in enumerate(lines, start=1):
+        match = _SECTION_HEADING_RE.match(line)
+        if not match:
+            continue
+        heading_text = match.group(1).strip()
+        found = lookup.get(_normalize_heading(heading_text))
+        if found is None:
+            findings.append(
+                _finding(
+                    "unknown-section",
+                    index,
+                    "'%s' does not match any section of the %s template"
+                    % (heading_text, name),
+                )
+            )
+            continue
+        section_index, canonical = found
+        if canonical in seen_canonical:
+            findings.append(
+                _finding(
+                    "duplicate-section",
+                    index,
+                    "'%s' appears more than once" % canonical,
+                )
+            )
+        else:
+            seen_canonical.add(canonical)
+        if section_index < last_index:
+            findings.append(
+                _finding(
+                    "order",
+                    index,
+                    "'%s' is out of order for the %s template" % (canonical, name),
+                )
+            )
+        else:
+            last_index = max(last_index, section_index)
+
+    # --- missing required sections ------------------------------------------
+    # No heading means no line to point at; the line after the last line of
+    # the input is the deterministic, unambiguous convention used here —
+    # "this section belongs somewhere in the document, and isn't".
+    missing_line = len(lines) + 1
+    for section in sections:
+        if not section["optional"] and section["name"] not in seen_canonical:
+            findings.append(
+                _finding(
+                    "missing-section",
+                    missing_line,
+                    "required section '%s' is missing" % section["name"],
+                )
+            )
+
+    # --- first-person pronouns in bullet lines ------------------------------
+    for index, line in enumerate(lines, start=1):
+        if not _BULLET_RE.match(line):
+            continue
+        if _PRONOUN_I_RE.search(line) or _PRONOUN_OTHER_RE.search(line):
+            findings.append(
+                _finding("pronoun", index, "first-person pronoun in a bullet line")
+            )
+
+    findings.sort(key=lambda finding: finding["line"])
+    return findings
