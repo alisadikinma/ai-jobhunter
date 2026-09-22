@@ -35,22 +35,22 @@
 - [x] `git check-ignore data/master-cv.pdf` prints a match — di worktree `.gitignore:6:data/`; di main berlaku setelah merge
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase B: extract `docx.prepare()` without changing docx output
-- [ ] Write failing test for `docx.prepare("# T\n\nBody\n", "x.md")` returning `([{"kind":"heading","level":1,"text":"T"},{"kind":"paragraph","text":"Body"}], [])`. Expected error: `AttributeError: module 'docx' has no attribute 'prepare'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Before refactoring, record a parity oracle on HEAD: for every `*.md` under `tests/fixtures/` and `tests/samples/` plus 6 inline strings (plain; marker with `allow_unverified=True`; table; nested bullets; entity-escaped marker with allow; fenced code block), render with the current `docx.render` and write the SHA-256 of each `word/document.xml` and its `notes` list into a new test as literals. The test re-renders after the refactor and asserts equality. Do not compute the oracle from a copy of the old code — literals recorded before the change are the only honest oracle
-- [ ] Move the gate/flatten/parse/strip/empty-check body of `docx.render` into `prepare(markdown, label, allow_unverified=False)`; `render` calls it (Contracts section)
-- [ ] Tests for `prepare` refusals: raises `UnverifiedClaimError` on `"- a [verifikasi]\n"`; raises `EmptyDocumentError` on `""`, on `"   \n"`, and on `"[verifikasi]\n"` with `allow_unverified=True`; writes no file (assert temp dir empty)
-- [ ] Run full suite — all 553 existing tests plus the new ones green, parity hashes equal
-- [ ] Mutation: in `prepare`, skip the residual check; confirm at least one existing docx test fails; restore
-- [ ] Commit: `refactor(docx): extract prepare() so a second renderer shares one gate`
+### [x] Phase B: extract `docx.prepare()` without changing docx output
+- [x] Write failing test for `docx.prepare("# T\n\nBody\n", "x.md")` returning `([{"kind":"heading","level":1,"text":"T"},{"kind":"paragraph","text":"Body"}], [])`. Expected error: `AttributeError: module 'docx' has no attribute 'prepare'`
+- [x] Run it, confirm it fails for that reason
+- [x] Before refactoring, record a parity oracle on HEAD: for every `*.md` under `tests/fixtures/` and `tests/samples/` plus 6 inline strings (plain; marker with `allow_unverified=True`; table; nested bullets; entity-escaped marker with allow; fenced code block), render with the current `docx.render` and write the SHA-256 of each `word/document.xml` and its `notes` list into a new test as literals. The test re-renders after the refactor and asserts equality. Do not compute the oracle from a copy of the old code — literals recorded before the change are the only honest oracle — no `tests/samples/` directory exists, so the oracle covers `tests/fixtures/` (`messy_cv.md`, `tailored_cv.md`) plus the 6 inline strings only
+- [x] Move the gate/flatten/parse/strip/empty-check body of `docx.render` into `prepare(markdown, label, allow_unverified=False)`; `render` calls it (Contracts section)
+- [x] Tests for `prepare` refusals: raises `UnverifiedClaimError` on `"- a [verifikasi]\n"`; raises `EmptyDocumentError` on `""`, on `"   \n"`, and on `"[verifikasi]\n"` with `allow_unverified=True`; writes no file (assert temp dir empty)
+- [x] Run full suite — all 553 existing tests plus the new ones green, parity hashes equal — 554 pre-Phase-B (Phase A added one) + 8 new = 562, all green
+- [x] Mutation: in `prepare`, skip the residual check; confirm at least one existing docx test fails; restore — 8 existing tests failed (e.g. `test_a_line_breaking_character_is_caught_when_the_blocks_rejoin`, `test_the_second_gate_holds_when_the_first_one_is_blinded`), restored, suite green again
+- [x] Commit: `refactor(docx): extract prepare() so a second renderer shares one gate`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] parity: every recorded `document.xml` SHA-256 and notes list identical to pre-refactor
-- [ ] `prepare` touches no filesystem (test asserts temp dir empty after each call)
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] parity: every recorded `document.xml` SHA-256 and notes list identical to pre-refactor
+- [x] `prepare` touches no filesystem (test asserts temp dir empty after each call)
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase C: `pdf.py` text primitives — encode, widths, wrap
 - [ ] Write failing test for `pdf.text_width("A", 1000, False) == 667`. Expected error: `ModuleNotFoundError: No module named 'pdf'`
@@ -167,6 +167,7 @@
 | Phase | Status | Commit |
 |---|---|---|
 | A — ignore data/ | DONE | `724f41c` |
+| B — docx.prepare() | DONE | `ad82ff0` |
 
 ## Utang terbuka
 
@@ -177,3 +178,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
 - 2026-09-22 Phase A done — suite 554 lulus, mutasi (hapus baris) → test gagal — NEXT: Phase B
+- 2026-09-22 Phase B done — 562 lulus, parity 8 input sama, mutasi → test_a_line_breaking_character_is_caught_when_the_blocks_rejoin gagal — NEXT: Phase C
