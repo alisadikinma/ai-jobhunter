@@ -47,7 +47,8 @@ class UnsupportedCharacterError(PdfError):
         self.findings = list(findings)
         self.label = label
         detail = "; ".join(
-            "U+%04X '%s' on line %d" % (f["codepoint"], f["char"], f["line"])
+            "U+%04X '%s' on line %s"
+            % (f["codepoint"], f["char"], f["line"] if f["line"] is not None else "?")
             for f in self.findings
         )
         super().__init__(
@@ -474,6 +475,27 @@ def _build_pdf_bytes(blocks, pages, page_size):
     return b"".join(parts)
 
 
+def _line_for_char(char, lines):
+    """The 1-based line in `lines` (original markdown, already split) where
+    `char` first appears — or `None` when it appears in none of them.
+
+    A character `docx.flatten` PRODUCES — `&rarr;` decoding to `→`, for
+    instance — is not literally present in its source line, so a raw search
+    finds nothing even though the line is right there. The same entity/html
+    unescape `flatten` applies (`strip_html`, via `_unescape_fully`) is tried
+    second, per line, before giving up. Returning `None` rather than
+    guessing is the point: a wrong line number sends the candidate looking
+    in the wrong place, which is worse than an honest "line ?".
+    """
+    for number, line in enumerate(lines, start=1):
+        if char in line:
+            return number
+    for number, line in enumerate(lines, start=1):
+        if char in docx._unescape_fully(line):
+            return number
+    return None
+
+
 def _find_unsupported_characters(blocks, markdown):
     """Every distinct character in `blocks` that Helvetica/WinAnsi has no glyph for.
 
@@ -500,12 +522,9 @@ def _find_unsupported_characters(blocks, markdown):
     lines = markdown.splitlines()
     findings = []
     for char in seen:
-        line_number = 1
-        for number, line in enumerate(lines, start=1):
-            if char in line:
-                line_number = number
-                break
-        findings.append({"char": char, "codepoint": ord(char), "line": line_number})
+        findings.append(
+            {"char": char, "codepoint": ord(char), "line": _line_for_char(char, lines)}
+        )
     return findings
 
 

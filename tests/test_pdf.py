@@ -501,6 +501,35 @@ class TestRefusalsLeaveNoFileAndNoTempFile(PdfTempDirCase):
         self.assertEqual(self.tmp_files(), [])
 
 
+class TestUnsupportedCharacterLineNumberAfterFlatten(PdfTempDirCase):
+    def test_an_entity_decoded_char_reports_its_own_source_line(self):
+        # `&rarr;` is not the arrow character itself — `docx.prepare` (via
+        # `flatten`/`strip_html`) decodes the entity into `→` before `pdf.py`
+        # ever sees the block text, so a raw search of `markdown.splitlines()`
+        # for `→` finds nothing and used to fall back to a hardcoded line 1,
+        # no matter which line the entity was actually on.
+        path = self.out()
+        markdown = "# CV\n\nfiller\nfiller\nx &rarr; y\n"
+        with self.assertRaises(pdf.UnsupportedCharacterError) as caught:
+            pdf.render(markdown, path)
+        message = str(caught.exception)
+        self.assertIn("line 5", message)
+        self.assertNotIn("line 1'", message)
+
+    def test_a_character_findable_nowhere_reports_a_question_mark(self):
+        # Constructed so the offending character never appears in the
+        # markdown source at all, not even after entity decoding — this can
+        # only happen if a future transform invents a brand new character
+        # `flatten` produces from something unrelated. Since no fixture like
+        # that exists today, this patches `_find_unsupported_characters`'s
+        # own helper to simulate one: search must fail honestly, never guess.
+        with unittest.mock.patch("pdf._line_for_char", return_value=None):
+            path = self.out()
+            with self.assertRaises(pdf.UnsupportedCharacterError) as caught:
+                pdf.render("x → y\n", path)
+            self.assertIn("line ?", str(caught.exception))
+
+
 class TestGateParityWithDocx(PdfTempDirCase):
     """Every marker spelling `docx.py`'s gate catches, refused identically.
 
