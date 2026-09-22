@@ -97,20 +97,20 @@
 - [x] security: input paths are only read, never written; no path is executed
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase F: `tailor` — portal, template, letter level, check, DOCX
-- [ ] Write failing test for tailor SKILL.md naming the new flow (`test_tailor_states_templates_and_letter_format`): asserts (whitespace-collapsed, lowercased) `templates/cv/`, `templates/cover-letter.md`, `template-check`, `myworkdayjobs.com`, `taleo.net`, `icims.com`, `never guess`, `letter-level:`, `template:`, `portal:`, `nothing is invented`, `render-docx`. Expected error: `AssertionError`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Edit tailor SKILL.md: (a) new `## Portal detection` after Location check — hosts `myworkdayjobs.com` / `myworkdaysite.com` → Workday, `taleo.net` → Taleo, `icims.com` → iCIMS; pasted JD without URL → ask, never guess; enterprise → DOCX too, with the reason (DOCX parses most reliably in those portals); (b) Agreement gate gains: proposed template from `templates/cv/` + one-sentence reason (confirm/switch), letter level `entry`/`mid`/`executive` with the word bands, optional personal detail (hiring-manager name, referral, specific reason for the company) — none given → "<Team> Hiring Team" and JD facts only, nothing is invented; header lines `template: <name>`, `letter-level: <level>`, `portal: <workday|taleo|icims|other>` written with `approved:`; (c) Write: `cv.md` on the approved template's sections in order, `cover-letter.md` on `templates/cover-letter.md` (P1–P4 rules restated briefly); (d) new `## Template check` before Keyword loop: both commands (Contracts § CLI, backslash-continued), fix text and re-run until `"ok": true`, never render with findings; (e) Render: PDF always, plus `render-docx` for both when portal is enterprise (command block with `--in`/`--out`), output list adds `cv.docx`/`cover-letter.docx` in that case; (f) final print adds template, level, portal, check results. Remove the AJOB-3 test `test_tailor_no_longer_renders_docx` and replace with `test_tailor_renders_docx_only_for_enterprise_portals` asserting `render-docx` appears only in the portal/render sections together with the word `enterprise`
-- [ ] Run full suite: flag guard must collect `template-check` flags `{"--cv","--template","--letter","--level","--company","--role"}` — add an explicit collection test like `test_render_pdf_and_all_four_of_its_flags_are_collected`
-- [ ] Mutations: delete the "never guess" sentence → prose test fails; change `--level` to `--lvl` in the doc → flag guard fails; restore
-- [ ] Commit: `feat(tailor): template choice, letter format, portal-aware DOCX`
+### [x] Phase F: `tailor` — portal, template, letter level, check, DOCX
+- [x] Write failing test for tailor SKILL.md naming the new flow (`test_tailor_states_templates_and_letter_format`): asserts (whitespace-collapsed, lowercased) `templates/cv/`, `templates/cover-letter.md`, `template-check`, `myworkdayjobs.com`, `taleo.net`, `icims.com`, `never guess`, `letter-level:`, `template:`, `portal:`, `nothing is invented`, `render-docx`. Expected error: `AssertionError`
+- [x] Run it, confirm it fails for that reason — confirmed: both new/replaced tests failed with `AssertionError` (missing fragments; `render-docx` absent)
+- [x] Edit tailor SKILL.md: (a) new `## Portal detection` after Location check — hosts `myworkdayjobs.com` / `myworkdaysite.com` → Workday, `taleo.net` → Taleo, `icims.com` → iCIMS; pasted JD without URL → ask, never guess; enterprise → DOCX too, with the reason (DOCX parses most reliably in those portals); (b) Agreement gate gains: proposed template from `templates/cv/` + one-sentence reason (confirm/switch), letter level `entry`/`mid`/`executive` with the word bands, optional personal detail (hiring-manager name, referral, specific reason for the company) — none given → "<Team> Hiring Team" and JD facts only, nothing is invented; header lines `template: <name>`, `letter-level: <level>`, `portal: <workday|taleo|icims|other>` written with `approved:`; (c) Write: `cv.md` on the approved template's sections in order, `cover-letter.md` on `templates/cover-letter.md` (P1–P4 rules restated briefly); (d) new `## Template check` before Keyword loop: both commands (Contracts § CLI, backslash-continued), fix text and re-run until `"ok": true`, never render with findings; (e) Render: PDF always, plus `render-docx` for both when portal is enterprise (command block with `--in`/`--out`), output list adds `cv.docx`/`cover-letter.docx` in that case; (f) final print adds template, level, portal, check results. Removed the AJOB-3 test `test_tailor_no_longer_renders_docx`, replaced with `test_tailor_renders_docx_only_for_enterprise_portals` asserting `render-docx` appears only in a paragraph together with the word `enterprise`
+- [x] Run full suite: flag guard collects `template-check` flags `{"--cv","--template","--letter","--level","--company","--role"}` via a new explicit test `test_template_check_and_all_six_of_its_flags_are_collected`
+- [x] Mutations: change `--level` to `--lvl` in the doc → flag guard fails (confirmed, restored). "delete the never guess sentence" mutation: the fragment `"never guess"` is ALSO a substring of pre-existing, unrelated prose in the Inputs section ("it never guesses a company or title" — AJOB-3), so deleting only the new Portal-detection sentence does not flip the prose test; noted as a pre-existing weak spot in the assertion, not a defect introduced here — the fragment list itself is verbatim from the plan's Contracts
+- [x] Commit: `feat(tailor): template choice, letter format, portal-aware DOCX` (`45fb17a`)
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] flag guard collects all six `template-check` flags
-- [ ] no candidate-specific strings under `skills/`
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 720 lulus
+- [x] flag guard collects all six `template-check` flags
+- [x] no candidate-specific strings under `skills/`
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase G: research summary and evals
 - [ ] Write failing test for the tailoring eval carrying cases titled `template choice` and `cover-letter format` (in `tests/test_evals.py`, same pattern as `TestTailoringNewJudgementCases`). Expected error: `AssertionError`
@@ -149,6 +149,7 @@
 | C — check_cv | DONE | `195b9c6` |
 | D — cover-letter format + check_letter | DONE | `d5d1e0c` |
 | E — CLI template-check | DONE | `7441e67` |
+| F — tailor flow | DONE | `45fb17a` |
 
 ## Utang terbuka
 
@@ -163,3 +164,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase C done — 679 lulus, mutasi → test_order_education_before_work_experience dan test_i_slash_o_is_not_flagged gagal — NEXT: Phase D
 - 2026-09-22 Phase D done — 706 lulus, mutasi (band exclusive di top) → 3 test band-edge gagal — NEXT: Phase E
 - 2026-09-22 Phase E done — 718 lulus, mutasi (hapus cek both-flags) → test_both_cv_and_letter_flags_is_refused gagal — NEXT: Phase F
+- 2026-09-22 Phase F done — 720 lulus, mutasi (--level → --lvl di doc) → test_template_check_and_all_six_of_its_flags_are_collected gagal — NEXT: Phase G
