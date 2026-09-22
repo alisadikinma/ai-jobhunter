@@ -999,6 +999,118 @@ class TestFlattenNestingAndHtml(unittest.TestCase):
         self.assertNotIn("\x00", flat)
 
 
+class TestFlattenMultiLineHtmlComments(unittest.TestCase):
+    """AJOB-4 Phase A: `<!--` … `-->` spanning more than one line.
+
+    `_HTML_TAG_RE` (the regex behind `test_inline_html_is_stripped` above) is
+    applied per line, so a comment whose `-->` lands on a LATER line survives
+    it whole — the plan's own measurement: `prepare("<!-- template: x\\n
+    sections:\\n- A | B\\n-->\\n# Name\\n\\nline\\n")` used to return three
+    blocks carrying the raw comment. A CV template file opens with exactly
+    this kind of multi-line comment, so a candidate's rendered CV would have
+    shipped it as visible text.
+    """
+
+    def test_a_comment_spanning_lines_is_stripped_not_rendered(self):
+        blocks, notes = docx.prepare("<!-- a\nb\n-->\n# Name\n\nline\n", "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "Name"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 1-3: html comment stripped", notes)
+
+    def test_a_comment_at_the_very_start_of_the_document(self):
+        # The exact shape a CV template file opens with (Architecture
+        # Context's own measurement): a multi-line comment, then the H1.
+        markdown = "<!-- template: x\nsections:\n- A | B\n-->\n# Name\n\nline\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "Name"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 1-4: html comment stripped", notes)
+
+    def test_a_comment_in_the_middle_of_the_document(self):
+        markdown = "# CV\n\nBefore\n\n<!-- hidden\nmore hidden\n-->\n\nAfter\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "CV"},
+                {"kind": "paragraph", "text": "Before"},
+                {"kind": "paragraph", "text": "After"},
+            ],
+        )
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_a_comment_trailing_at_the_end_of_the_document(self):
+        markdown = "# CV\n\nBody\n\n<!-- trailing\ncomment\n-->\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "CV"},
+                {"kind": "paragraph", "text": "Body"},
+            ],
+        )
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_two_separate_comments_each_get_their_own_note(self):
+        markdown = "<!-- one\n-->\n# CV\n\n<!-- two\nmore\n-->\n\nBody\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "CV"},
+                {"kind": "paragraph", "text": "Body"},
+            ],
+        )
+        self.assertIn("lines 1-2: html comment stripped", notes)
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_an_unterminated_comment_is_left_in_place_not_crashed_on(self):
+        flat, notes = docx.flatten("# CV\n\n<!-- never closes\nstill going\n")
+        self.assertIn("<!-- never closes", flat)
+        self.assertIn(
+            "line 3: unterminated html comment left in place", notes
+        )
+
+    def test_a_comment_inside_a_fenced_code_block_is_kept(self):
+        markdown = "# CV\n\n```\n<!-- inside\ncode -->\n```\n\nAfter\n"
+        flat, _notes = docx.flatten(markdown)
+        self.assertIn("<!-- inside", flat)
+        self.assertIn("code -->", flat)
+        blocks = docx.parse_blocks(flat)
+        self.assertEqual(
+            [b["text"] for b in blocks],
+            ["CV", "<!-- inside", "code -->", "After"],
+        )
+
+    def test_single_line_comment_behaviour_is_unchanged(self):
+        # Opens and closes on the same line — the per-line `_HTML_TAG_RE`
+        # pass's job, not this function's. Left untouched here on purpose.
+        flat, notes = docx.flatten("<!-- note --> Text\n")
+        self.assertEqual(flat.strip(), "Text")
+        self.assertTrue(any("html" in note for note in notes), notes)
+
+    def test_a_later_notes_line_number_is_unchanged_by_the_strip(self):
+        # Blanking, not removing, the comment's lines is what keeps this
+        # true: an off-by-N here would send the operator looking at the
+        # wrong line for the html-tag note below.
+        markdown = "<!-- c1\n-->\n# CV\n\n<b>Bold</b> after\n"
+        _flat, notes = docx.flatten(markdown)
+        self.assertTrue(
+            any(note.startswith("line 5: inline html stripped") for note in notes),
+            notes,
+        )
+
+
 class TestFlattenOverARealMessyCV(unittest.TestCase):
     def setUp(self):
         self.flat, self.notes = docx.flatten(read_fixture(MESSY_CV))

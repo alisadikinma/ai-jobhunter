@@ -474,6 +474,13 @@ _HTML_TAG_RE = re.compile(
     r"<!--.*?-->|</?[A-Za-z][A-Za-z0-9]*(?:\s[^<>]*?)?\s*/?>", re.S
 )
 
+# The two markers `_strip_multiline_html_comments` scans for by hand rather
+# than with `_HTML_TAG_RE`: that pattern is matched per LINE (see `flatten`),
+# so a comment whose `-->` lands on a later line never matches it at all —
+# it needs its own multi-line scan, run before that per-line pass.
+_COMMENT_OPEN = "<!--"
+_COMMENT_CLOSE = "-->"
+
 # A table separator row: pipe-delimited cells of dashes, with optional
 # alignment colons. Requiring one is what keeps a sentence containing a
 # literal "|" from being read as a table.
@@ -823,6 +830,81 @@ def _flatten_table(lines, start, stop):
     return out
 
 
+def _strip_multiline_html_comments(lines, origins, code_lines):
+    """Remove `<!--` … `-->` spans whose closing marker is on a LATER line.
+
+    A same-line comment is left alone here — `_HTML_TAG_RE` already matches
+    that in the per-line pass `flatten` runs afterward — so this only has to
+    handle the case that pass structurally cannot: the marker pair split
+    across lines.
+
+    A line marked as code in `code_lines` is never inspected: a `<!--` typed
+    inside a fenced or indented code block is the author's literal text, not
+    a comment, and `flatten` already wraps it in a code span. Skipping code
+    lines outright, rather than matching on them and excluding the match,
+    means an open comment that walks into a code block is reported as
+    unterminated at the boundary instead of reading through code it does not
+    own.
+
+    Returns `(lines, notes)`. Every matched line is blanked to "" rather than
+    removed, so the list stays the same length and `origins[index]` still
+    names the same source line for every entry after the span — the property
+    the plan calls "line count stable".
+    """
+    out = list(lines)
+    notes = []
+    total = len(out)
+    index = 0
+    while index < total:
+        if code_lines[index]:
+            index += 1
+            continue
+        line = out[index]
+        start = line.find(_COMMENT_OPEN)
+        if start == -1:
+            index += 1
+            continue
+        if line.find(_COMMENT_CLOSE, start + len(_COMMENT_OPEN)) != -1:
+            # Opens and closes on the same line — the per-line pass's own
+            # job, not this one.
+            index += 1
+            continue
+
+        end_index = None
+        close_at = None
+        cursor = index + 1
+        while cursor < total and not code_lines[cursor]:
+            found = out[cursor].find(_COMMENT_CLOSE)
+            if found != -1:
+                end_index = cursor
+                close_at = found
+                break
+            cursor += 1
+
+        if end_index is None:
+            # No `-->` before the next code line or the end of the document.
+            # Left exactly as written: a construct this cannot repair is
+            # passed through and noted, the same contract `flatten` states
+            # for everything else it cannot fix.
+            notes.append(
+                "line %d: unterminated html comment left in place" % origins[index]
+            )
+            index += 1
+            continue
+
+        out[index] = line[:start]
+        for between in range(index + 1, end_index):
+            out[between] = ""
+        out[end_index] = out[end_index][close_at + len(_COMMENT_CLOSE) :]
+        notes.append(
+            "lines %d-%d: html comment stripped"
+            % (origins[index], origins[end_index])
+        )
+        index = end_index + 1
+
+    return out, notes
+
+
 def flatten(markdown):
     """Rewrite what an ATS parses badly into something it parses.
 
@@ -853,6 +935,16 @@ def flatten(markdown):
     # like "`React` - see [portfolio](url) - and `Node`" skipped every prose
     # pass and printed raw link syntax on the page.
     code_lines = [is_code for _origin, _text, is_code in pairs]
+
+    # A `<!--` … `-->` comment whose closing marker lands on a LATER line,
+    # before the per-line pass below: `_HTML_TAG_RE` is applied one line at
+    # a time, so a comment split across lines matched nothing there and
+    # reached the page as raw text — measured on a real CV template's own
+    # opening comment block. Runs after `_flatten_blocks` so it can use the
+    # code-line marks that pass already computed, rather than re-deriving
+    # fenced/indented code from scratch.
+    lines, comment_notes = _strip_multiline_html_comments(lines, origins, code_lines)
+    notes.extend(comment_notes)
 
     # Tables first, and line-wise: a table is the one construct that spans
     # more than one line, so every later transformation can be per-line.
@@ -941,7 +1033,7 @@ def flatten(markdown):
     return "\n".join(out) + ("\n" if out else ""), notes
 
 
-_NOTE_LINE_RE = re.compile(r"^line (\d+):")
+_NOTE_LINE_RE = re.compile(r"^lines? (\d+)")
 
 
 def _note_line_number(note):
