@@ -22,6 +22,7 @@ import unittest.mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
+import apify  # noqa: E402
 import jobhunter  # noqa: E402
 
 
@@ -1037,6 +1038,192 @@ class TestTemplateCheckHelp(unittest.TestCase):
         code, _parsed, _err, text = run(["--help"])
         self.assertEqual(code, 0)
         self.assertIn("template-check", text)
+
+
+_LINKEDIN_FIXTURE = os.path.join(
+    os.path.dirname(__file__), "fixtures", "apify_linkedin.json"
+)
+
+
+class TestLinkedinFetch(unittest.TestCase):
+    def _config(self, tmp, budgets_toml="", linkedin_toml=None):
+        path = os.path.join(tmp, "config.toml")
+        if linkedin_toml is None:
+            linkedin_toml = (
+                '[linkedin]\nkeywords = ["software engineer"]\n'
+                'locations = ["United States"]\n'
+            )
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(linkedin_toml)
+            f.write("\n[budgets]\n")
+            f.write(budgets_toml)
+        return path
+
+    def _fetch_result(self, dest):
+        shutil.copyfile(_LINKEDIN_FIXTURE, dest)
+        return {"run_id": "run1", "status": "SUCCEEDED", "returned": 5, "usd_charged": 0.0011}
+
+    def test_emits_report_with_apify_patched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            with unittest.mock.patch(
+                "apify.fetch_linkedin", side_effect=lambda *a, **k: self._fetch_result(dest)
+            ) as fetch_mock, unittest.mock.patch(
+                "apify.remaining_credit_usd", return_value=10.0
+            ):
+                code, parsed, _err, text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
+            fetch_mock.assert_called_once()
+            self.assertEqual(parsed["new"], 5)
+            self.assertEqual(parsed["duplicate"], 0)
+            self.assertEqual(parsed["usd_charged"], 0.0011)
+            self.assertEqual(parsed["credit_remaining_usd"], 10.0 - 0.0011)
+
+    def test_budget_zero_skips_with_no_network_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp, budgets_toml="apify_max_items_per_run = 0\n")
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            with unittest.mock.patch("apify.fetch_linkedin") as fetch_mock:
+                code, parsed, _err, _text = run(
+                    ["linkedin-fetch", "--config", cfg, "--queue", queue, "--dest", dest]
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(parsed["skipped_source"], "linkedin")
+            fetch_mock.assert_not_called()
+
+    def test_missing_linkedin_section_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp, linkedin_toml="")
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            code, _parsed, err, _text = run(
+                ["linkedin-fetch", "--config", cfg, "--queue", queue, "--dest", dest]
+            )
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "ConfigError")
+
+    def test_no_token_raises_apify_token_missing_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, "does-not-exist.env")
+            with unittest.mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("APIFY_TOKEN", None)
+                code, _parsed, err, _text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "ApifyTokenMissingError")
+
+    def test_credit_below_cap_refuses_before_fetch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            with unittest.mock.patch(
+                "apify.remaining_credit_usd", return_value=0.0
+            ), unittest.mock.patch("apify.fetch_linkedin") as fetch_mock:
+                code, _parsed, err, _text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(err)["error"], "ApifyCreditError")
+            fetch_mock.assert_not_called()
+
+    def test_second_run_dedupes_against_the_first(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            with unittest.mock.patch(
+                "apify.fetch_linkedin", side_effect=lambda *a, **k: self._fetch_result(dest)
+            ), unittest.mock.patch("apify.remaining_credit_usd", return_value=10.0):
+                _code1, parsed1, _err1, _t1 = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+                _code2, parsed2, _err2, _t2 = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(parsed2["new"], 0)
+            self.assertEqual(parsed2["duplicate"], parsed1["new"])
+
+    def test_failed_fetch_leaves_state_file_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cfg = self._config(tmp)
+            queue = os.path.join(tmp, "jobs.jsonl")
+            dest = os.path.join(tmp, "raw.json")
+            env_file = os.path.join(tmp, ".env")
+            with open(env_file, "w", encoding="utf-8") as f:
+                f.write("APIFY_TOKEN=test-token\n")
+            state_path = os.path.join(tmp, "linkedin-state.json")
+            with unittest.mock.patch(
+                "apify.fetch_linkedin", side_effect=apify.ApifyError("run FAILED")
+            ), unittest.mock.patch("apify.remaining_credit_usd", return_value=10.0):
+                code, _parsed, err, _text = run(
+                    [
+                        "linkedin-fetch",
+                        "--config", cfg,
+                        "--queue", queue,
+                        "--dest", dest,
+                        "--env-file", env_file,
+                    ]
+                )
+            self.assertEqual(code, 1)
+            payload = json.loads(err[err.index("{"):])
+            self.assertEqual(payload["error"], "ApifyError")
+            self.assertFalse(os.path.exists(state_path))
+
+    def test_help_lists_all_four_flags(self):
+        code, _parsed, _err, text = run(["linkedin-fetch", "--help"])
+        self.assertEqual(code, 0)
+        for flag in ("--config", "--queue", "--dest", "--env-file"):
+            self.assertIn(flag, text)
 
 
 if __name__ == "__main__":

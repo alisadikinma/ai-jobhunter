@@ -27,15 +27,18 @@ because a refusal is an outcome the skill has to report, not a crash.
 """
 
 import argparse
+import datetime
 import json
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import apify  # noqa: E402
 import ats  # noqa: E402
 import config  # noqa: E402
 import docx  # noqa: E402
+import envfile  # noqa: E402
 import jobq  # noqa: E402
 import keywords  # noqa: E402
 import pdf  # noqa: E402
@@ -349,6 +352,64 @@ def cmd_template_check(args):
     )
 
 
+def cmd_linkedin_fetch(args):
+    """Fetch new LinkedIn postings through the Apify bebity actor.
+
+    Order matters: config, then keywords/locations, then the token, then
+    the credit brake — each check is cheap and must run before the ones
+    that spend money. `write_state` is the very last step, so a failed
+    fetch leaves the re-fetch window untouched rather than silently
+    narrowing it.
+    """
+    cfg = config.load(args.config)
+    max_items = cfg["budgets"]["apify_max_items_per_run"]
+    if max_items == 0:
+        _emit({"skipped_source": "linkedin", "reason": "apify_max_items_per_run is 0"})
+        return
+
+    linkedin_cfg = cfg["linkedin"]
+    if not linkedin_cfg["keywords"] or not linkedin_cfg["locations"]:
+        raise config.ConfigError(
+            f"linkedin-fetch needs [linkedin] keywords and locations in {args.config}"
+        )
+
+    token = envfile.read_key("APIFY_TOKEN", args.env_file)
+    if not token:
+        raise apify.ApifyTokenMissingError(
+            f"APIFY_TOKEN is not set in the environment or in {args.env_file}"
+        )
+
+    cap = apify.charge_cap_usd(max_items)
+    remaining = apify.remaining_credit_usd(token)
+    if remaining < cap:
+        raise apify.ApifyCreditError(
+            f"remaining Apify credit ${remaining:.2f} is below this run's cap ${cap:.2f}"
+        )
+
+    state = os.path.join(os.path.dirname(os.path.abspath(args.queue)), "linkedin-state.json")
+    now = datetime.datetime.now(datetime.timezone.utc)
+    window = apify.choose_window(state, now)
+
+    actor_input = apify.build_actor_input(linkedin_cfg, max_items, window)
+    result = apify.fetch_linkedin(actor_input, max_items, token, args.dest)
+    rows = apify.normalize_linkedin(args.dest)
+    written, duplicate, _malformed = jobq.append_rows(args.queue, list(rows))
+    apify.write_state(state, now)
+
+    _emit(
+        {
+            "window": window,
+            "requested": max_items,
+            "returned": result["returned"],
+            "new": written,
+            "duplicate": duplicate,
+            "skipped": rows.skipped,
+            "usd_charged": result["usd_charged"],
+            "credit_remaining_usd": remaining - result["usd_charged"],
+        }
+    )
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -469,6 +530,15 @@ def build_parser():
     p.add_argument("--top", type=int, default=keywords.DEFAULT_TOP_N)
     p.add_argument("--markdown", action="store_true", help="emit keyword-report.md instead of JSON")
     p.set_defaults(func=cmd_keywords_report)
+
+    p = sub.add_parser(
+        "linkedin-fetch", help="Fetch new LinkedIn postings through Apify's bebity actor"
+    )
+    p.add_argument("--config", required=True, help="path to .jobhunter/config.toml")
+    p.add_argument("--queue", required=True, help="path to the local job queue JSONL file")
+    p.add_argument("--dest", required=True, help="file to stream the raw Apify dataset into")
+    p.add_argument("--env-file", default=".env", help="path to the .env file holding APIFY_TOKEN")
+    p.set_defaults(func=cmd_linkedin_fetch)
 
     p = sub.add_parser("promote-prepare", help="Build jobsync payloads within a request budget")
     p.add_argument("--rows", required=True, help="JSON array of scored rows, or @path")
