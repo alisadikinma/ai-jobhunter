@@ -116,21 +116,21 @@
 - [x] allow-list prose for `projects` unchanged (diff shows no edit there)
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase G: `tailor` — pasted JD, map, agreement gate, keyword loop, PDF
-- [ ] Write failing test for tailor SKILL.md stating the agreement gate (`test_tailor_states_agreement_gate`), asserting tailor SKILL.md contains `requirements-map.md`, `approved:`, `jd.md`, `render-pdf`, and the phrase `no cv.md or cover-letter.md is written until` (lowercased compare). Expected error: `AssertionError`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Replace `test_render_docx_and_all_three_of_its_flags_are_collected` with `test_render_pdf_and_all_four_of_its_flags_are_collected` asserting `commands["render-pdf"] == {"--in", "--out", "--page", "--allow-unverified"}`; add `test_tailor_no_longer_renders_docx` asserting `render-docx` does not appear in tailor SKILL.md
-- [ ] Rewrite `skills/tailor/SKILL.md` per the spec §3 flow, in this order: Inputs (queue row, URL, **or pasted JD text** → saved verbatim to `.jobhunter/applications/<slug>/jd.md`; slug from company + title in the JD, **ask the user if either is missing, never guess**); Location check (warn, never block, because a pasted JD bypasses `/ai-jobhunter:score`); Requirements map (format verbatim from this plan's Contracts); **Agreement gate** (walk the map group by group with AskUserQuestion; per row accept / reject pairing / add evidence / confirm gap; added evidence appended to `master-cv.md` with source `user, YYYY-MM-DD`; "No cv.md or cover-letter.md is written until every row is agreed"; write `approved: YYYY-MM-DD`; a map without that line means the gate has not passed); Write (approved rows only; JD wording mirrored only where an approved row evidences it; a `gap` never appears; keep existing no-invention and `verified: false` rules and the "never sent as-is" section verbatim); Keyword loop (`keywords-report` with `--jd` pointing at `jd.md` or the JD file; add missing terms only when an approved row evidences them; at most 2 rounds); Render (`render-pdf` twice, command block from Contracts § CLI with backslash continuation); refusals section rewritten for `render-pdf` naming `UnverifiedClaimError`, `EmptyDocumentError`, `DestinationError`, `UnsupportedCharacterError`; `--allow-unverified` paragraph kept verbatim with `render-docx` → `render-pdf`; Output list: `jd.md` (pasted only), `requirements-map.md`, `cv.md`, `cover-letter.md`, `cv.pdf`, `cover-letter.pdf`, `keyword-report.md`; final print adds map counts (match / partial / gap), approval date, location warning
-- [ ] Run full suite green (`TestNoCandidateSpecificContent`, documented-flag guards, `test_every_skill_names_the_plugin_root_variable`)
-- [ ] Mutations: (a) delete the agreement-gate sentence → new test fails; (b) change `--page` to `--paper` in the doc block → documented-flag guard fails; restore both
-- [ ] Commit: `feat(tailor): pasted JD, requirements map, agreement gate, PDF output`
+### [x] Phase G: `tailor` — pasted JD, map, agreement gate, keyword loop, PDF
+- [x] Write failing test for tailor SKILL.md stating the agreement gate (`test_tailor_states_agreement_gate`), asserting tailor SKILL.md contains `requirements-map.md`, `approved:`, `jd.md`, `render-pdf`, and the phrase `no cv.md or cover-letter.md is written until` (lowercased compare). Expected error: `AssertionError`
+- [x] Run it, confirm it fails for that reason
+- [x] Replace `test_render_docx_and_all_three_of_its_flags_are_collected` with `test_render_pdf_and_all_four_of_its_flags_are_collected` asserting `commands["render-pdf"] == {"--in", "--out", "--page", "--allow-unverified"}`; add `test_tailor_no_longer_renders_docx` asserting `render-docx` does not appear in tailor SKILL.md
+- [x] Rewrite `skills/tailor/SKILL.md` per the spec §3 flow, in this order: Inputs (queue row, URL, **or pasted JD text** → saved verbatim to `.jobhunter/applications/<slug>/jd.md`; slug from company + title in the JD, **ask the user if either is missing, never guess**); Location check (warn, never block, because a pasted JD bypasses `/ai-jobhunter:score`); Requirements map (format verbatim from this plan's Contracts); **Agreement gate** (walk the map group by group with AskUserQuestion; per row accept / reject pairing / add evidence / confirm gap; added evidence appended to `master-cv.md` with source `user, YYYY-MM-DD`; "No cv.md or cover-letter.md is written until every row is agreed"; write `approved: YYYY-MM-DD`; a map without that line means the gate has not passed); Write (approved rows only; JD wording mirrored only where an approved row evidences it; a `gap` never appears; keep existing no-invention and `verified: false` rules and the "never sent as-is" section verbatim); Keyword loop (`keywords-report` with `--jd` pointing at `jd.md` or the JD file; add missing terms only when an approved row evidences them; at most 2 rounds); Render (`render-pdf` twice, command block from Contracts § CLI with backslash continuation); refusals section rewritten for `render-pdf` naming `UnverifiedClaimError`, `EmptyDocumentError`, `DestinationError`, `UnsupportedCharacterError`; `--allow-unverified` paragraph kept verbatim with `render-docx` → `render-pdf`; Output list: `jd.md` (pasted only), `requirements-map.md`, `cv.md`, `cover-letter.md`, `cv.pdf`, `cover-letter.pdf`, `keyword-report.md`; final print adds map counts (match / partial / gap), approval date, location warning
+- [x] Run full suite green (`TestNoCandidateSpecificContent`, documented-flag guards, `test_every_skill_names_the_plugin_root_variable`)
+- [x] Mutations: (a) delete the agreement-gate sentence → new test fails; (b) change `--page` to `--paper` in the doc block → documented-flag guard fails; restore both
+- [x] Commit: `feat(tailor): pasted JD, requirements map, agreement gate, PDF output`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] documented-flag guard collects all 4 `render-pdf` flags
-- [ ] no candidate-specific strings under `skills/`
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] documented-flag guard collects all 4 `render-pdf` flags — `{"--in", "--out", "--page", "--allow-unverified"}` (`--page` from the fenced block, `--allow-unverified` from the inline `render-pdf --allow-unverified` mention, same pattern render-docx used)
+- [x] no candidate-specific strings under `skills/`
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase H: tailoring evals for the new judgement
 - [ ] Write failing test for the tailoring eval cases (in `tests/test_evals.py`), asserting `docs/evals/tailoring.md` has cases titled `pasted JD`, `agreement gate`, `gap never rendered`. Expected error: `AssertionError`
@@ -172,6 +172,7 @@
 | D — pdf renderer | DONE | `35445ec` |
 | E — CLI render-pdf | DONE | `480798d` |
 | F — profile PDF any tier | DONE | `5a55ed3` |
+| G — tailor flow | DONE | `b68328f` |
 
 ## Utang terbuka
 
@@ -187,3 +188,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase D done — 597 lulus, mutasi (a) hapus encode-check → UnsupportedCharacter test gagal (jadi UnicodeEncodeError mentah), mutasi (b) tulis langsung ke --out tanpa mkstemp → no-file-on-failure test gagal (DestinationError tak pernah terlempar) — NEXT: Phase E
 - 2026-09-22 Phase E done — 612 lulus, mutasi → test_an_out_that_is_not_a_pdf_is_refused gagal — NEXT: Phase F
 - 2026-09-22 Phase F done — 613 lulus, mutasi (revert prosa) → test_profile_states_pdf_in_any_tier_uses_xberg gagal — NEXT: Phase G
+- 2026-09-22 Phase G done — 615 lulus, mutasi (a) hapus kalimat agreement-gate → test_tailor_states_agreement_gate gagal, mutasi (b) --page → --paper di blok perintah → test_every_documented_flag_exists_on_its_subcommand gagal — NEXT: Phase H
