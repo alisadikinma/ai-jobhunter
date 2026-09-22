@@ -8,7 +8,7 @@
 
 | Gate | Result |
 |---|---|
-| Git clean | belum dijalankan — isi saat eksekusi |
+| Git clean | PASS — baseline `c8814f5`, porcelain kosong |
 | Baseline suite | saat plan ditulis: `python3 -m unittest discover -s tests -t .`, 632 lulus / 0 gagal (`9696912`) |
 | detect-stack | nol baris (tidak ada penanda stack) — perintah dari CLAUDE.md: static `python3 -m compileall -q scripts tests`, unit `python3 -m unittest discover -s tests -t .` |
 
@@ -148,6 +148,8 @@
 ## Utang terbuka
 
 (kosong sampai ada yang sengaja ditinggal; tiap butir bernama)
+
+design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-09-22)
 
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
