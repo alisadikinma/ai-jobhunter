@@ -165,6 +165,24 @@ class TestNamedHardRulesInProse(unittest.TestCase):
             "mcp__xberg__extract_file rule",
         )
 
+    def test_tailor_states_agreement_gate(self):
+        """AJOB-3 Phase G: tailor must name the requirements map, the
+        `approved:` line, the pasted-JD file, `render-pdf`, and state plainly
+        that no CV or cover letter is written before every row is agreed."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        self.assertIn("requirements-map.md", text)
+        self.assertIn("approved:", text)
+        self.assertIn("jd.md", text)
+        self.assertIn("render-pdf", text)
+        self.assertIn("no cv.md or cover-letter.md is written until", text)
+
+    def test_tailor_no_longer_renders_docx(self):
+        """AJOB-3 reverses AJOB-2: tailor ships PDF only. `render-docx` stays
+        in the CLI (and in its own tests), but tailor's SKILL.md must not
+        call it any more."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md"))
+        self.assertNotIn("render-docx", text)
+
 
 class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     """Before `scripts/jobhunter.py` existed, the skills named Python
@@ -359,17 +377,22 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         )
         return match.group(1).split(",")
 
-    def test_render_docx_and_all_three_of_its_flags_are_collected(self):
+    def test_render_pdf_and_all_four_of_its_flags_are_collected(self):
         """The guard must actually SEE the newest command, not just pass.
 
         This guard was twice found vacuous during AJOB-1 — checking zero of
         eighteen flags while staying green — so a new subcommand asserts its
         own collection rather than trusting that the general test covers it.
+        AJOB-3 replaces `render-docx` here because `tailor` (the only skill
+        that used to document it) now documents `render-pdf` instead;
+        `render-docx` stays a real CLI subcommand and keeps its own tests in
+        test_docx.py / test_cli.py, it is just no longer skill-documented.
         """
         commands = self._documented_commands()
-        self.assertIn("render-docx", commands)
+        self.assertIn("render-pdf", commands)
         self.assertEqual(
-            commands["render-docx"], {"--in", "--out", "--allow-unverified"}
+            commands["render-pdf"],
+            {"--in", "--out", "--page", "--allow-unverified"},
         )
 
     def test_every_documented_subcommand_exists_in_the_cli(self):
