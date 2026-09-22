@@ -146,6 +146,25 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         self.assertIn("verified: false", text)
         self.assertIn("allow-list", text)
 
+    def test_profile_states_pdf_in_any_tier_uses_xberg(self):
+        """AJOB-3 Phase F: a `.pdf` source in ANY tier — not just linkedin-pdf
+        — is extracted with `mcp__xberg__extract_file`. The three fragments
+        must appear together in the same paragraph, not just somewhere in the
+        file, so the rule reads as one sentence rather than three unrelated
+        mentions."""
+        text = _read(os.path.join(SKILLS_DIR, "profile", "SKILL.md")).lower()
+        paragraphs = text.split("\n\n")
+        matches = [
+            p
+            for p in paragraphs
+            if "mcp__xberg__extract_file" in p and "any tier" in p and ".pdf" in p
+        ]
+        self.assertTrue(
+            matches,
+            "no paragraph in profile/SKILL.md states the any-tier .pdf -> "
+            "mcp__xberg__extract_file rule",
+        )
+
 
 class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
     """Before `scripts/jobhunter.py` existed, the skills named Python

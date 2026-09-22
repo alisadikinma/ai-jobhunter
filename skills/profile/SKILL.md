@@ -30,10 +30,16 @@ individual is bundled with this plugin.
 - `scripts/config.py` — `config.load`, `config.resolve_profile_sources`.
 - `mcp__firecrawl__firecrawl_scrape` — fetch each `site` tier entry. The
   native Read tool is not used for these; they are live web pages.
-- `mcp__xberg__extract_file` — extract the `linkedin-pdf` tier entry. The
-  native Read tool cannot parse PDF; this is the only supported path for it.
+- `mcp__xberg__extract_file` — extract any source path ending in `.pdf`
+  (case-insensitive), in **any tier** — `primary`, `local`, `linkedin_pdf` —
+  not only the `linkedin-pdf` tier. The native Read tool cannot parse PDF;
+  this is the only supported path for a PDF source, whichever tier it sits
+  in. An extraction that returns no text stops and reports the file — it
+  never proceeds with an empty source.
 - Local markdown (`local-primary`, `local`, `project` tiers) is read with the
-  native Read tool, since these are already plain text on disk.
+  native Read tool, since these are already plain text on disk. This applies
+  only when the source path does not end in `.pdf`; a `.pdf` path in any of
+  these tiers still goes through `mcp__xberg__extract_file` above.
 
 ## The four passes (spec §4.2)
 
@@ -45,9 +51,13 @@ each pass has one job and writes its own artifact before the next pass runs.
 
 For every entry `config.resolve_profile_sources(cfg)` returns, in order:
 
-1. Fetch it (`firecrawl_scrape` for a `site` entry, `extract_file` for the
-   `linkedin-pdf` entry, a direct read for `local-primary` / `local` /
-   `project` entries).
+1. Fetch it: `firecrawl_scrape` for a `site` entry; `extract_file` for a
+   source path ending in `.pdf` (case-insensitive), in **any tier** —
+   `primary`, `local`, `linkedin_pdf` — since the native Read tool cannot
+   parse PDF; a direct read for any other `local-primary` / `local` /
+   `project` entry. Example: `primary = "data/master-cv.pdf"` makes a
+   curated CV PDF the highest-precedence source, extracted the same way a
+   `linkedin_pdf` entry always was.
 2. Write the fetched content **verbatim** to
    `.jobhunter/profile/sources/<name>.md`, with the source's URL or filesystem
    path and today's fetch date recorded at the top of the file.
