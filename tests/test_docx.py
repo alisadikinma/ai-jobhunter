@@ -1110,6 +1110,50 @@ class TestFlattenMultiLineHtmlComments(unittest.TestCase):
             notes,
         )
 
+    # plan-verifier round 1 (AJOB-4): the scan asked only "is there a `-->`
+    # after the FIRST `<!--` on this line?", so a closed comment earlier on
+    # the line hid a multi-line opener after it, and jumping past the closing
+    # line skipped an opener that shared it. Both leaked text to the page.
+
+    def test_a_multi_line_opener_after_a_closed_comment_on_the_same_line(self):
+        markdown = "# N\n\n<!-- x --> text <!-- open\nsecret sections:\n-->\nline\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "N"},
+                # The blanked span separates the two: lines are emptied, not
+                # removed, so what surrounded the comment becomes two blocks.
+                {"kind": "paragraph", "text": "text"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 3-5: html comment stripped", notes)
+
+    def test_a_multi_line_opener_on_the_closing_line_of_another(self):
+        markdown = "# N\n\n<!-- a\nb\n--> <!-- c\nsecret2\n-->\nline\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "N"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 3-5: html comment stripped", notes)
+        self.assertIn("lines 5-7: html comment stripped", notes)
+
+    def test_crlf_input_is_stripped_the_same_way(self):
+        blocks, notes = docx.prepare("<!-- a\r\nb\r\n-->\r\n# Name\r\n\r\nline\r\n", "t.md")
+        self.assertEqual(
+            blocks,
+            [
+                {"kind": "heading", "level": 1, "text": "Name"},
+                {"kind": "paragraph", "text": "line"},
+            ],
+        )
+        self.assertIn("lines 1-3: html comment stripped", notes)
+
 
 class TestFlattenOverARealMessyCV(unittest.TestCase):
     def setUp(self):

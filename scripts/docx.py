@@ -830,6 +830,24 @@ def _flatten_table(lines, start, stop):
     return out
 
 
+def _unclosed_comment_start(line):
+    """Column of the first `<!--` on `line` that has no `-->` after it, or None.
+
+    Checking only the FIRST `<!--` let a closed comment hide a multi-line one
+    later on the same line: "<!-- x --> text <!-- open" was judged closed and
+    the second comment's body reached the page (plan-verifier, AJOB-4).
+    """
+    position = 0
+    while True:
+        start = line.find(_COMMENT_OPEN, position)
+        if start == -1:
+            return None
+        close = line.find(_COMMENT_CLOSE, start + len(_COMMENT_OPEN))
+        if close == -1:
+            return start
+        position = close + len(_COMMENT_CLOSE)
+
+
 def _strip_multiline_html_comments(lines, origins, code_lines):
     """Remove `<!--` … `-->` spans whose closing marker is on a LATER line.
 
@@ -860,13 +878,10 @@ def _strip_multiline_html_comments(lines, origins, code_lines):
             index += 1
             continue
         line = out[index]
-        start = line.find(_COMMENT_OPEN)
-        if start == -1:
-            index += 1
-            continue
-        if line.find(_COMMENT_CLOSE, start + len(_COMMENT_OPEN)) != -1:
-            # Opens and closes on the same line — the per-line pass's own
-            # job, not this one.
+        # Comments that open and close on this line are the per-line pass's
+        # own job, not this one.
+        start = _unclosed_comment_start(line)
+        if start is None:
             index += 1
             continue
 
@@ -900,7 +915,10 @@ def _strip_multiline_html_comments(lines, origins, code_lines):
             "lines %d-%d: html comment stripped"
             % (origins[index], origins[end_index])
         )
-        index = end_index + 1
+        # Re-scan the closing line rather than moving past it: what follows
+        # its `-->` can open the next multi-line comment. The remainder is
+        # strictly shorter each time, so this terminates.
+        index = end_index
 
     return out, notes
 
