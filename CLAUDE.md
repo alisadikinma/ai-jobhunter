@@ -53,7 +53,8 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 
 Subcommands: `config-show`, `ats-fetch`, `ats-normalize`, `queue-append`,
 `queue-list`, `queue-update`, `queue-key`, `keywords-report`, `linkedin-fetch`,
-`promote-prepare`, `render-docx`, `render-pdf`, `template-check`.
+`firecrawl-search`, `firecrawl-scrape`, `keys-check`, `promote-prepare`,
+`render-docx`, `render-pdf`, `template-check`.
 
 Large payloads arrive as `--rows @path` / `--updates @path`. Every subcommand
 prints one JSON document on stdout — except `keywords-report --markdown`, which

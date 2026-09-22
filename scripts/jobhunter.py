@@ -39,6 +39,7 @@ import ats  # noqa: E402
 import config  # noqa: E402
 import docx  # noqa: E402
 import envfile  # noqa: E402
+import firecrawl  # noqa: E402
 import jobq  # noqa: E402
 import keywords  # noqa: E402
 import pdf  # noqa: E402
@@ -410,6 +411,61 @@ def cmd_linkedin_fetch(args):
     )
 
 
+def _open_firecrawl_budget(args):
+    """Shared setup for `firecrawl-search`/`firecrawl-scrape`: key, account
+    credit, and this run's own ceiling — every check cheap and ordered
+    before the call that spends money."""
+    cfg = config.load(args.config)
+    key = envfile.read_key("FIRECRAWL_API_KEY", args.env_file)
+    if not key:
+        raise firecrawl.FirecrawlKeyMissingError(
+            f"FIRECRAWL_API_KEY is not set in the environment or in {args.env_file}"
+        )
+    remaining = firecrawl.remaining_credits(key)
+    budget = firecrawl.Budget.open(
+        args.run_state, cfg["budgets"]["firecrawl_credits_per_run"], remaining
+    )
+    return key, remaining, budget
+
+
+def cmd_firecrawl_search(args):
+    key, remaining, budget = _open_firecrawl_budget(args)
+    budget.check("search", args.limit, remaining)
+    results, credits_used = firecrawl.search(
+        key, args.query, args.limit, args.dest, tbs=args.tbs, location=args.location
+    )
+    budget.record(credits_used)
+    _emit(
+        {
+            "dest": args.dest,
+            "results": results,
+            "credits_spent_run": budget.spent(remaining),
+            "credits_budget": budget.ceiling,
+            "credits_remaining_account": remaining - (credits_used or 0),
+        }
+    )
+
+
+def cmd_firecrawl_scrape(args):
+    key, remaining, budget = _open_firecrawl_budget(args)
+    budget.check("scrape", None, remaining)
+    credits_used = firecrawl.scrape(key, args.url, args.dest)
+    budget.record(credits_used)
+    _emit(
+        {
+            "dest": args.dest,
+            "url": args.url,
+            "credits_spent_run": budget.spent(remaining),
+            "credits_budget": budget.ceiling,
+            "credits_remaining_account": remaining - (credits_used or 0),
+        }
+    )
+
+
+def cmd_keys_check(args):
+    _emit(envfile.key_status(["APIFY_TOKEN", "FIRECRAWL_API_KEY"], args.env_file))
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -539,6 +595,29 @@ def build_parser():
     p.add_argument("--dest", required=True, help="file to stream the raw Apify dataset into")
     p.add_argument("--env-file", default=".env", help="path to the .env file holding APIFY_TOKEN")
     p.set_defaults(func=cmd_linkedin_fetch)
+
+    p = sub.add_parser("firecrawl-search", help="Board search through Firecrawl REST v2")
+    p.add_argument("--config", required=True, help="path to .jobhunter/config.toml")
+    p.add_argument("--run-state", required=True, help="path to this run's Firecrawl budget file")
+    p.add_argument("--query", required=True)
+    p.add_argument("--limit", type=int, default=10)
+    p.add_argument("--dest", required=True, help="file to write the search results into")
+    p.add_argument("--env-file", default=".env", help="path to the .env file holding FIRECRAWL_API_KEY")
+    p.add_argument("--tbs")
+    p.add_argument("--location")
+    p.set_defaults(func=cmd_firecrawl_search)
+
+    p = sub.add_parser("firecrawl-scrape", help="Scrape one page through Firecrawl REST v2")
+    p.add_argument("--config", required=True, help="path to .jobhunter/config.toml")
+    p.add_argument("--run-state", required=True, help="path to this run's Firecrawl budget file")
+    p.add_argument("--url", required=True)
+    p.add_argument("--dest", required=True, help="file to write the scraped page into")
+    p.add_argument("--env-file", default=".env", help="path to the .env file holding FIRECRAWL_API_KEY")
+    p.set_defaults(func=cmd_firecrawl_scrape)
+
+    p = sub.add_parser("keys-check", help="Report which provider keys are present, never their values")
+    p.add_argument("--env-file", default=".env", help="path to the .env file to check")
+    p.set_defaults(func=cmd_keys_check)
 
     p = sub.add_parser("promote-prepare", help="Build jobsync payloads within a request budget")
     p.add_argument("--rows", required=True, help="JSON array of scored rows, or @path")
