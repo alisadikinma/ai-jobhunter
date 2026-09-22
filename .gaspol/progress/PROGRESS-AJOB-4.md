@@ -141,6 +141,14 @@
 - [x] real run: both `template-check` calls `ok: true`; xberg round-trip complete
 - [x] No placeholder/TODO comments in new code
 
+### [x] Plan-verifier round 1 — BLOCKING (3 DROPPED, 5 PARTIAL), Ali: perbaiki semua
+- [x] Comment strip leak (Phase A PARTIAL): `_unclosed_comment_start` checks every `<!--` on the line; closing line re-scanned. RED: 2 new tests leaked `secret` text; mutation `index = end_index + 1` → `test_a_multi_line_opener_on_the_closing_line_of_another` fails. CRLF test added (`ce4a74f`)
+- [x] §6 DROPPED: `weak-opening` now per sentence (`(?:^|[.!?]\s+)I am writing`). RED: "Hello there. I am writing…" → `[]`; mutation `search`→`match` fails. Plus 3 letter-template refusal tests (no levels / no sign-offs / never closed); mutation on levels guard fails (`9df570b`)
+- [x] §3 DROPPED + Phase B PARTIAL: universal CV rules in tailor Write section; every CV template states no-pronoun and header/footer rules
+- [x] §4 DROPPED: letter prohibitions (no restating CV bullets, not about what the job does for the candidate) in tailor and `templates/cover-letter.md`
+- [x] Phase F PARTIAL: stale "summary and section ordering" line replaced — section order comes from the template; `render-docx` guard now requires EVERY paragraph to say enterprise (mutation: unconditional paragraph → fails); "never guess" fragment made specific to the portal sentence (mutation: sentence reworded → fails) (`0aee37e`)
+- [x] Suite 734 lulus; CLAUDE.md count 734; real-run CV + letter still `ok: true`
+
 ## Phase log
 
 | Phase | Status | Commit |
@@ -156,7 +164,11 @@
 
 ## Utang terbuka
 
-(kosong sampai ada yang sengaja ditinggal; tiap butir bernama)
+Catatan kecil plan-verifier round 1, sengaja tidak diubah (di luar 7 butir yang diminta):
+- `pronoun` menandai `- Built I-9 onboarding flow` (regex sesuai plan; `I-9` dibaca sebagai "I").
+- `weak-close` tidak memeriksa teks setelah sign-off (misal P.S.).
+- `### x` langsung setelah H1 diterima sebagai baris kontak.
+- `--template ../cv/technical` diterima (hanya baca file `.md`, tidak menulis/eksekusi).
 
 design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-09-22)
 
@@ -170,3 +182,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase F done — 720 lulus, mutasi (--level → --lvl di doc) → test_template_check_and_all_six_of_its_flags_are_collected gagal — NEXT: Phase G
 - 2026-09-22 Phase G done — 722 lulus, mutasi (ganti nama heading case 11) → test_cover_letter_format_case_present gagal; PARITY_ORACLE tailoring.md di-update (konten berubah, bukan perilaku docx.render) — NEXT: Phase H
 - 2026-09-22 Phase H done — 722 lulus, versi 0.3.0 (RED: '0.2.0' != '0.3.0'), real run City of Hope: technical/mid/other, 2 temuan heading diperbaiki, CV+letter ok: true, cv.pdf 2 hlm, xberg urut — NEXT: plan-verifier + gaspol-verify
+- 2026-09-22 plan-verifier round 1 BLOCKING → semua 7 butir diperbaiki (3 commit), 734 lulus — NEXT: plan-verifier round 2
