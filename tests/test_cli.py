@@ -863,5 +863,162 @@ class TestRenderPdf(unittest.TestCase):
         self.assertEqual(json.loads(err)["error"], "DestinationError")
 
 
+class TestTemplateCheckCv(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob4-cli-template-check-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def write(self, text, name="cv.md"):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def test_a_clean_cv_reports_ok_true(self):
+        source = self.write(
+            "# Rin Halvorsen\n\n"
+            "Berlin, Germany · rin@example.com · +49 000 0000\n\n"
+            "## Professional Summary\n\nBackend engineer.\n\n"
+            "## Technical Skills\n\n- Python\n\n"
+            "## Work Experience\n\n### Staff Engineer — Example Corp\n\n"
+            "Jan 2022 – Present · Berlin, Germany\n\n"
+            "- Cut latency by 40%\n\n"
+            "## Education\n\nBSc, Example University, 2015\n"
+        )
+        code, parsed, _err, _text = run(
+            ["template-check", "--cv", source, "--template", "technical"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            parsed,
+            {"kind": "cv", "template": "technical", "findings": [], "ok": True},
+        )
+
+    def test_a_cv_with_findings_reports_ok_false_but_still_exits_0(self):
+        source = self.write("Just prose, no name heading.\n")
+        code, parsed, _err, _text = run(
+            ["template-check", "--cv", source, "--template", "technical"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["kind"], "cv")
+        self.assertFalse(parsed["ok"])
+        self.assertTrue(parsed["findings"])
+        self.assertIn("no-name", [f["rule"] for f in parsed["findings"]])
+
+
+class TestTemplateCheckLetter(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob4-cli-template-check-letter-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def write(self, text, name="cover-letter.md"):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def _valid_letter_body(self, words_per_paragraph=(85, 85, 85, 65)):
+        # P1 opens with the company and role so `--company`/`--role` pass.
+        p1 = "Acme's Engineer role is the reason I am reaching out today, " + " ".join(
+            "word%d" % i for i in range(words_per_paragraph[0] - 11)
+        )
+        paragraphs = [p1] + [
+            " ".join("word%d" % i for i in range(n)) for n in words_per_paragraph[1:]
+        ]
+        return (
+            "# Rin Halvorsen\n\n"
+            "Berlin, Germany · rin@example.com · +49 000 0000\n\n"
+            "Dear Acme Hiring Team,\n\n"
+            + "\n\n".join(paragraphs)
+            + "\n\nSincerely,\n\nRin Halvorsen\n"
+        )
+
+    def test_a_clean_letter_reports_ok_true_and_level_reflects_the_flag(self):
+        source = self.write(self._valid_letter_body())
+        code, parsed, _err, _text = run(
+            [
+                "template-check", "--letter", source, "--level", "mid",
+                "--company", "Acme", "--role", "Engineer",
+            ]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["kind"], "letter")
+        self.assertEqual(parsed["level"], "mid")
+        self.assertTrue(parsed["ok"])
+        self.assertEqual(parsed["findings"], [])
+
+    def test_both_cv_and_letter_flags_is_refused(self):
+        cv = self.write("# X\n", name="cv.md")
+        letter = self.write(self._valid_letter_body(), name="cover-letter.md")
+        code, _parsed, err, _text = run(
+            [
+                "template-check", "--cv", cv, "--template", "technical",
+                "--letter", letter, "--level", "mid",
+            ]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_neither_cv_nor_letter_flag_is_refused(self):
+        code, _parsed, err, _text = run(["template-check"])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_cv_without_template_is_refused(self):
+        cv = self.write("# X\n", name="cv.md")
+        code, _parsed, err, _text = run(["template-check", "--cv", cv])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_letter_without_level_is_refused(self):
+        letter = self.write(self._valid_letter_body())
+        code, _parsed, err, _text = run(["template-check", "--letter", letter])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_unknown_template_is_refused(self):
+        cv = self.write("# X\n", name="cv.md")
+        code, _parsed, err, _text = run(
+            ["template-check", "--cv", cv, "--template", "does-not-exist"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_unknown_level_is_refused(self):
+        letter = self.write(self._valid_letter_body())
+        code, _parsed, err, _text = run(
+            ["template-check", "--letter", letter, "--level", "does-not-exist"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "TemplateError")
+
+    def test_missing_cv_file_is_refused_and_names_the_path(self):
+        missing = os.path.join(self.tmp, "absent.md")
+        code, _parsed, err, _text = run(
+            ["template-check", "--cv", missing, "--template", "technical"]
+        )
+        self.assertEqual(code, 1)
+        payload = json.loads(err)
+        self.assertEqual(payload["error"], "TemplateError")
+        self.assertIn(missing, payload["message"])
+
+    def test_missing_letter_file_is_refused_and_names_the_path(self):
+        missing = os.path.join(self.tmp, "absent.md")
+        code, _parsed, err, _text = run(
+            ["template-check", "--letter", missing, "--level", "mid"]
+        )
+        self.assertEqual(code, 1)
+        payload = json.loads(err)
+        self.assertEqual(payload["error"], "TemplateError")
+        self.assertIn(missing, payload["message"])
+
+
+class TestTemplateCheckHelp(unittest.TestCase):
+    def test_help_lists_the_subcommand(self):
+        code, _parsed, _err, text = run(["--help"])
+        self.assertEqual(code, 0)
+        self.assertIn("template-check", text)
+
+
 if __name__ == "__main__":
     unittest.main()

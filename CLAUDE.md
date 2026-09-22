@@ -48,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 
 Subcommands: `config-show`, `ats-fetch`, `ats-normalize`, `queue-append`,
 `queue-list`, `queue-update`, `queue-key`, `keywords-report`, `promote-prepare`,
-`render-docx`, `render-pdf`.
+`render-docx`, `render-pdf`, `template-check`.
 
 Large payloads arrive as `--rows @path` / `--updates @path`. Every subcommand
 prints one JSON document on stdout — except `keywords-report --markdown`, which
@@ -59,7 +59,7 @@ prints the report. Logging goes to stderr. A refusal is
 
 | Path | What it holds |
 | --- | --- |
-| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, eleven subcommands |
+| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, twelve subcommands |
 | `scripts/config.py` | TOML loader + `resolve_profile_sources`; owns the allow-list |
 | `scripts/jobq.py` | local JSONL queue — `load`, `append_rows`, `row_key`, `iter_unscored`, `iter_unpromoted`, `update_rows` |
 | `scripts/ats.py` | `fetch` (the only network call, GET) + `normalize_{greenhouse,lever,ashby}` |
