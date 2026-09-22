@@ -28,11 +28,31 @@ import docx  # noqa: E402
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 TAILORED_CV = os.path.join(FIXTURES, "tailored_cv.md")
 MESSY_CV = os.path.join(FIXTURES, "messy_cv.md")
+EVALS_DIR = os.path.join(os.path.dirname(__file__), "..", "docs", "evals")
 
 
 def read_fixture(name):
     with open(name, encoding="utf-8") as handle:
         return handle.read()
+
+
+def _eval_md(name):
+    """The text of `docs/evals/<name>`, an eval prose doc rendered as a
+    PARITY_ORACLE case in its own right — not because it is a CV, but
+    because it is real markdown nobody wrote to be a test fixture, and it
+    is worth knowing if a docx.py change breaks it."""
+    with open(os.path.join(EVALS_DIR, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def _eval_jd(name):
+    """The `jobDescription` field of `docs/evals/fixtures/<name>` — one of
+    the 7 real job postings AJOB-3's Phase G eval fixtures carry, each a
+    single long plain-text paragraph with no markdown syntax at all."""
+    import json
+
+    with open(os.path.join(EVALS_DIR, "fixtures", name), encoding="utf-8") as f:
+        return json.load(f)["jobDescription"]
 
 
 class TestParseBlocksHappyPath(unittest.TestCase):
@@ -2339,14 +2359,115 @@ PARITY_ORACLE = [
             "line 6: code fence closed, delimiters dropped",
         ],
     ),
+    # AJOB-3 verifier round 1: every `.md` under `docs/evals/` plus the
+    # `jobDescription` text of its 7 JD fixtures, as further parity cases —
+    # real prose nobody wrote as a test fixture. Hashes recorded from the
+    # CURRENT `docx.render` (unchanged since the Phase B `prepare()`
+    # refactor, which the cases above already prove byte-identical).
+    (
+        "docx-rendering.md",
+        _eval_md("docx-rendering.md"),
+        {},
+        "3e0d53265e39c08acb5ee8f4a5715844d1316c71c7330f2d3b5e15dd39288bc0",
+        ["lines 37-44: ordered list numbering kept inline, list formatting dropped"],
+    ),
+    (
+        "profile.md",
+        # profile.md quotes the `[verifikasi]`/`[Assumption]` markers as
+        # PROSE, explaining the very suppression rule this gate enforces —
+        # `allow_unverified` is needed here for the same reason a real CV
+        # never should be given it silently.
+        _eval_md("profile.md"),
+        {"allow_unverified": True},
+        "3a571b91104c65a8496d64e3dab392a3d3e694901caa667e1ba02ba00369829f",
+        [
+            "line 89: code fence opened, delimiters dropped",
+            "line 92: code fence closed, delimiters dropped",
+            "6 unverified marker(s) removed from the rendered text (--allow-unverified)",
+        ],
+    ),
+    (
+        "scoring.md",
+        _eval_md("scoring.md"),
+        {},
+        "e214ae7ffa3c3046e304af5ed781822c822f10e12771d204b94edea5231dc6ac",
+        ["line 33: table flattened to 7 line(s)"],
+    ),
+    (
+        "tailoring.md",
+        _eval_md("tailoring.md"),
+        {},
+        "dda937b9514e6bb36969e49e849c91e1120f3052c218fa6d95ecc20b5bd60f9a",
+        [
+            "line 14: inline html stripped (<slug>)",
+            "line 31: table flattened to 4 line(s)",
+            "line 158: inline html stripped (<slug>)",
+            "line 164: inline html stripped (<slug>)",
+            "line 170: inline html stripped (<slug>)",
+            "line 182: inline html stripped (<slug>)",
+            "line 184: inline html stripped (<slug>)",
+            "line 204: inline html stripped (<slug>)",
+        ],
+    ),
+    (
+        "01-ramp-engagement-manager-closed.json",
+        _eval_jd("01-ramp-engagement-manager-closed.json"),
+        {},
+        "fbd18a0d59f4e45970a35502dd50f202198236f02647c8206cb00ce9eab94034",
+        [],
+    ),
+    (
+        "02-stripe-abuse-research-engineer-remote-silent.json",
+        _eval_jd("02-stripe-abuse-research-engineer-remote-silent.json"),
+        {},
+        "29bb72ad2aecb86a4c53b9535b52a7afcc55b3230090a365ef6204fea8ad4f8c",
+        [],
+    ),
+    (
+        "03-stripe-staff-ml-engineer-phd.json",
+        _eval_jd("03-stripe-staff-ml-engineer-phd.json"),
+        {},
+        "add86117810a155181b03f67bdeddbe91fe315fd444351f7018aeb344f63eb19",
+        [],
+    ),
+    (
+        "04-stripe-staff-product-manager-ai.json",
+        _eval_jd("04-stripe-staff-product-manager-ai.json"),
+        {},
+        "1edaf2a590f6af22ba16edc4e63ea2745aab7ffd853935db82cffce9551bfa08",
+        [],
+    ),
+    (
+        "05-ramp-software-engineer-international.json",
+        _eval_jd("05-ramp-software-engineer-international.json"),
+        {},
+        "86b86fd7799bb3e289f7bed2e09a0045cf760b33a80761d0e64b4cc7ea6ad908",
+        [],
+    ),
+    (
+        "06-stripe-engineering-manager-agentic-commerce.json",
+        _eval_jd("06-stripe-engineering-manager-agentic-commerce.json"),
+        {},
+        "cf00ce601e9aa323ed193d7c94ba30213b2f423dfc2e87c0b8c7e7c3f9e297de",
+        [],
+    ),
+    (
+        "07-stripe-backend-engineer-core-technology-no-salary.json",
+        _eval_jd("07-stripe-backend-engineer-core-technology-no-salary.json"),
+        {},
+        "0064f9fdb92860c28fc560b5af8b9f16abe020c527e17735474bf49592b6a6b9",
+        [],
+    ),
 ]
 
 
 class TestRenderOutputIsUnchangedByThePrepareExtraction(DocxTempDirCase):
-    """Every `*.md` under `tests/fixtures/` plus the plan's six inline cases.
+    """Every `*.md` under `tests/fixtures/` plus the plan's six inline cases,
+    plus (AJOB-3 verifier round 1) every `*.md` under `docs/evals/` and the
+    `jobDescription` text of its 7 JD fixtures.
 
     (No `tests/samples/` directory exists in this repository, so the oracle
-    covers `tests/fixtures/` and the six inline strings only.)
+    covers `tests/fixtures/`, the six inline strings, and `docs/evals/`.)
     """
 
     def test_every_recorded_case_still_renders_byte_identical(self):

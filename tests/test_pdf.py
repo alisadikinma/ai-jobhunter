@@ -563,6 +563,24 @@ class TestGateParityWithDocx(PdfTempDirCase):
                 with self.assertRaises(docx.UnverifiedClaimError):
                     pdf.render(markdown, self.out("pdf-%s.pdf" % safe_name))
 
+    def test_pdf_refuses_every_line_breaking_split_spelling_docx_refuses(self):
+        """The other half of gate parity: `docx.py`'s
+        `test_a_line_breaking_character_is_caught_when_the_blocks_rejoin`
+        (`tests/test_docx.py`, ~line 1402) pins 8 characters `splitlines`
+        treats as a line break — a vertical tab, form feed, U+0085, etc —
+        each of which splits `[verifikasi]` into two blocks that neither
+        alone matches. `docx.prepare`'s residual check (joining the
+        rendered blocks with no separator) catches it; `pdf.render` shares
+        that exact check via `docx.prepare`, so it must refuse identically.
+        """
+        for code in (0x0A, 0x0B, 0x0C, 0x0D, 0x1C, 0x1D, 0x1E, 0x85):
+            with self.subTest(code=hex(code)):
+                path = self.out("break-%x.pdf" % code)
+                markdown = "# CV\n\n- ARR [veri%sfikasi]\n" % chr(code)
+                with self.assertRaises(docx.UnverifiedClaimError):
+                    pdf.render(markdown, path)
+                self.assertFalse(os.path.exists(path))
+
 
 class TestFailedWriteLeavesNoFileAndNoTempFile(PdfTempDirCase):
     def test_a_failed_replace_leaves_no_file_and_no_temp_file(self):
@@ -575,8 +593,28 @@ class TestFailedWriteLeavesNoFileAndNoTempFile(PdfTempDirCase):
         self.assertEqual(leftover, [])
 
 
-if __name__ == "__main__":
-    unittest.main()
+class TestUnwritableDestinationDirectory(PdfTempDirCase):
+    """The directory exists (unlike `test_missing_directory_refuses`) but
+    isn't writable — `tempfile.mkstemp` then raises a raw `OSError`
+    (`PermissionError`), which `render` must wrap as `docx.DestinationError`
+    rather than let escape as-is, the same contract `test_docx.py`'s
+    `test_render_refuses_when_the_destination_directory_is_unwritable`
+    pins for `docx.render`.
+
+    Skipped as root: root ignores directory permission bits entirely, so
+    `mkstemp` would succeed and the refusal this test exists to prove would
+    never even attempt to fire.
+    """
+
+    @unittest.skipIf(os.geteuid() == 0, "running as root: permissions do not apply")
+    def test_render_refuses_when_the_destination_directory_is_unwritable(self):
+        locked = os.path.join(self.tmp, "locked")
+        os.mkdir(locked, 0o500)
+        self.addCleanup(os.chmod, locked, 0o700)
+        path = os.path.join(locked, "cv.pdf")
+        with self.assertRaises(docx.DestinationError):
+            pdf.render("# CV\n\nBody\n", path)
+        self.assertEqual(os.listdir(locked), [])
 
 
 class TestOutputPermissions(unittest.TestCase):
@@ -616,3 +654,7 @@ class TestOutputPermissions(unittest.TestCase):
         out = os.path.join(self.dir, "cv.docx")
         docx.render("# T\n\nBody\n", out)
         self.assertEqual(self._mode(out), 0o644)
+
+
+if __name__ == "__main__":
+    unittest.main()
