@@ -37,21 +37,21 @@
 - [x] PARITY_ORACLE unchanged
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase B: CV template files and their loader
-- [ ] Write failing test for `templates.load_cv_template("technical")["sections"][0] == {"name": "Professional Summary", "aliases": ["Summary"], "optional": False}`. Expected error: `ModuleNotFoundError: No module named 'templates'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Write the three template files per Contracts (sections exactly as the table). Guidance lines carry the universal rules: contact line plain text under the name; `Mon YYYY – Mon YYYY`, `Present` for current; bullets start with an action verb, carry a metric where the evidence has one, no first-person pronouns; 1 page under ~10 years, 2 pages above; work authorization only if the user supplies it. Leadership bullets emphasise scope, team size, P&L/budget, business outcome; technical bullets emphasise architecture, scale, performance, stack; hybrid puts grouped skills before experience
-- [ ] Implement `TEMPLATES_DIR`, `TemplateError`, `list_cv_templates`, `load_cv_template` (parse the comment block)
-- [ ] Tests: all three load; `list_cv_templates() == ["hybrid", "leadership", "technical"]`; optional flags right (e.g. leadership `Board Positions` aliases `["Advisory Roles"]`, optional True); unknown name → `TemplateError`; a temp file without the comment block → `TemplateError` naming it; a malformed `sections:` line (empty name) → `TemplateError` with line; each template renders through `pdf.render` with zero refusals and its rendered text contains no `cv-template` / `sections:` (depends on Phase A); each template's own `## ` headings equal its section list in order (so the file and its definition cannot drift)
-- [ ] Add `"templates"` to `_EXTRA_SCAN_ROOTS`; mutation: put the surname "Sadikin" into `templates/cv/hybrid.md` → the beyond-skills guard fails; restore. Mutation 2: reorder two `## ` headings in `technical.md` → the file-vs-definition test fails; restore
-- [ ] Commit: `feat(templates): three ATS CV structures and their loader`
+### [x] Phase B: CV template files and their loader
+- [x] Write failing test for `templates.load_cv_template("technical")["sections"][0] == {"name": "Professional Summary", "aliases": ["Summary"], "optional": False}`. Expected error: `ModuleNotFoundError: No module named 'templates'`
+- [x] Run it, confirm it fails for that reason (actual: `AttributeError` — no `scripts/templates.py` yet meant `import templates` picked up the repo-root `templates/` directory as a namespace package instead, `__file__` was `None`; same root cause the plan's collision note warns about, confirmed by `TestModuleIdentity` rather than the exact `ModuleNotFoundError` spelling)
+- [x] Write the three template files per Contracts (sections exactly as the table). Guidance lines carry the universal rules: contact line plain text under the name; `Mon YYYY – Mon YYYY`, `Present` for current; bullets start with an action verb, carry a metric where the evidence has one, no first-person pronouns; 1 page under ~10 years, 2 pages above; work authorization only if the user supplies it. Leadership bullets emphasise scope, team size, P&L/budget, business outcome; technical bullets emphasise architecture, scale, performance, stack; hybrid puts grouped skills before experience
+- [x] Implement `TEMPLATES_DIR`, `TemplateError`, `list_cv_templates`, `load_cv_template` (parse the comment block)
+- [x] Tests: all three load; `list_cv_templates() == ["hybrid", "leadership", "technical"]`; optional flags right (e.g. leadership `Board Positions` aliases `["Advisory Roles"]`, optional True); unknown name → `TemplateError`; a temp file without the comment block → `TemplateError` naming it; a malformed `sections:` line (empty name) → `TemplateError` with line; each template renders through `pdf.render` with zero refusals and its rendered text contains no `cv-template` / `sections:` (depends on Phase A); each template's own `## ` headings equal its section list in order (so the file and its definition cannot drift)
+- [x] Add `"templates"` to `_EXTRA_SCAN_ROOTS`; mutation: put the surname "Sadikin" into `templates/cv/hybrid.md` → the beyond-skills guard fails; restore. Mutation 2: reorder two `## ` headings in `technical.md` → the file-vs-definition test fails; restore
+- [x] Commit: `feat(templates): three ATS CV structures and their loader` (`81b9ef8`)
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] every template renders through `render-pdf` with no leaked comment text
-- [ ] no candidate-specific strings under `templates/` (guard extended and mutated)
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 654 lulus
+- [x] every template renders through `render-pdf` with no leaked comment text — also confirmed via the real CLI (`jobhunter.py render-pdf`), exit 0 for all three, no `sections:`/`cv-template` in the PDF bytes
+- [x] no candidate-specific strings under `templates/` (guard extended and mutated)
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase C: `check_cv`
 - [ ] Write failing test for `templates.check_cv(<a valid technical CV>, "technical") == []`. Expected error: `AttributeError: module 'templates' has no attribute 'check_cv'`
@@ -145,6 +145,7 @@
 | Phase | Status | Commit |
 |---|---|---|
 | A — multi-line html comment strip | DONE | `4160291` |
+| B — CV templates + loader | DONE | `81b9ef8` |
 
 ## Utang terbuka
 
@@ -155,3 +156,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
 - 2026-09-22 Phase A done — 642 lulus, parity sama, mutasi → test_a_comment_spanning_lines_is_stripped_not_rendered gagal — NEXT: Phase B
+- 2026-09-22 Phase B done — 654 lulus, mutasi → test_no_candidate_specific_strings_outside_skills dan test_headings_equal_canonical_section_names_in_order gagal — NEXT: Phase C
