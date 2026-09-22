@@ -52,22 +52,22 @@
 - [x] `prepare` touches no filesystem (test asserts temp dir empty after each call)
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase C: `pdf.py` text primitives — encode, widths, wrap
-- [ ] Write failing test for `pdf.text_width("A", 1000, False) == 667`. Expected error: `ModuleNotFoundError: No module named 'pdf'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Fetch Helvetica / Helvetica-Bold AFM widths (Contracts § Widths) and write `HELVETICA_WIDTHS`, `HELVETICA_BOLD_WIDTHS` with source URL + fetch date comment
-- [ ] Tests pinning every value listed in Contracts § Widths; test both tuples have exactly 224 entries
-- [ ] Implement `encode`, `text_width`, `wrap`, `PdfError`, `UnsupportedCharacterError`
-- [ ] Tests for `encode`: `"é · – — •"` encodes; `"\t"` → space; `"→"`, `"中"`, `"😀"` raise `UnicodeEncodeError` (the render-level error is Phase D)
-- [ ] Tests for `wrap`: `""` → `[]`; one short word → 1 line; text exactly `max_width` → 1 line; one space more → 2 lines; a 200-char word with no spaces → hard-split, every line ≤ `max_width`; multiple spaces collapse to one; property test over 500 seeded random strings (`random.Random(0)`) that no line exceeds `max_width` and `" ".join(lines)` equals the whitespace-normalised input
-- [ ] Run full suite green; mutation: make `wrap` skip the width check on the last line, see the property test fail, restore
-- [ ] Commit: `feat(pdf): WinAnsi encoding, Helvetica metrics, line wrapping`
+### [x] Phase C: `pdf.py` text primitives — encode, widths, wrap
+- [x] Write failing test for `pdf.text_width("A", 1000, False) == 667`. Expected error: `ModuleNotFoundError: No module named 'pdf'`
+- [x] Run it, confirm it fails for that reason
+- [x] Fetch Helvetica / Helvetica-Bold AFM widths (Contracts § Widths) and write `HELVETICA_WIDTHS`, `HELVETICA_BOLD_WIDTHS` with source URL + fetch date comment — fetched `Helvetica.afm` / `Helvetica-Bold.afm` from `github.com/foliojs/pdfkit` (raw, 2026-09-22) plus `aglfn.txt` from `github.com/adobe-type-tools/agl-aglfn` to map WinAnsi byte → AFM glyph name by codepoint, not by memory
+- [x] Tests pinning every value listed in Contracts § Widths; test both tuples have exactly 224 entries — all pinned values matched the fetch exactly, no HARD STOP
+- [x] Implement `encode`, `text_width`, `wrap`, `PdfError`, `UnsupportedCharacterError`
+- [x] Tests for `encode`: `"é · – — •"` encodes; `"\t"` → space; `"→"`, `"中"`, `"😀"` raise `UnicodeEncodeError` (the render-level error is Phase D)
+- [x] Tests for `wrap`: `""` → `[]`; one short word → 1 line; text exactly `max_width` → 1 line; one space more → 2 lines; a 200-char word with no spaces → hard-split, every line ≤ `max_width`; multiple spaces collapse to one; property test over 500 seeded random strings (`random.Random(0)`) that no line exceeds `max_width` and `" ".join(lines)` equals the whitespace-normalised input
+- [x] Run full suite green; mutation: make `wrap` skip the width check on the last line, see the property test fail, restore — 579 lulus pra-mutasi; mutasi bikin `test_one_point_more_forces_a_second_line` dan property test gagal (baris melebihi `max_width`), dipulihkan
+- [x] Commit: `feat(pdf): WinAnsi encoding, Helvetica metrics, line wrapping` — `097c935`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] width tables carry a source URL and fetch date; pinned values match
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] width tables carry a source URL and fetch date; pinned values match
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase D: `pdf.py` layout, writer and `render()` refusals
 - [ ] Write failing test for `pdf.render("# T\n\nBody\n", <tmp>/cv.pdf)` producing a file that starts with `%PDF-1.4` and ends with `%%EOF\n`. Expected error: `AttributeError: module 'pdf' has no attribute 'render'`
@@ -168,6 +168,7 @@
 |---|---|---|
 | A — ignore data/ | DONE | `724f41c` |
 | B — docx.prepare() | DONE | `ad82ff0` |
+| C — pdf primitives | DONE | `097c935` |
 
 ## Utang terbuka
 
@@ -179,3 +180,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 plan ditulis — NEXT: Phase A
 - 2026-09-22 Phase A done — suite 554 lulus, mutasi (hapus baris) → test gagal — NEXT: Phase B
 - 2026-09-22 Phase B done — 562 lulus, parity 8 input sama, mutasi → test_a_line_breaking_character_is_caught_when_the_blocks_rejoin gagal — NEXT: Phase C
+- 2026-09-22 Phase C done — 579 lulus, AFM dari github.com/foliojs/pdfkit (raw, 2026-09-22), mutasi → test_one_point_more_forces_a_second_line + property test gagal — NEXT: Phase D
