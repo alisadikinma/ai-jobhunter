@@ -547,6 +547,8 @@ def render(markdown, path, allow_unverified=False, source=None, page="letter"):
         with open(temporary, "wb") as f:
             f.write(data)
         size = os.path.getsize(temporary)
+        # Same 0600 trap and the same fix as the docx writer.
+        os.chmod(temporary, docx.output_mode(path))
         os.replace(temporary, path)
     except OSError as error:
         _remove_quietly(temporary)

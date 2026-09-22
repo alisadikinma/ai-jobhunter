@@ -514,3 +514,42 @@ class TestFailedWriteLeavesNoFileAndNoTempFile(PdfTempDirCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutputPermissions(unittest.TestCase):
+    """`mkstemp` creates at 0600 and `os.replace` carries that mode onto the
+    destination. Found by running the real flow: every CV came out readable
+    by its owner only, which an upload helper running as another user, or a
+    shared folder, cannot open."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.dir)
+        self.old_umask = os.umask(0o022)
+        self.addCleanup(os.umask, self.old_umask)
+
+    def _mode(self, path):
+        return os.stat(path).st_mode & 0o777
+
+    def test_a_new_pdf_gets_the_mode_open_would_give_it(self):
+        out = os.path.join(self.dir, "cv.pdf")
+        pdf.render("# T\n\nBody\n", out)
+        self.assertEqual(self._mode(out), 0o644)
+
+    def test_the_umask_is_honoured_not_overridden(self):
+        os.umask(0o077)
+        out = os.path.join(self.dir, "cv.pdf")
+        pdf.render("# T\n\nBody\n", out)
+        self.assertEqual(self._mode(out), 0o600)
+
+    def test_a_re_render_keeps_the_existing_files_mode(self):
+        out = os.path.join(self.dir, "cv.pdf")
+        pdf.render("# T\n\nBody\n", out)
+        os.chmod(out, 0o640)
+        pdf.render("# T\n\nBody again\n", out)
+        self.assertEqual(self._mode(out), 0o640)
+
+    def test_docx_follows_the_same_rule(self):
+        out = os.path.join(self.dir, "cv.docx")
+        docx.render("# T\n\nBody\n", out)
+        self.assertEqual(self._mode(out), 0o644)

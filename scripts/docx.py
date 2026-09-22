@@ -1228,6 +1228,24 @@ def render(markdown, path, allow_unverified=False, source=None):
     return _write_archive(path, payload, blocks, notes, directory)
 
 
+def output_mode(path):
+    """The mode a rendered document should land with.
+
+    `mkstemp` creates at 0600 and `os.replace` carries that mode onto the
+    destination, so every CV came out readable by its owner alone — which an
+    upload helper running as another user, or a shared folder, cannot open.
+    A re-render keeps whatever mode the file already has; a new file gets
+    what a plain `open()` would have given it under the current umask.
+    `scripts/jobq.py::update_rows` guards the same trap for the queue.
+    """
+    try:
+        return os.stat(path).st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
+
+
 def _write_archive(path, payload, blocks, notes, directory):
     """Write the parts to a temp file in `directory`, then `os.replace` it.
 
@@ -1252,6 +1270,7 @@ def _write_archive(path, payload, blocks, notes, directory):
                 info.compress_type = zipfile.ZIP_DEFLATED
                 archive.writestr(info, text.encode("utf-8"))
         size = os.path.getsize(temporary)
+        os.chmod(temporary, output_mode(path))
         os.replace(temporary, path)
     except OSError as error:
         _remove_quietly(temporary)
