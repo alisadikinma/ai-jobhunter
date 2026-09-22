@@ -15,6 +15,7 @@
 ## Keputusan saat jalan
 
 - 2026-09-22 Monitor Firecrawl dihapus dari discover — diputuskan Ali di review spec.
+- 2026-09-22 Phase J (live end-to-end) tidak dijalankan agent — Ali test sendiri setelah merge.
 
 ## Checklist
 
@@ -202,7 +203,7 @@
 - [ ] Mutation made a test fail
 - [ ] No placeholder/TODO comments in new code
 
-### [ ] Phase J: live end-to-end run
+### [-] Phase J: live end-to-end run — DILEWATI, Ali test sendiri
 - [ ] Write failing test for nothing new — this phase is a live check; step 1 is to run
   `keys-check` in the worktree and confirm both keys are `present`. Expected error if not: `{"APIFY_TOKEN": "missing"}` → STOP and ask the user.
 - [ ] With a scratch config (`[linkedin] keywords = ["software engineer"]`, `locations =
@@ -224,6 +225,16 @@
 
 | Phase | Status | Commit |
 |---|---|---|
+| A: `.env` key reader | pending | — |
+| B: config `[linkedin]` + `apify_max_items_per_run` | pending | — |
+| C: capture real fixtures | pending | — |
+| D: `normalize_linkedin` | pending | — |
+| E: Apify fetch, credit brake, window state | pending | — |
+| F: `linkedin-fetch` subcommand | pending | — |
+| G: Firecrawl REST client and run budget | pending | — |
+| H: `firecrawl-search`, `firecrawl-scrape`, `keys-check` | pending | — |
+| I: `discover` SKILL.md, manifest guards, CLAUDE.md | pending | — |
+| J: live end-to-end run | dilewati — Ali test sendiri | — |
 
 ## Utang terbuka
 
