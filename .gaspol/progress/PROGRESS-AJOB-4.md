@@ -53,20 +53,20 @@
 - [x] no candidate-specific strings under `templates/` (guard extended and mutated)
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase C: `check_cv`
-- [ ] Write failing test for `templates.check_cv(<a valid technical CV>, "technical") == []`. Expected error: `AttributeError: module 'templates' has no attribute 'check_cv'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Implement per Contracts § CV rules
-- [ ] Tests, one per rule id, each asserting rule id AND line: valid CV per template (3); alias heading accepted (`## Experience`); heading case/whitespace variants accepted; `unknown-section`; `order` (Education before Work Experience); `duplicate-section`; `missing-section` (no Education); optional sections omitted → no finding; `pronoun` for `I led`, `my team`, `We built`, `our`; NOT flagged: `AI`, `IoT`, `I/O`, `Mine` (word boundary), pronoun in a non-bullet paragraph; `no-name`; `no-contact` (H1 followed directly by `##`); empty markdown → `no-name`; CRLF input; findings sorted by line
-- [ ] Also run `check_cv` over the three template files themselves with their own name: only findings allowed are none (templates must pass their own check)
-- [ ] Mutation: disable the order rule → order test fails; mutate pronoun regex to drop `(?!/)` → `I/O` test fails; restore
-- [ ] Commit: `feat(templates): check_cv keeps a CV on its template`
+### [x] Phase C: `check_cv`
+- [x] Write failing test for `templates.check_cv(<a valid technical CV>, "technical") == []`. Expected error: `AttributeError: module 'templates' has no attribute 'check_cv'`
+- [x] Run it, confirm it fails for that reason — confirmed exactly: `AttributeError: module 'templates' has no attribute 'check_cv'`
+- [x] Implement per Contracts § CV rules
+- [x] Tests, one per rule id, each asserting rule id AND line: valid CV per template (3); alias heading accepted (`## Experience`); heading case/whitespace variants accepted; `unknown-section`; `order` (Education before Work Experience); `duplicate-section`; `missing-section` (no Education); optional sections omitted → no finding; `pronoun` for `I led`, `my team`, `We built`, `our`; NOT flagged: `AI`, `IoT`, `I/O`, `Mine` (word boundary), pronoun in a non-bullet paragraph; `no-name`; `no-contact` (H1 followed directly by `##`); empty markdown → `no-name`; CRLF input; findings sorted by line
+- [x] Also run `check_cv` over the three template files themselves with their own name: only findings allowed are none (templates must pass their own check)
+- [x] Mutation: disable the order rule → order test fails; mutate pronoun regex to drop `(?!/)` → `I/O` test fails; restore
+- [x] Commit: `feat(templates): check_cv keeps a CV on its template` (`195b9c6`)
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] every rule id has a failing-input test and a passing-input test
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 679 lulus
+- [x] every rule id has a failing-input test and a passing-input test
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase D: cover-letter format and `check_letter`
 - [ ] Write failing test for `templates.letter_levels() == {"entry": (200, 250), "mid": (250, 400), "executive": (400, 450)}`. Expected error: `AttributeError: module 'templates' has no attribute 'letter_levels'`
@@ -146,6 +146,7 @@
 |---|---|---|
 | A — multi-line html comment strip | DONE | `4160291` |
 | B — CV templates + loader | DONE | `81b9ef8` |
+| C — check_cv | DONE | `195b9c6` |
 
 ## Utang terbuka
 
@@ -157,3 +158,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 plan ditulis — NEXT: Phase A
 - 2026-09-22 Phase A done — 642 lulus, parity sama, mutasi → test_a_comment_spanning_lines_is_stripped_not_rendered gagal — NEXT: Phase B
 - 2026-09-22 Phase B done — 654 lulus, mutasi → test_no_candidate_specific_strings_outside_skills dan test_headings_equal_canonical_section_names_in_order gagal — NEXT: Phase C
+- 2026-09-22 Phase C done — 679 lulus, mutasi → test_order_education_before_work_experience dan test_i_slash_o_is_not_flagged gagal — NEXT: Phase D
