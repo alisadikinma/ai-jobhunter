@@ -97,7 +97,7 @@ Baseline: **632 tests, OK** on `9696912` (2026-09-22).
 |---------|-------------|----------|---------|--------|
 | Multi-line comment strip | markdown | `docx.flatten` / `docx.prepare` | Yes (single-line only) | Fix |
 | CV templates | `templates/cv/{hybrid,technical,leadership}.md` | `templates.load_cv_template(name)` | No | Create |
-| Cover-letter format | `templates/cover-letter.md` | `templates.LETTER_LEVELS` + file | No | Create |
+| Cover-letter format | `templates/cover-letter.md` | `templates.letter_levels()` + file | No | Create |
 | CV check | cv markdown + template | `templates.check_cv(markdown, name)` | No | Create |
 | Letter check | letter markdown + level | `templates.check_letter(markdown, level, company, role)` | No | Create |
 | CLI | argv | `jobhunter.py template-check` | No | Create subcommand 12 |
@@ -211,7 +211,7 @@ salutation and sign-off — is not exactly 4), `word-count` (body words outside 
 level band, inclusive both ends; a word = a whitespace-separated token containing
 at least one letter or digit), `opening-company` / `opening-role` (P1 lacks
 `company` / `role`, case-insensitive; only checked when given), `weak-opening`
-(a body paragraph starts with `I am writing`), `weak-close` (`hope to hear from
+(a body sentence starts with `I am writing` — per sentence since plan-verifier round 1, per spec §6), `weak-close` (`hope to hear from
 you`, case-insensitive). Message for `word-count` states the count and the band.
 
 ### CLI `template-check`

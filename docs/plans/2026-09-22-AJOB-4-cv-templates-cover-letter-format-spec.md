@@ -41,8 +41,8 @@ new renderers, auto-applying, fetching hiring-manager names from the web.
 Evidence strength, stated as it is:
 
 - **Causal / field evidence (strong):** ResumeGo field experiment, 7,287
-  applications — tailored letter 16.4% callback vs generic 12.5% vs none 10.7%
-  (+53% tailored vs none). arXiv 2509.25054 (Freelancer.com, 5.5M letters) —
+  applications — tailored letter +53% callbacks vs no letter. (Per-arm rates
+  quoted here earlier are not in the committed raw file and were removed.) arXiv 2509.25054 (Freelancer.com, 5.5M letters) —
   AI tailoring raised callbacks 51% relative, but the gain tapered as employers
   adapted; editing time on AI drafts is what kept predicting offers (+1 SD
   editing ≈ +52% relative offer rate).

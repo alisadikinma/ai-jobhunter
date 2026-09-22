@@ -149,6 +149,12 @@
 - [x] Phase F PARTIAL: stale "summary and section ordering" line replaced — section order comes from the template; `render-docx` guard now requires EVERY paragraph to say enterprise (mutation: unconditional paragraph → fails); "never guess" fragment made specific to the portal sentence (mutation: sentence reworded → fails) (`0aee37e`)
 - [x] Suite 734 lulus; CLAUDE.md count 734; real-run CV + letter still `ok: true`
 
+### [x] gaspol-finish Step 3 — gaspol-review Tier 1 (0 Critical, 1 Important, Minors)
+- [x] Important: indented line inside a multi-line comment was read as code and the comment leaked to the page. Strip now runs on raw lines before `_flatten_blocks`; only the opener's position decides. RED 2 tests; mutations (drop indented-opener skip; stop body scan at code) each fail their test (`see git log: fix(docx): strip multi-line comments on raw lines`)
+- [x] Minor: company/role whole-phrase match (`Meta` vs `metadata`), sign-off case-insensitive, `template-check` refuses cross-mode flags — RED 4 tests first
+- [x] Plan-artifact lane minors: plan `LETTER_LEVELS`→`letter_levels()`, weak-opening wording; spec per-arm ResumeGo rates removed (not in raw); research summary sign-off row now says no source
+- [x] Suite 742 lulus; CLAUDE.md count 742; real run still `ok: true` both
+
 ## Phase log
 
 | Phase | Status | Commit |
@@ -169,6 +175,10 @@ Catatan kecil plan-verifier round 1, sengaja tidak diubah (di luar 7 butir yang 
 - `weak-close` tidak memeriksa teks setelah sign-off (misal P.S.).
 - `### x` langsung setelah H1 diterima sebagai baris kontak.
 - `--template ../cv/technical` diterima (hanya baca file `.md`, tidak menulis/eksekusi).
+Catatan kecil gaspol-review (finish), sengaja tidak diubah:
+- Aturan `order`: satu heading salah tempat di atas membuat section yang benar sesudahnya ditandai, bukan heading yang salah.
+- `<!--` di dalam inline code span pada baris prosa dianggap pembuka komentar.
+- Sign-off ber-format markdown (`**Sincerely,**`) atau tanpa koma → `no-sign-off`.
 
 design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-09-22)
 
@@ -184,3 +194,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase H done — 722 lulus, versi 0.3.0 (RED: '0.2.0' != '0.3.0'), real run City of Hope: technical/mid/other, 2 temuan heading diperbaiki, CV+letter ok: true, cv.pdf 2 hlm, xberg urut — NEXT: plan-verifier + gaspol-verify
 - 2026-09-22 plan-verifier round 1 BLOCKING → semua 7 butir diperbaiki (3 commit), 734 lulus — NEXT: plan-verifier round 2
 - 2026-09-22 plan-verifier round 2 CLEAN — 734 lulus, real run ok: true — NEXT: gaspol-finish (merge atas keputusan Ali)
+\n- 2026-09-22 gaspol-review Tier 1: 1 Important + 3 Minor diperbaiki, 742 lulus — NEXT: re-review fix diff, lalu merge\n
