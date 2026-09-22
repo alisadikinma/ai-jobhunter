@@ -196,9 +196,20 @@
 
 ## Utang terbuka
 
+- `pdf._line_for_char` cabang `return None` ("line ?") hanya diuji lewat mock; belum ada input nyata yang mencapainya.
 - Layout PDF: baris terakhir bullet bisa sendirian di halaman berikutnya (E2E: "SV." pindah ke hal. 2). Kosmetik; teks & urutan tetap utuh di xberg. Belum ada widow/orphan control untuk bullet.
 
 design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-09-22)
+
+## Plan-verifier round 2
+
+| Finding | Fix | Test | Mutation |
+|---|---|---|---|
+| #7 flatten assertion `"table"` matched "stable" | `62547fd` | `test_tailor_states_the_quantified_metric_preference_and_table_flattening` | flatten paragraph deleted → FAILED |
+| advisory: beyond-skills guard fail-open on missing root | `62547fd` | `test_no_candidate_specific_strings_outside_skills` | root `docs/evalz` → FAILED "scan root missing" |
+| advisory: `_line_for_char` final `return None` uncovered by a real input | not fixed | — | no real input reaches it (verifier); recorded as debt |
+
+Round 2 verdict before this fix: BLOCKING on #7 only; all other round-1 items CLOSED.
 
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
@@ -213,3 +224,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase I bagian docs done — 619 lulus, guard Subcommands CLAUDE.md dimutasi → gagal — NEXT: Phase I E2E bersama Ali (profile dari data/master-cv.pdf, tailor JD City of Hope)
 - 2026-09-22 Phase I done — E2E: profile dari data/master-cv.pdf → master-cv.md; tailor City of Hope: peta 28 baris (match 14 / partial 7 / gap 7), gate disetujui Ali, keyword loop 1 putaran (covered 93→105), cv.pdf 2 hal 54 blok, cover-letter.pdf 1 hal 10 blok, round-trip xberg utuh & berurutan; fix mode 0600 `3071678` — mutasi (hapus `os.chmod` di pdf.py) → `TestOutputPermissions.test_a_new_pdf_gets_the_mode_open_would_give_it` dan `test_a_re_render_keeps_the_existing_files_mode` gagal (2), mutasi (hapus `os.chmod` di docx.py) → `test_docx_follows_the_same_rule` gagal (1); 623 lulus — NEXT: gaspol-verify + plan-verifier
 - 2026-09-22 verifier round 1 fixes done — 632 lulus, 8 mutasi semua tertangkap — NEXT: plan-verifier round 2
+- 2026-09-22 verifier round 2 — 1 BLOCKING (#7) diperbaiki `62547fd` + advisory scan-root; 632 lulus, 2 mutasi tertangkap — NEXT: gaspol-finish (merge keputusan Ali)
