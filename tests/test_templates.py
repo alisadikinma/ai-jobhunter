@@ -423,5 +423,293 @@ class TestCheckCvTemplatesPassTheirOwnCheck(unittest.TestCase):
                 self.assertEqual(templates.check_cv(markdown, name), [])
 
 
+class TestLetterLevels(unittest.TestCase):
+    def test_parses_the_three_bands_from_the_shipped_file(self):
+        self.assertEqual(
+            templates.letter_levels(),
+            {"entry": (200, 250), "mid": (250, 400), "executive": (400, 450)},
+        )
+
+
+class TestLetterTemplateFileParsesAndRenders(unittest.TestCase):
+    """The shipped file itself must parse (via `letter_levels`, already
+    proven above) and render through `pdf.render` with no refusal — the
+    same guarantee Phase B proved for the three CV templates."""
+
+    def test_renders_with_no_refusal(self):
+        path = os.path.join(REPO_ROOT, "templates", "cover-letter.md")
+        with open(path, "r", encoding="utf-8") as handle:
+            markdown = handle.read()
+        with tempfile.TemporaryDirectory() as tmp:
+            out = os.path.join(tmp, "cover-letter.pdf")
+            pdf.render(markdown, out)  # raises on any refusal
+            self.assertTrue(os.path.exists(out))
+
+
+def _filler_words(n):
+    """`n` distinct whitespace-separated word-like tokens."""
+    return " ".join("alpha%d" % i for i in range(n))
+
+
+def _paragraph(total_words, lead_text=""):
+    """A paragraph of exactly `total_words` words. `lead_text` (itself made
+    of whole words) is placed first and topped up with filler words to reach
+    the count, so a test can pin exactly what P1 opens with while still
+    controlling the total word count precisely."""
+    lead_words = lead_text.split()
+    filler_needed = total_words - len(lead_words)
+    assert filler_needed >= 0, "lead_text has more words than total_words"
+    filler = _filler_words(filler_needed)
+    return (lead_text + " " + filler).strip()
+
+
+def _letter(
+    para_words,
+    lead_texts=None,
+    salutation="Dear Example Team Hiring Team,",
+    sign_off="Sincerely,",
+    name="Rin Halvorsen",
+    subject=None,
+):
+    """Build a cover letter: H1 name, contact line, optional H2 subject
+    (ignored by every rule), the salutation, `len(para_words)` body
+    paragraphs (each exactly `para_words[i]` words, `lead_texts.get(i, "")`
+    first), the sign-off, and the name again.
+
+    Returns the markdown text only — callers that need exact finding lines
+    build the pieces by hand instead (`_bullet_cv`'s pattern in the CV tests
+    above), because the fixed preamble here already makes every line number
+    predictable from the call's own arguments.
+    """
+    lead_texts = lead_texts or {}
+    paragraphs = [
+        _paragraph(n, lead_texts.get(i, "")) for i, n in enumerate(para_words)
+    ]
+    parts = ["# %s" % name, "", "Berlin, Germany · rin@example.com · +49 000 0000", ""]
+    if subject is not None:
+        parts.append(subject)
+        parts.append("")
+    parts.append(salutation)
+    parts.append("")
+    for paragraph in paragraphs:
+        parts.append(paragraph)
+        parts.append("")
+    parts.append(sign_off)
+    parts.append("")
+    parts.append(name)
+    return "\n".join(parts) + "\n"
+
+
+def _letter_total_words(total, **kwargs):
+    """A valid 4-paragraph letter whose body has exactly `total` words."""
+    return _letter([total - 3, 1, 1, 1], **kwargs)
+
+
+class TestCheckLetterValidInput(unittest.TestCase):
+    def test_a_valid_letter_per_level_has_no_findings(self):
+        band_midpoints = {"entry": 225, "mid": 325, "executive": 425}
+        for level, total in band_midpoints.items():
+            with self.subTest(level=level):
+                markdown = _letter_total_words(total)
+                self.assertEqual(templates.check_letter(markdown, level), [])
+
+    def test_an_optional_h2_subject_line_before_the_salutation_is_ignored(self):
+        markdown = _letter_total_words(225, subject="## Re: Backend Engineer at Acme")
+        self.assertEqual(templates.check_letter(markdown, "entry"), [])
+
+
+class TestCheckLetterWordCountBandEdges(unittest.TestCase):
+    def test_entry_band_edges_inclusive(self):
+        self.assertEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(200), "entry"), "word-count"),
+            [],
+        )
+        self.assertEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(250), "entry"), "word-count"),
+            [],
+        )
+        self.assertNotEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(199), "entry"), "word-count"),
+            [],
+        )
+        self.assertNotEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(251), "entry"), "word-count"),
+            [],
+        )
+
+    def test_mid_band_edges_inclusive(self):
+        self.assertEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(250), "mid"), "word-count"),
+            [],
+        )
+        self.assertEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(400), "mid"), "word-count"),
+            [],
+        )
+        self.assertNotEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(249), "mid"), "word-count"),
+            [],
+        )
+        self.assertNotEqual(
+            _rule_lines(templates.check_letter(_letter_total_words(401), "mid"), "word-count"),
+            [],
+        )
+
+    def test_executive_band_edges_inclusive(self):
+        self.assertEqual(
+            _rule_lines(
+                templates.check_letter(_letter_total_words(400), "executive"), "word-count"
+            ),
+            [],
+        )
+        self.assertEqual(
+            _rule_lines(
+                templates.check_letter(_letter_total_words(450), "executive"), "word-count"
+            ),
+            [],
+        )
+        self.assertNotEqual(
+            _rule_lines(
+                templates.check_letter(_letter_total_words(399), "executive"), "word-count"
+            ),
+            [],
+        )
+        self.assertNotEqual(
+            _rule_lines(
+                templates.check_letter(_letter_total_words(451), "executive"), "word-count"
+            ),
+            [],
+        )
+
+    def test_word_count_message_states_the_count_and_the_band(self):
+        findings = templates.check_letter(_letter_total_words(199), "entry")
+        message = next(f["message"] for f in findings if f["rule"] == "word-count")
+        self.assertIn("199", message)
+        self.assertIn("200-250", message)
+
+
+class TestCheckLetterParagraphs(unittest.TestCase):
+    def test_three_paragraphs_is_flagged(self):
+        markdown = _letter([80, 80, 65], salutation="Dear Example Team Hiring Team,")
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("paragraphs", [f["rule"] for f in findings])
+
+    def test_five_paragraphs_is_flagged(self):
+        markdown = _letter([45, 45, 45, 45, 45])
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("paragraphs", [f["rule"] for f in findings])
+
+    def test_exactly_four_paragraphs_is_not_flagged(self):
+        markdown = _letter_total_words(225)
+        findings = templates.check_letter(markdown, "entry")
+        self.assertNotIn("paragraphs", [f["rule"] for f in findings])
+
+
+class TestCheckLetterSalutation(unittest.TestCase):
+    def test_no_salutation(self):
+        markdown = _letter_total_words(225, salutation="Hello there,")
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("no-salutation", [f["rule"] for f in findings])
+
+    def test_to_whom_it_may_concern_is_generic(self):
+        markdown = _letter_total_words(225, salutation="To Whom It May Concern,")
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("generic-salutation", [f["rule"] for f in findings])
+
+    def test_dear_sir_or_madam_is_generic(self):
+        markdown = _letter_total_words(225, salutation="Dear Sir or Madam,")
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("generic-salutation", [f["rule"] for f in findings])
+
+    def test_an_ordinary_salutation_is_not_generic(self):
+        markdown = _letter_total_words(225, salutation="Dear Jane Doe,")
+        findings = templates.check_letter(markdown, "entry")
+        self.assertNotIn("generic-salutation", [f["rule"] for f in findings])
+
+
+class TestCheckLetterSignOff(unittest.TestCase):
+    def test_no_recognised_sign_off(self):
+        markdown = _letter_total_words(225, sign_off="Cheers,")
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("no-sign-off", [f["rule"] for f in findings])
+
+    def test_each_sign_off_is_accepted(self):
+        for sign_off in ("Sincerely,", "Best regards,", "Kind regards,"):
+            with self.subTest(sign_off=sign_off):
+                markdown = _letter_total_words(225, sign_off=sign_off)
+                findings = templates.check_letter(markdown, "entry")
+                self.assertNotIn("no-sign-off", [f["rule"] for f in findings])
+
+
+class TestCheckLetterOpeningCompanyRole(unittest.TestCase):
+    def test_company_named_in_p1_is_not_flagged(self):
+        markdown = _letter(
+            [50, 60, 60, 55], lead_texts={0: "Acme Corp is where I want to work."}
+        )
+        findings = templates.check_letter(markdown, "entry", company="Acme Corp")
+        self.assertNotIn("opening-company", [f["rule"] for f in findings])
+
+    def test_company_missing_from_p1_is_flagged(self):
+        markdown = _letter_total_words(225)
+        findings = templates.check_letter(markdown, "entry", company="Acme Corp")
+        self.assertIn("opening-company", [f["rule"] for f in findings])
+
+    def test_role_named_in_p1_is_not_flagged(self):
+        markdown = _letter(
+            [50, 60, 60, 55], lead_texts={0: "The Backend Engineer role excites me."}
+        )
+        findings = templates.check_letter(markdown, "entry", role="Backend Engineer")
+        self.assertNotIn("opening-role", [f["rule"] for f in findings])
+
+    def test_role_missing_from_p1_is_flagged(self):
+        markdown = _letter_total_words(225)
+        findings = templates.check_letter(markdown, "entry", role="Backend Engineer")
+        self.assertIn("opening-role", [f["rule"] for f in findings])
+
+    def test_company_and_role_are_not_checked_when_not_given(self):
+        markdown = _letter_total_words(225)
+        findings = templates.check_letter(markdown, "entry")
+        rules = [f["rule"] for f in findings]
+        self.assertNotIn("opening-company", rules)
+        self.assertNotIn("opening-role", rules)
+
+
+class TestCheckLetterWeakLanguage(unittest.TestCase):
+    def test_weak_opening_is_flagged(self):
+        markdown = _letter(
+            [50, 60, 60, 55], lead_texts={0: "I am writing to apply for this role."}
+        )
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("weak-opening", [f["rule"] for f in findings])
+
+    def test_weak_close_is_flagged(self):
+        markdown = _letter(
+            [50, 60, 60, 55], lead_texts={3: "I hope to hear from you soon."}
+        )
+        findings = templates.check_letter(markdown, "entry")
+        self.assertIn("weak-close", [f["rule"] for f in findings])
+
+    def test_neither_appears_in_a_clean_letter(self):
+        markdown = _letter_total_words(225)
+        findings = templates.check_letter(markdown, "entry")
+        rules = [f["rule"] for f in findings]
+        self.assertNotIn("weak-opening", rules)
+        self.assertNotIn("weak-close", rules)
+
+
+class TestCheckLetterUnknownLevel(unittest.TestCase):
+    def test_unknown_level_raises_template_error(self):
+        markdown = _letter_total_words(225)
+        with self.assertRaises(templates.TemplateError):
+            templates.check_letter(markdown, "does-not-exist")
+
+
+class TestCheckLetterCrlf(unittest.TestCase):
+    def test_crlf_input_is_handled_like_lf(self):
+        markdown = _letter_total_words(225)
+        crlf = markdown.replace("\n", "\r\n")
+        self.assertEqual(templates.check_letter(crlf, "entry"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

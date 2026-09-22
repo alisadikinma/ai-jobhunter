@@ -330,3 +330,277 @@ def check_cv(markdown, name):
 
     findings.sort(key=lambda finding: finding["line"])
     return findings
+
+
+# --- cover-letter format and check_letter -----------------------------------
+#
+# One file, `templates/cover-letter.md`, rather than one per level — the
+# levels differ only in word-count band, not in structure, so `letter_levels`
+# reads all three bands out of the same comment block `check_letter` also
+# reads its sign-off list from.
+
+_LETTER_HEADER_LINE = "<!-- gaspol-jobhunter cover-letter"
+_LETTER_LEVELS_KEY = "levels:"
+_LETTER_SIGN_OFFS_PREFIX = "sign-offs:"
+_LEVEL_LINE_RE = re.compile(r"^(\S+)\s+(\d+)-(\d+)$")
+
+# `Dear ` at the start of a line, after stripping leading whitespace — the
+# salutation the contract requires, whatever name or team title follows it.
+_SALUTATION_RE = re.compile(r"^Dear\s")
+# The two dead phrases anywhere in the file, not just on the salutation line
+# — a "Dear Sir or Madam" that also happens to start with "Dear " would
+# otherwise satisfy `_SALUTATION_RE` and never get flagged at all.
+_GENERIC_SALUTATION_RE = re.compile(
+    r"to whom it may concern|dear sir or madam", re.IGNORECASE
+)
+_WEAK_OPENING_RE = re.compile(r"^I am writing\b", re.IGNORECASE)
+_WEAK_CLOSE_RE = re.compile(r"hope to hear from you", re.IGNORECASE)
+_TOKEN_RE = re.compile(r"\S+")
+
+# Private, like `_CV_DIR`, so a test can point it at a scratch file
+# (`unittest.mock.patch`) to exercise error paths without a broken file
+# sitting in the real `templates/cover-letter.md`.
+_LETTER_PATH = os.path.join(TEMPLATES_DIR, "cover-letter.md")
+
+
+def _parse_letter_template_text(text, path):
+    """Parse the `<!-- gaspol-jobhunter cover-letter ... -->` comment block
+    at the start of `text` into `{"levels": {name: (low, high)}, "sign_offs":
+    [...]}`. Mirrors `_parse_cv_template_text`'s shape and error style, for
+    a different pair of keys (`levels:`/`sign-offs:` instead of
+    `name:`/`for:`/`sections:`)."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != _LETTER_HEADER_LINE:
+        raise TemplateError(
+            "%s: does not open with the '%s' comment block" % (path, _LETTER_HEADER_LINE)
+        )
+
+    levels = {}
+    sign_offs = None
+    in_levels = False
+    closed = False
+
+    for offset, raw in enumerate(lines[1:], start=2):
+        stripped = raw.strip()
+        if stripped == _COMMENT_CLOSE_LINE:
+            closed = True
+            break
+        if stripped == "":
+            continue
+        if stripped == _LETTER_LEVELS_KEY:
+            in_levels = True
+            continue
+        if stripped.startswith(_LETTER_SIGN_OFFS_PREFIX):
+            in_levels = False
+            value = stripped[len(_LETTER_SIGN_OFFS_PREFIX) :].strip()
+            parts = [part.strip() for part in value.split("|")]
+            if not value or any(part == "" for part in parts):
+                raise TemplateError("%s:%d: malformed sign-offs line" % (path, offset))
+            sign_offs = parts
+            continue
+        if in_levels and stripped.startswith("-"):
+            entry = stripped[1:].strip()
+            match = _LEVEL_LINE_RE.match(entry)
+            if not match:
+                raise TemplateError(
+                    "%s:%d: malformed levels line: %r" % (path, offset, raw)
+                )
+            levels[match.group(1)] = (int(match.group(2)), int(match.group(3)))
+            continue
+        raise TemplateError(
+            "%s:%d: unrecognised line inside the cover-letter comment: %r"
+            % (path, offset, raw)
+        )
+
+    if not closed:
+        raise TemplateError(
+            "%s: cover-letter comment block is never closed with '-->'" % path
+        )
+    if not levels:
+        raise TemplateError("%s: cover-letter comment has no 'levels:' entries" % path)
+    if not sign_offs:
+        raise TemplateError("%s: cover-letter comment is missing 'sign-offs:'" % path)
+    return {"levels": levels, "sign_offs": sign_offs}
+
+
+def _load_letter_format():
+    if not os.path.isfile(_LETTER_PATH):
+        raise TemplateError("cover-letter template missing: %s" % _LETTER_PATH)
+    with open(_LETTER_PATH, "r", encoding="utf-8") as handle:
+        text = handle.read()
+    return _parse_letter_template_text(text, _LETTER_PATH)
+
+
+def letter_levels():
+    """Word-count bands for each cover-letter level, parsed from
+    `templates/cover-letter.md`'s comment block.
+
+    Returns `{"entry": (200, 250), "mid": (250, 400), "executive": (400,
+    450)}` — the exact bounds live in the file; this only parses them.
+    Raises `TemplateError` if the file is missing the comment block, never
+    closes it, or a `levels:`/`sign-offs:` line is malformed.
+    """
+    return _load_letter_format()["levels"]
+
+
+def _blocks(lines, start, end):
+    """Blank-line-separated blocks of `lines[start:end]` (0-based, `end`
+    exclusive), each as `(first_line_1_based, [line, ...])`.
+
+    A block whose first line is itself a heading (`# ` or `## `) is dropped
+    — `check_letter`'s contract calls the body "non-heading blocks", which
+    matters if a user pastes a stray heading into the body by hand; the
+    shipped template carries no heading between the salutation and the
+    sign-off, so this path exists for that hand-edited case, not the
+    template itself.
+    """
+    blocks = []
+    current = []
+    current_start = None
+    for index in range(start, end):
+        line = lines[index]
+        if line.strip() == "":
+            if current:
+                blocks.append((current_start, current))
+                current = []
+                current_start = None
+            continue
+        if current_start is None:
+            current_start = index + 1
+        current.append(line)
+    if current:
+        blocks.append((current_start, current))
+    return [
+        (line_no, block_lines)
+        for line_no, block_lines in blocks
+        if not (_H1_RE.match(block_lines[0]) or _SECTION_HEADING_RE.match(block_lines[0]))
+    ]
+
+
+def _is_word_token(token):
+    """A word: a whitespace-separated token containing at least one letter
+    or digit — a lone "-" or "—" used as punctuation does not count."""
+    return any(ch.isalnum() for ch in token)
+
+
+def check_letter(markdown, level, company=None, role=None):
+    """Check `markdown` against the cover-letter format for `level`.
+
+    Returns a list of `{"rule", "line", "message"}` findings, sorted by
+    line (1-based, same numbering as the input). Rule ids: `no-salutation`,
+    `generic-salutation`, `no-sign-off`, `paragraphs`, `word-count`,
+    `opening-company`, `opening-role`, `weak-opening`, `weak-close`.
+    `company`/`role` are checked only when given (not `None`). Raises
+    `TemplateError` for an unknown `level`, via `_load_letter_format`.
+    """
+    letter_format = _load_letter_format()
+    levels = letter_format["levels"]
+    sign_offs = letter_format["sign_offs"]
+    if level not in levels:
+        raise TemplateError(
+            "unknown letter level %r (known: %s)" % (level, ", ".join(sorted(levels)))
+        )
+    low, high = levels[level]
+
+    lines = markdown.splitlines()
+    findings = []
+
+    # --- generic salutation phrases, anywhere in the document --------------
+    for index, line in enumerate(lines, start=1):
+        if _GENERIC_SALUTATION_RE.search(line):
+            findings.append(
+                _finding("generic-salutation", index, "generic salutation phrase found")
+            )
+
+    # --- salutation line -----------------------------------------------------
+    salutation_index = None  # 0-based index into `lines`
+    for index, line in enumerate(lines):
+        if _SALUTATION_RE.match(line.strip()):
+            salutation_index = index
+            break
+    if salutation_index is None:
+        findings.append(_finding("no-salutation", 1, "no line starting 'Dear ' found"))
+
+    # --- sign-off line, searched after the salutation (or from the top if
+    # there is none) ----------------------------------------------------------
+    search_from = salutation_index + 1 if salutation_index is not None else 0
+    sign_off_index = None  # 0-based
+    for index in range(search_from, len(lines)):
+        if lines[index].strip() in sign_offs:
+            sign_off_index = index
+            break
+    if sign_off_index is None:
+        findings.append(
+            _finding(
+                "no-sign-off",
+                len(lines) + 1,
+                "no sign-off line (%s) found after the salutation"
+                % " | ".join(sign_offs),
+            )
+        )
+
+    if salutation_index is None or sign_off_index is None:
+        # Every remaining rule reads the body strictly between the two
+        # boundary lines; without both there is nothing safe left to check.
+        findings.sort(key=lambda finding: finding["line"])
+        return findings
+
+    body_blocks = _blocks(lines, salutation_index + 1, sign_off_index)
+    anchor_line = body_blocks[0][0] if body_blocks else salutation_index + 2
+
+    if len(body_blocks) != 4:
+        findings.append(
+            _finding(
+                "paragraphs",
+                anchor_line,
+                "body has %d paragraph(s), expected exactly 4" % len(body_blocks),
+            )
+        )
+
+    body_text = " ".join(" ".join(block_lines) for _line_no, block_lines in body_blocks)
+    word_count = sum(1 for token in _TOKEN_RE.findall(body_text) if _is_word_token(token))
+    if not (low <= word_count <= high):
+        findings.append(
+            _finding(
+                "word-count",
+                anchor_line,
+                "body has %d words, outside the %s band (%d-%d)"
+                % (word_count, level, low, high),
+            )
+        )
+
+    if body_blocks:
+        p1_line, p1_lines = body_blocks[0]
+        p1_text = " ".join(p1_lines)
+        if company and company.lower() not in p1_text.lower():
+            findings.append(
+                _finding(
+                    "opening-company",
+                    p1_line,
+                    "opening paragraph does not name the company (%r)" % company,
+                )
+            )
+        if role and role.lower() not in p1_text.lower():
+            findings.append(
+                _finding(
+                    "opening-role",
+                    p1_line,
+                    "opening paragraph does not name the role (%r)" % role,
+                )
+            )
+
+    for block_line, block_lines in body_blocks:
+        block_text = " ".join(block_lines).strip()
+        if _WEAK_OPENING_RE.match(block_text):
+            findings.append(
+                _finding("weak-opening", block_line, "paragraph opens with 'I am writing'")
+            )
+        if _WEAK_CLOSE_RE.search(block_text):
+            findings.append(
+                _finding(
+                    "weak-close", block_line, "paragraph uses 'hope to hear from you'"
+                )
+            )
+
+    findings.sort(key=lambda finding: finding["line"])
+    return findings
