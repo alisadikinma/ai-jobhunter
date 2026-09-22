@@ -56,14 +56,39 @@ United States", "must reside in the same country as the office") and warns
 the user when it conflicts with the candidate's stated location. This is a
 warning, never a block — the user decides whether to continue.
 
+## Portal detection
+
+Read the application portal from the JD's URL host, right after the location
+check:
+
+- `myworkdayjobs.com` or `myworkdaysite.com` → Workday
+- `taleo.net` → Taleo
+- `icims.com` → iCIMS
+- any other host → `other`
+
+A **pasted** JD carries no URL. Ask the user which portal this posting uses —
+never guess one from the company name or the JD text. "I don't know" is a
+valid answer and resolves to `other`.
+
+An **enterprise** portal (Workday, Taleo, or iCIMS) means `render-docx` runs
+for both documents, alongside the PDF, in the Render step below — DOCX parses
+most reliably in those portals, where a text PDF loses more structure. A
+non-enterprise portal (Greenhouse, Lever, Ashby, email, `other`) stays
+PDF-only.
+
 ## Scripts this skill calls
 
 - `scripts/keywords.py` — `keywords-report` to compute
   which JD terms the drafted CV covers and which it misses, then
   `keywords.render(report)` to produce `keyword-report.md`'s body.
 - `scripts/config.py` — `config.load`.
+- `scripts/templates.py`, via `template-check` — validates `cv.md` against
+  the chosen `templates/cv/<name>.md` structure and `cover-letter.md` against
+  `templates/cover-letter.md`'s fixed format and word-count band.
 - `scripts/pdf.py`, via `render-pdf` — renders `cv.md` and `cover-letter.md`
   to PDF once both are written.
+- `scripts/docx.py`, via `render-docx` — renders both to `.docx` too, only
+  when the detected portal is an enterprise one (Workday, Taleo, iCIMS).
 
 ## Requirements map
 
@@ -102,13 +127,45 @@ source `user, <YYYY-MM-DD>`, so every claim in the compiled profile stays
 traceable to where it came from, the same rule `/gaspol-jobhunter:profile`
 enforces for every other source.
 
+The same gate also settles three more things, asked alongside the row walk,
+not as a separate interruption:
+
+- **CV template.** This skill proposes one name from `templates/cv/` —
+  `hybrid`, `technical`, or `leadership` — from the JD's title seniority and
+  whether it leads with leadership scope, engineering depth, or a mix, and
+  states the reason in one sentence. The user confirms it or switches to a
+  different template name.
+- **Cover-letter level.** `entry` (200-250 words), `mid` (250-400 words), or
+  `executive` (400-450 words) — the user picks one.
+- **An optional personal detail** — a hiring-manager name, a referral, or a
+  specific reason for this company. If the user gives none, the letter's
+  salutation is `"<Team> Hiring Team"` and its company-specific line uses
+  only facts already in the JD text: **nothing is invented.**
+
 **No cv.md or cover-letter.md is written until every row is agreed.**
 Once the walk finishes, this skill writes `approved: <YYYY-MM-DD>` at the
-top of `requirements-map.md`. A map without that line means the gate has
-not passed, and no downstream step — write, keyword loop, or render — may
-run.
+top of `requirements-map.md`, together with the three lines it just settled:
+
+```markdown
+template: <hybrid|technical|leadership>
+letter-level: <entry|mid|executive>
+portal: <workday|taleo|icims|other>
+approved: <YYYY-MM-DD>
+```
+
+A map without an `approved:` line means the gate has
+not passed, and no downstream step — write, template check, keyword loop, or
+render — may run.
 
 ## Write
+
+`cv.md` is written on the approved template's section skeleton — its
+canonical headings, in its order, from `templates/cv/<name>.md`
+(`hybrid`, `technical`, or `leadership`, whichever the agreement gate
+settled). `cover-letter.md` is written on `templates/cover-letter.md`'s
+fixed format: opening (role, company, top evidence), one SCAR proof
+paragraph, a fit paragraph, and a close — the same P1-P4 shape the format
+file spells out in full.
 
 `cv.md` and `cover-letter.md` are written from **approved rows only**. JD
 wording is mirrored only where an approved row evidences it. A row marked
@@ -132,6 +189,14 @@ same judgement-over-keywords approach `/gaspol-jobhunter:score` uses, and let
 that variant's framing (not a hardcoded template) shape the summary and
 section ordering.
 
+## Template check
+
+Before the keyword loop or any render, both drafted files are checked with
+`template-check` (Commands below). Every finding is a piece of text to fix —
+not a refusal — so this skill edits `cv.md` or `cover-letter.md` and
+re-runs the check until it reports `"ok": true` for both. Nothing is
+rendered while a check still carries findings.
+
 ## Keyword loop
 
 Run `keywords-report` with `--jd` pointing at `jd.md` (pasted JDs) or the JD
@@ -145,10 +210,17 @@ the coverage count.
 ## Render
 
 `render-pdf` twice — once for `cv.md`, once for `cover-letter.md` — after
-both are written and the keyword loop is done. Output directory:
-`.jobhunter/applications/<slug>/`, holding `jd.md` (pasted JD only),
-`requirements-map.md`, `cv.md`, `cover-letter.md`, `cv.pdf`,
-`cover-letter.pdf`, `keyword-report.md`.
+both are written, both pass `template-check`, and the keyword loop is done.
+When the detected portal is **enterprise** (Workday, Taleo, or iCIMS),
+`render-docx` runs too, for both documents, right after the PDFs — the
+reason is the same one Portal detection gives: DOCX parses most reliably in
+those enterprise portals. A non-enterprise portal skips `render-docx`
+entirely; only the PDFs are produced.
+
+Output directory: `.jobhunter/applications/<slug>/`, holding `jd.md` (pasted
+JD only), `requirements-map.md`, `cv.md`, `cover-letter.md`, `cv.pdf`,
+`cover-letter.pdf`, `keyword-report.md`, plus `cv.docx` and
+`cover-letter.docx` when the portal was enterprise.
 
 `<slug>` is derived from the company and job title, kept stable across
 re-runs against the same posting so a second tailor run updates the same
@@ -156,9 +228,10 @@ directory instead of scattering duplicates.
 
 Before finishing, this skill prints: which JD it read (title, company,
 source), the location warning if any, the requirements-map counts (match /
-partial / gap), the approval date, how many bullets it selected from
-`master-cv.md`, how many JD terms were covered versus missing, and which
-files it wrote.
+partial / gap), the approval date, the chosen template and letter level, the
+detected portal, both `template-check` results, how many bullets it selected
+from `master-cv.md`, how many JD terms were covered versus missing, and
+which files it wrote.
 
 ## How to run the scripts
 
@@ -194,6 +267,27 @@ cut; the heading always states the full count so a truncated report never
 reads as complete.
 
 ```bash
+# Check the drafted CV against its chosen template
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" template-check \
+  --cv .jobhunter/applications/<slug>/cv.md --template technical
+```
+
+```bash
+# Check the drafted cover letter against the fixed format and word-count band
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" template-check \
+  --letter .jobhunter/applications/<slug>/cover-letter.md --level mid \
+  --company "<Company>" --role "<Job title>"
+```
+
+`--template` is one of `hybrid`, `technical`, or `leadership` — whichever the
+agreement gate settled. `--level` is `entry`, `mid`, or `executive`.
+`--company` and `--role` are checked against the letter's opening paragraph
+only when given. Both commands print `{"kind", "template"|"level",
+"findings": [...], "ok": bool}` on stdout, exit 0 either way — a non-empty
+`findings` list is content to fix, per the Template check section above, not
+a refusal.
+
+```bash
 # Render the tailored CV as a PDF
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-pdf \
   --in .jobhunter/applications/<slug>/cv.md \
@@ -222,6 +316,18 @@ refused rather than dropped or replaced with `?`; fix the text instead
 (`→` becomes `-`), never pass a flag to force it through. Each change is
 reported on stderr as `render-pdf: line N: ...` and in the `notes` array on
 stdout. Report what changed — do not re-render to try to avoid it.
+
+```bash
+# Enterprise portals only (Workday, Taleo, iCIMS): render the same CV as .docx
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-docx \
+  --in .jobhunter/applications/<slug>/cv.md \
+  --out .jobhunter/applications/<slug>/cv.docx
+```
+
+Run it once per document here too — the cover letter is a second run with
+`--in cover-letter.md --out cover-letter.docx`. It shares the same markdown
+gate as `render-pdf`, so the same flattening and unverified-claim refusal
+apply.
 
 ### When `render-pdf` refuses
 
@@ -276,6 +382,9 @@ the codepoint responsible.
   `render-pdf`. Nobody can attach a `.md` to a Workday form and no ATS
   parses one, so the markdown is the working copy and the `.pdf` is what
   gets sent.
+- `cv.docx` and `cover-letter.docx` — built by `render-docx`, only when the
+  detected portal is enterprise (Workday, Taleo, iCIMS). Absent for every
+  other portal.
 - `keyword-report.md` — built from `keywords-report --markdown`.
   Its heading states plainly that this is a **keyword overlap report, not an
   ATS score**: no local computation can honestly predict what any ATS

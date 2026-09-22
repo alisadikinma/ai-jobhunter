@@ -249,12 +249,45 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         self.assertIn("a table becomes one bullet per row", prose)
         self.assertIn("every cell keeping its own header", prose)
 
-    def test_tailor_no_longer_renders_docx(self):
-        """AJOB-3 reverses AJOB-2: tailor ships PDF only. `render-docx` stays
-        in the CLI (and in its own tests), but tailor's SKILL.md must not
-        call it any more."""
-        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md"))
-        self.assertNotIn("render-docx", text)
+    def test_tailor_renders_docx_only_for_enterprise_portals(self):
+        """AJOB-4 reverses AJOB-3's blanket ban: `render-docx` is back in
+        tailor's SKILL.md, but only inside the portal-detection / render
+        prose that names it as an enterprise-portal thing, alongside the
+        word "enterprise" — not a bare, unconditional call."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        self.assertIn("render-docx", text)
+        paragraphs = text.split("\n\n")
+        matches = [
+            p for p in paragraphs if "render-docx" in p and "enterprise" in p
+        ]
+        self.assertTrue(
+            matches,
+            "no paragraph in tailor/SKILL.md pairs 'render-docx' with "
+            "'enterprise'",
+        )
+
+    def test_tailor_states_templates_and_letter_format(self):
+        """AJOB-4 Phase F: tailor must name the CV templates directory, the
+        fixed cover-letter format, the deterministic check, portal detection
+        (never guessed), the letter level, and that no personal detail is
+        invented when the user gives none."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        prose = " ".join(text.split())
+        for fragment in (
+            "templates/cv/",
+            "templates/cover-letter.md",
+            "template-check",
+            "myworkdayjobs.com",
+            "taleo.net",
+            "icims.com",
+            "never guess",
+            "letter-level:",
+            "template:",
+            "portal:",
+            "nothing is invented",
+            "render-docx",
+        ):
+            self.assertIn(fragment, prose, f"tailor/SKILL.md is missing {fragment!r}")
 
 
 class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
@@ -466,6 +499,19 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         self.assertEqual(
             commands["render-pdf"],
             {"--in", "--out", "--page", "--allow-unverified"},
+        )
+
+    def test_template_check_and_all_six_of_its_flags_are_collected(self):
+        """Same reasoning as `test_render_pdf_and_all_four_of_its_flags_are_
+        collected` above, one ticket later: AJOB-4's newest subcommand must
+        actually be seen by the guard, across its two documented command
+        blocks (one for `--cv`/`--template`, one for `--letter`/`--level`/
+        `--company`/`--role`) in `tailor/SKILL.md`."""
+        commands = self._documented_commands()
+        self.assertIn("template-check", commands)
+        self.assertEqual(
+            commands["template-check"],
+            {"--cv", "--template", "--letter", "--level", "--company", "--role"},
         )
 
     def test_every_documented_subcommand_exists_in_the_cli(self):
