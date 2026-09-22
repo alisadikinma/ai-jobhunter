@@ -92,7 +92,7 @@ _RULE_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
 
 # A setext underline. "===" was matched by nothing, so it was joined to the
 # line above as a soft break and the candidate's NAME rendered as
-# "Ali Sadikin ===========". The "---" form was swallowed by `_RULE_RE`,
+# "Rin Halvorsen ===========". The "---" form was swallowed by `_RULE_RE`,
 # which silently demoted the heading above it to a paragraph.
 _SETEXT_H1_RE = re.compile(r"^\s*={2,}\s*$")
 _SETEXT_H2_RE = re.compile(r"^\s*-{2,}\s*$")
@@ -329,7 +329,7 @@ def parse_blocks(markdown):
         # horizontal rule. `_RULE_RE` used to swallow both, silently demoting
         # the heading above it to a paragraph, while "===" matched nothing at
         # all and got joined on as a soft break — rendering the candidate's
-        # name as "Ali Sadikin ===========".
+        # name as "Rin Halvorsen ===========".
         setext = None
         if _SETEXT_H1_RE.match(line):
             setext = 1
@@ -1124,20 +1124,19 @@ def document_xml(blocks):
     return DOCUMENT_XML.format(body="".join(body))
 
 
-def render(markdown, path, allow_unverified=False, source=None):
-    """Write `markdown` to `path` as an ATS-readable `.docx`.
+def prepare(markdown, label, allow_unverified=False):
+    """Lint, refuse, repair and parse `markdown` into blocks — no filesystem.
 
-    The order is the whole design: lint, then refuse, then repair, then
-    parse, then write. Nothing touches the filesystem until the refusal has
-    had its chance, so a refused render leaves no file — not a truncated one,
-    not a stale one, none.
+    Everything `render` used to do between the unverified-claim gate and the
+    empty-document check, moved unchanged so a second renderer (`pdf.render`)
+    can share this one gate instead of reimplementing it. `label` names the
+    source in a refusal message; `render` computes it from `source`/`path`
+    and passes it straight through.
 
-    Returns `{"out", "blocks", "notes", "bytes"}`. Raises
-    `UnverifiedClaimError` unless `allow_unverified`, and
-    `EmptyDocumentError` when there is nothing to write.
+    Returns `(blocks, notes)`. Raises `UnverifiedClaimError` unless
+    `allow_unverified`, and `EmptyDocumentError` when there is nothing to
+    render.
     """
-    label = source or os.path.basename(path) or "<markdown>"
-
     unverified = unverified_findings(markdown)
     if unverified and not allow_unverified:
         raise UnverifiedClaimError(unverified, label)
@@ -1193,6 +1192,25 @@ def render(markdown, path, allow_unverified=False, source=None):
             "paragraphs or bullets. An empty document is never the intent." % label
         )
 
+    return blocks, notes
+
+
+def render(markdown, path, allow_unverified=False, source=None):
+    """Write `markdown` to `path` as an ATS-readable `.docx`.
+
+    The order is the whole design: lint, then refuse, then repair, then
+    parse, then write. Nothing touches the filesystem until the refusal has
+    had its chance, so a refused render leaves no file — not a truncated one,
+    not a stale one, none.
+
+    Returns `{"out", "blocks", "notes", "bytes"}`. Raises
+    `UnverifiedClaimError` unless `allow_unverified`, and
+    `EmptyDocumentError` when there is nothing to write.
+    """
+    label = source or os.path.basename(path) or "<markdown>"
+
+    blocks, notes = prepare(markdown, label, allow_unverified)
+
     payload = {
         "[Content_Types].xml": CONTENT_TYPES_XML,
         "_rels/.rels": ROOT_RELS_XML,
@@ -1208,6 +1226,24 @@ def render(markdown, path, allow_unverified=False, source=None):
         )
 
     return _write_archive(path, payload, blocks, notes, directory)
+
+
+def output_mode(path):
+    """The mode a rendered document should land with.
+
+    `mkstemp` creates at 0600 and `os.replace` carries that mode onto the
+    destination, so every CV came out readable by its owner alone — which an
+    upload helper running as another user, or a shared folder, cannot open.
+    A re-render keeps whatever mode the file already has; a new file gets
+    what a plain `open()` would have given it under the current umask.
+    `scripts/jobq.py::update_rows` guards the same trap for the queue.
+    """
+    try:
+        return os.stat(path).st_mode & 0o7777
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        return 0o666 & ~umask
 
 
 def _write_archive(path, payload, blocks, notes, directory):
@@ -1234,6 +1270,7 @@ def _write_archive(path, payload, blocks, notes, directory):
                 info.compress_type = zipfile.ZIP_DEFLATED
                 archive.writestr(info, text.encode("utf-8"))
         size = os.path.getsize(temporary)
+        os.chmod(temporary, output_mode(path))
         os.replace(temporary, path)
     except OSError as error:
         _remove_quietly(temporary)

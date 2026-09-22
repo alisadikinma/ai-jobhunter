@@ -7,6 +7,7 @@ standard-library only, so shadowing is the intended outcome, not an accident.
 """
 
 import contextlib
+import hashlib
 import io
 import os
 import re
@@ -27,11 +28,31 @@ import docx  # noqa: E402
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
 TAILORED_CV = os.path.join(FIXTURES, "tailored_cv.md")
 MESSY_CV = os.path.join(FIXTURES, "messy_cv.md")
+EVALS_DIR = os.path.join(os.path.dirname(__file__), "..", "docs", "evals")
 
 
 def read_fixture(name):
     with open(name, encoding="utf-8") as handle:
         return handle.read()
+
+
+def _eval_md(name):
+    """The text of `docs/evals/<name>`, an eval prose doc rendered as a
+    PARITY_ORACLE case in its own right — not because it is a CV, but
+    because it is real markdown nobody wrote to be a test fixture, and it
+    is worth knowing if a docx.py change breaks it."""
+    with open(os.path.join(EVALS_DIR, name), encoding="utf-8") as f:
+        return f.read()
+
+
+def _eval_jd(name):
+    """The `jobDescription` field of `docs/evals/fixtures/<name>` — one of
+    the 7 real job postings AJOB-3's Phase G eval fixtures carry, each a
+    single long plain-text paragraph with no markdown syntax at all."""
+    import json
+
+    with open(os.path.join(EVALS_DIR, "fixtures", name), encoding="utf-8") as f:
+        return json.load(f)["jobDescription"]
 
 
 class TestParseBlocksHappyPath(unittest.TestCase):
@@ -1457,9 +1478,9 @@ class TestRenderTextFidelity(DocxTempDirCase):
 
     def test_a_single_heading_and_nothing_else_renders(self):
         path = self.out()
-        result = docx.render("# Ali Sadikin\n", path)
+        result = docx.render("# Rin Halvorsen\n", path)
         self.assertEqual(result["blocks"], 1)
-        self.assertIn("Ali Sadikin", self.document_xml(path))
+        self.assertIn("Rin Halvorsen", self.document_xml(path))
 
     def test_five_hundred_blocks_all_reach_the_document(self):
         path = self.out()
@@ -1515,7 +1536,7 @@ class TestRenderTextFidelity(DocxTempDirCase):
         # XML 1.0 forbids them: one stray byte makes the file unopenable
         # rather than merely ugly.
         path = self.out()
-        docx.render("# Ali\x07 Sadikin\n", path)
+        docx.render("# Rin\x07 Halvorsen\n", path)
         body = self.document_xml(path)
         self.assertNotIn("\x07", body)
         ElementTree.fromstring(body)
@@ -1544,7 +1565,7 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
     CONSTRUCTS = {
         "ordered list": "1. Cut p95 latency.\n2. Led migration.\n",
         "plus bullet": "+ Shipped billing v2\n",
-        "setext h1": "Ali Sadikin\n===========\n",
+        "setext h1": "Rin Halvorsen\n===========\n",
         "setext h2": "Experience\n----------\n",
         "blockquote": "> Ali rebuilt our billing pipeline.\n",
         "fenced code": "```python\ndef solve(x):\n    return x\n```\n",
@@ -1596,9 +1617,9 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
         self.assertEqual(blocks[2]["text"], "3. Mentored 6.")
 
     def test_a_setext_underline_becomes_a_heading_not_a_suffix(self):
-        blocks = docx.parse_blocks(docx.flatten("Ali Sadikin\n===========\n")[0])
+        blocks = docx.parse_blocks(docx.flatten("Rin Halvorsen\n===========\n")[0])
         self.assertEqual(
-            blocks, [{"kind": "heading", "level": 1, "text": "Ali Sadikin"}]
+            blocks, [{"kind": "heading", "level": 1, "text": "Rin Halvorsen"}]
         )
 
     def test_a_dashed_setext_underline_keeps_the_heading(self):
@@ -2167,7 +2188,7 @@ class TestRoundSixFollowups(unittest.TestCase):
     def test_a_reference_link_note_names_its_own_original_line(self):
         _blocks, notes = self.blocks(
             "[pycon]: https://pycon.org\n"
-            "Ali Sadikin\n"
+            "Rin Halvorsen\n"
             "Spoke at [PyCon][pycon]\n"
         )
         self.assertTrue(
@@ -2177,7 +2198,7 @@ class TestRoundSixFollowups(unittest.TestCase):
 
     def test_a_note_after_a_dropped_block_line_names_the_original_line(self):
         _blocks, notes = self.blocks(
-            "Ali Sadikin\n"
+            "Rin Halvorsen\n"
             "[pycon]: https://pycon.org\n"
             "Worked at <b>Acme</b> on AT&amp;T billing.\n"
             "![logo](logo.png)\n"
@@ -2188,6 +2209,279 @@ class TestRoundSixFollowups(unittest.TestCase):
         self.assertTrue(
             any("line 4: image removed" in n for n in notes), notes
         )
+
+
+# --- Phase B (AJOB-3): docx.prepare() extracted out of docx.render() -----
+#
+# `prepare` holds everything `render` used to do between the unverified-claim
+# gate and the empty-document check: the gate itself, `flatten`, `parse_blocks`,
+# the residual-marker sweep and the marker strip. `render` still does the
+# label computation, the OOXML payload and the filesystem write. Nothing about
+# what a candidate sees in the `.docx` is allowed to change, which is what
+# `TestRenderOutputIsUnchangedByThePrepareExtraction` below exists to prove.
+
+class TestPrepareHappyPath(unittest.TestCase):
+    def test_a_heading_and_a_paragraph(self):
+        self.assertEqual(
+            docx.prepare("# T\n\nBody\n", "x.md"),
+            (
+                [
+                    {"kind": "heading", "level": 1, "text": "T"},
+                    {"kind": "paragraph", "text": "Body"},
+                ],
+                [],
+            ),
+        )
+
+
+class TestPrepareTouchesNoFilesystem(unittest.TestCase):
+    def test_a_temp_dir_stays_empty_across_several_calls(self):
+        # `prepare` is the gate, the flatten and the parser — none of which
+        # has any business touching a path. `render` is the only thing that
+        # writes, and it does so after `prepare` has already returned.
+        tmp = tempfile.mkdtemp(prefix="ajob3-prepare-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        docx.prepare(read_fixture(TAILORED_CV), "tailored_cv.md")
+        docx.prepare(read_fixture(MESSY_CV), "messy_cv.md")
+        docx.prepare(
+            "# CV\n\n- Grew ARR [verifikasi]\n", "cv.md", allow_unverified=True
+        )
+        with self.assertRaises(docx.UnverifiedClaimError):
+            docx.prepare("- x [verifikasi]\n", "cv.md")
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.prepare("", "cv.md")
+        self.assertEqual(os.listdir(tmp), [])
+
+
+class TestPrepareRefusals(unittest.TestCase):
+    def test_an_unverified_claim_refuses(self):
+        with self.assertRaises(docx.UnverifiedClaimError):
+            docx.prepare("- a [verifikasi]\n", "x.md")
+
+    def test_empty_markdown_refuses(self):
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.prepare("", "x.md")
+
+    def test_whitespace_only_markdown_refuses(self):
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.prepare("   \n", "x.md")
+
+    def test_a_document_of_nothing_but_an_allowed_marker_refuses(self):
+        # The emptiness check runs after the strip, so the override cannot
+        # turn a marker-only document into a blank page.
+        with self.assertRaises(docx.EmptyDocumentError):
+            docx.prepare("[verifikasi]\n", "x.md", allow_unverified=True)
+
+    def test_the_refusal_names_the_label_it_was_given(self):
+        with self.assertRaises(docx.UnverifiedClaimError) as caught:
+            docx.prepare("- x [verifikasi]\n", "cv.md")
+        self.assertIn("cv.md:1", str(caught.exception))
+
+
+# The SHA-256 of `word/document.xml` and the `notes` list `docx.render`
+# produced for each input, recorded from `docx.render` BEFORE the
+# `prepare` extraction (commit 65235f0, the tip of Phase A). Recomputed with
+# a throwaway script that imported the pre-refactor `docx` module and hashed
+# `zipfile.ZipFile(path).read("word/document.xml")` for each case below — not
+# derived from a copy of the old code kept around after the refactor, which
+# would make the "oracle" just a mirror of whatever the new code does.
+PARITY_ORACLE = [
+    (
+        "messy_cv.md",
+        None,
+        {},
+        "d9ef2cffc82afe8d4579e8f93fab246970fe52a6328ece6e7a36dab08300b358",
+        [
+            "line 3: image removed (photos/rin.png)",
+            "line 5: inline html stripped (</b>, <b>)",
+            "line 9: table flattened to 3 line(s)",
+            "line 18: nesting flattened to one level",
+            "line 19: nesting flattened to one level",
+            "line 20: link rewritten as text (url)",
+            "line 21: reference-style link had no definition, text kept without its url",
+        ],
+    ),
+    (
+        "tailored_cv.md",
+        None,
+        {},
+        "d5b211e38c1b6e1ec170273982c4185a42ac971020856b211f8439a958ac4574",
+        [],
+    ),
+    (
+        "plain",
+        "# CV\n\nHello world\n",
+        {},
+        "6cf939cd8be0ed025929703fbdb435ab199df9acf26f26444a8d1261e0287839",
+        [],
+    ),
+    (
+        "marker_allowed",
+        "# CV\n\n- Grew ARR [verifikasi]\n",
+        {"allow_unverified": True},
+        "6146f4d7813c7336d4478489b76fc7e1973970c4b4ce264d491ec10880576623",
+        ["1 unverified marker(s) removed from the rendered text (--allow-unverified)"],
+    ),
+    (
+        "table",
+        "| Skill | Years |\n| --- | --- |\n| Python | 8 |\n",
+        {},
+        "6a6f8b5c7a18c86eb8649470f4771b50223724c3c26acf814df3c88ea53ed9ca",
+        ["line 1: table flattened to 1 line(s)"],
+    ),
+    (
+        "nested_bullets",
+        "- one\n    - two\n        - three\n",
+        {},
+        "2f74cc9242b6b27bf4f9c80be477925dee63244d48abb37966e8f592a1782663",
+        [
+            "line 2: nesting flattened to one level",
+            "line 3: nesting flattened to one level",
+        ],
+    ),
+    (
+        "entity_marker_allowed",
+        "# CV\n\n- Grew ARR &#91;verifikasi&#93;\n",
+        {"allow_unverified": True},
+        "6146f4d7813c7336d4478489b76fc7e1973970c4b4ce264d491ec10880576623",
+        [
+            "line 3: html entities decoded",
+            "1 unverified marker(s) removed from the rendered text (--allow-unverified)",
+        ],
+    ),
+    (
+        "fenced_code",
+        "# CV\n\n```python\ndef f():\n    return 1\n```\n",
+        {},
+        "ce217f10c71bea4457b7c5d6f51dcdc69589d46f78b8bc84982cb64a2e4b3773",
+        [
+            "line 3: code fence opened, delimiters dropped",
+            "line 6: code fence closed, delimiters dropped",
+        ],
+    ),
+    # AJOB-3 verifier round 1: every `.md` under `docs/evals/` plus the
+    # `jobDescription` text of its 7 JD fixtures, as further parity cases —
+    # real prose nobody wrote as a test fixture. Hashes recorded from the
+    # CURRENT `docx.render` (unchanged since the Phase B `prepare()`
+    # refactor, which the cases above already prove byte-identical).
+    (
+        "docx-rendering.md",
+        _eval_md("docx-rendering.md"),
+        {},
+        "3e0d53265e39c08acb5ee8f4a5715844d1316c71c7330f2d3b5e15dd39288bc0",
+        ["lines 37-44: ordered list numbering kept inline, list formatting dropped"],
+    ),
+    (
+        "profile.md",
+        # profile.md quotes the `[verifikasi]`/`[Assumption]` markers as
+        # PROSE, explaining the very suppression rule this gate enforces —
+        # `allow_unverified` is needed here for the same reason a real CV
+        # never should be given it silently.
+        _eval_md("profile.md"),
+        {"allow_unverified": True},
+        "3a571b91104c65a8496d64e3dab392a3d3e694901caa667e1ba02ba00369829f",
+        [
+            "line 89: code fence opened, delimiters dropped",
+            "line 92: code fence closed, delimiters dropped",
+            "6 unverified marker(s) removed from the rendered text (--allow-unverified)",
+        ],
+    ),
+    (
+        "scoring.md",
+        _eval_md("scoring.md"),
+        {},
+        "e214ae7ffa3c3046e304af5ed781822c822f10e12771d204b94edea5231dc6ac",
+        ["line 33: table flattened to 7 line(s)"],
+    ),
+    (
+        "tailoring.md",
+        _eval_md("tailoring.md"),
+        {},
+        "dda937b9514e6bb36969e49e849c91e1120f3052c218fa6d95ecc20b5bd60f9a",
+        [
+            "line 14: inline html stripped (<slug>)",
+            "line 31: table flattened to 4 line(s)",
+            "line 158: inline html stripped (<slug>)",
+            "line 164: inline html stripped (<slug>)",
+            "line 170: inline html stripped (<slug>)",
+            "line 182: inline html stripped (<slug>)",
+            "line 184: inline html stripped (<slug>)",
+            "line 204: inline html stripped (<slug>)",
+        ],
+    ),
+    (
+        "01-ramp-engagement-manager-closed.json",
+        _eval_jd("01-ramp-engagement-manager-closed.json"),
+        {},
+        "fbd18a0d59f4e45970a35502dd50f202198236f02647c8206cb00ce9eab94034",
+        [],
+    ),
+    (
+        "02-stripe-abuse-research-engineer-remote-silent.json",
+        _eval_jd("02-stripe-abuse-research-engineer-remote-silent.json"),
+        {},
+        "29bb72ad2aecb86a4c53b9535b52a7afcc55b3230090a365ef6204fea8ad4f8c",
+        [],
+    ),
+    (
+        "03-stripe-staff-ml-engineer-phd.json",
+        _eval_jd("03-stripe-staff-ml-engineer-phd.json"),
+        {},
+        "add86117810a155181b03f67bdeddbe91fe315fd444351f7018aeb344f63eb19",
+        [],
+    ),
+    (
+        "04-stripe-staff-product-manager-ai.json",
+        _eval_jd("04-stripe-staff-product-manager-ai.json"),
+        {},
+        "1edaf2a590f6af22ba16edc4e63ea2745aab7ffd853935db82cffce9551bfa08",
+        [],
+    ),
+    (
+        "05-ramp-software-engineer-international.json",
+        _eval_jd("05-ramp-software-engineer-international.json"),
+        {},
+        "86b86fd7799bb3e289f7bed2e09a0045cf760b33a80761d0e64b4cc7ea6ad908",
+        [],
+    ),
+    (
+        "06-stripe-engineering-manager-agentic-commerce.json",
+        _eval_jd("06-stripe-engineering-manager-agentic-commerce.json"),
+        {},
+        "cf00ce601e9aa323ed193d7c94ba30213b2f423dfc2e87c0b8c7e7c3f9e297de",
+        [],
+    ),
+    (
+        "07-stripe-backend-engineer-core-technology-no-salary.json",
+        _eval_jd("07-stripe-backend-engineer-core-technology-no-salary.json"),
+        {},
+        "0064f9fdb92860c28fc560b5af8b9f16abe020c527e17735474bf49592b6a6b9",
+        [],
+    ),
+]
+
+
+class TestRenderOutputIsUnchangedByThePrepareExtraction(DocxTempDirCase):
+    """Every `*.md` under `tests/fixtures/` plus the plan's six inline cases,
+    plus (AJOB-3 verifier round 1) every `*.md` under `docs/evals/` and the
+    `jobDescription` text of its 7 JD fixtures.
+
+    (No `tests/samples/` directory exists in this repository, so the oracle
+    covers `tests/fixtures/`, the six inline strings, and `docs/evals/`.)
+    """
+
+    def test_every_recorded_case_still_renders_byte_identical(self):
+        for name, markdown, kwargs, expected_sha, expected_notes in PARITY_ORACLE:
+            with self.subTest(case=name):
+                if markdown is None:
+                    markdown = read_fixture(os.path.join(FIXTURES, name))
+                path = self.out(name.replace(" ", "_") + ".docx")
+                result = docx.render(markdown, path, source=name, **kwargs)
+                with zipfile.ZipFile(path) as archive:
+                    xml_bytes = archive.read("word/document.xml")
+                actual_sha = hashlib.sha256(xml_bytes).hexdigest()
+                self.assertEqual(actual_sha, expected_sha, name)
+                self.assertEqual(result["notes"], expected_notes, name)
 
 
 if __name__ == "__main__":

@@ -8,10 +8,13 @@ keyword overlap without dressing it up as an ATS score. See spec §6.
 ## How to run this eval
 
 For each case: run `/ai-jobhunter:tailor` against the named fixture (as if
-it were the matching row in `.jobhunter/queue/jobs.jsonl`) with the
-candidate's real `.jobhunter/profile/master-cv.md`, and check the three
-written files — `cv.md`, `cover-letter.md`, `keyword-report.md` — under
-`.jobhunter/applications/<slug>/` against the pass criteria below.
+it were the matching row in `.jobhunter/queue/jobs.jsonl`, or its
+`jobDescription` pasted into the conversation where the case says so) with
+the candidate's real `.jobhunter/profile/master-cv.md`, and check the
+written files under `.jobhunter/applications/<slug>/` against the pass
+criteria below — `requirements-map.md`, `cv.md`, `cover-letter.md`,
+`keyword-report.md`, `cv.pdf`, `cover-letter.pdf`, and `jd.md` for a
+pasted-JD run.
 
 **Reporting unit: pass@k.** Run each case `k = 3` times and report `pass@3`
 — the fraction of the 3 runs whose output satisfies every pass-criterion
@@ -165,3 +168,68 @@ CV unchanged."
 - The slug is derived from the company and job title (per spec §6), so two
   different fixtures for two different companies never collide on the same
   `<slug>`.
+
+---
+
+### Case 7 — pasted JD is written verbatim and drives the run
+
+**Fixture:** `04-stripe-staff-product-manager-ai.json`'s `jobDescription`
+field, pasted directly into the conversation rather than pointed at by a
+queue row or URL — this is the AJOB-3 input path that bypasses the queue
+entirely.
+
+**Pass criteria:**
+- `.jobhunter/applications/<slug>/jd.md` exists and its contents match the
+  pasted text verbatim — no summarising, no reformatting, no trimming.
+- The `<slug>` is derived from the company and job title stated in the
+  pasted text. Run a second variant of this case with the company name
+  removed from the pasted text: the skill stops and asks the user for the
+  company rather than guessing one from context.
+- `requirements-map.md`, `cv.md` and `cover-letter.md` are all written from
+  this pasted JD's own requirements — the same checkable-term test Case 2
+  applies, run here against the pasted path instead of a queue row.
+
+---
+
+### Case 8 — agreement gate blocks writing until every row is agreed
+
+**Fixture:** `06-stripe-engineering-manager-agentic-commerce.json`
+
+This is the AJOB-3 blocking step: `requirements-map.md` must exist and be
+walked with the user before `cv.md` or `cover-letter.md` exist at all.
+
+**Pass criteria:**
+- At the point `requirements-map.md` is first written, it carries no
+  `approved:` line, and neither `cv.md` nor `cover-letter.md` exists yet in
+  `.jobhunter/applications/<slug>/`.
+- Only after every row in the map has been walked (accepted, rejected,
+  given new evidence, or confirmed as a gap) does `requirements-map.md`
+  gain an `approved: YYYY-MM-DD` line — and only then do `cv.md` and
+  `cover-letter.md` appear.
+- If the user adds evidence during the walk that is not already in
+  `master-cv.md`, that evidence is appended to `master-cv.md` with source
+  `user, YYYY-MM-DD`, not invented silently into the CV without a source.
+
+---
+
+### Case 9 — gap never rendered: a `gap` row is absent from the output
+
+**Fixture:** `03-stripe-staff-ml-engineer-phd.json`
+
+This fixture already demands hard-to-meet requirements (10+ years,
+MS/PhD, transformer experience), so it reliably produces `gap` rows against
+a typical `master-cv.md` — the fixture Case 3 also uses for the same
+reason: a demanding JD is where a model is most tempted to paper over a gap.
+
+**Pass criteria:**
+- For every row `requirements-map.md` marks `gap`, that row's own
+  requirement wording (or a close paraphrase of it) does not appear
+  anywhere in `cv.md` or `cover-letter.md` — unless a *different*, approved
+  `match` or `partial` row already evidences the same term, in which case
+  the term is allowed to appear attached to that row's real evidence.
+- A `gap` row's `Evidence` column stays `—`; it is never back-filled after
+  the fact to make the map look more complete than the agreement gate
+  actually found it to be.
+- The count of `gap` rows the skill prints in its final summary matches the
+  count of `gap` rows actually present in the committed `requirements-map.md`
+  — the reported number is not lower than what the file shows.

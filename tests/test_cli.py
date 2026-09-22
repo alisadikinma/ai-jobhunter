@@ -523,7 +523,7 @@ class TestRenderDocx(unittest.TestCase):
         return path
 
     def test_it_renders_and_reports_the_output_blocks_and_notes(self):
-        source = self.write_markdown("# Ali Sadikin\n\nProduct engineer.\n")
+        source = self.write_markdown("# Rin Halvorsen\n\nProduct engineer.\n")
         out = os.path.join(self.tmp, "cv.docx")
         code, parsed, _err, _text = run(["render-docx", "--in", source, "--out", out])
         self.assertEqual(code, 0)
@@ -713,6 +713,154 @@ class TestRenderDocx(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.tmp, "cv.docx")))
         self.assertEqual(parsed["out"], "cv.docx")
         self.assertTrue(os.path.exists(source))
+
+
+class TestRenderPdf(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob3-cli-pdf-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+
+    def write_markdown(self, text, name="cv.md"):
+        path = os.path.join(self.tmp, name)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        return path
+
+    def test_it_renders_and_reports_the_output_pages_blocks_and_notes(self):
+        source = self.write_markdown("# Rin Halvorsen\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, parsed, _err, _text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["out"], out)
+        self.assertEqual(set(parsed), {"out", "pages", "blocks", "notes", "bytes"})
+        self.assertEqual(parsed["blocks"], 2)
+        self.assertEqual(parsed["notes"], [])
+        self.assertTrue(os.path.exists(out))
+
+    def test_an_out_that_is_not_a_pdf_is_refused(self):
+        # `--out cv.md` as a typo overwrites the tailored markdown itself.
+        source = self.write_markdown("# CV\n\nProduct engineer.\n", name="source.md")
+        victim = os.path.join(self.tmp, "cv.md")
+        with open(victim, "w", encoding="utf-8") as handle:
+            handle.write("tailored markdown\n")
+        code, _parsed, err, _text = run(["render-pdf", "--in", source, "--out", victim])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
+        with open(victim, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "tailored markdown\n")
+
+    def test_out_equal_to_in_refuses_and_leaves_the_markdown_intact(self):
+        # Named `.pdf` so the suffix check passes and the same-file check
+        # (not just the suffix check) is the one that actually refuses.
+        source = self.write_markdown("# CV\n\nProduct engineer.\n", name="cv.pdf")
+        code, _parsed, err, _text = run(["render-pdf", "--in", source, "--out", source])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
+        with open(source, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "# CV\n\nProduct engineer.\n")
+
+    def test_an_uppercase_pdf_extension_is_accepted(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "CV.PDF")
+        code, _parsed, _err, _text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertEqual(code, 0)
+
+    def test_page_a4_produces_an_a4_mediabox(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, _parsed, _err, _text = run(
+            ["render-pdf", "--in", source, "--out", out, "--page", "a4"]
+        )
+        self.assertEqual(code, 0)
+        with open(out, "rb") as handle:
+            data = handle.read()
+        self.assertIn(b"/MediaBox [0 0 595 842]", data)
+
+    def test_an_unsupported_page_size_is_a_usage_error(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, _parsed, err, _text = run(
+            ["render-pdf", "--in", source, "--out", out, "--page", "b5"]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "UsageError")
+
+    def test_a_missing_input_file_is_a_named_refusal_not_a_traceback(self):
+        out = os.path.join(self.tmp, "cv.pdf")
+        missing = os.path.join(self.tmp, "absent.md")
+        code, _parsed, err, _text = run(
+            ["render-pdf", "--in", missing, "--out", out]
+        )
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "FileNotFoundError")
+
+    def test_an_unverified_claim_refuses_and_writes_no_file(self):
+        source = self.write_markdown("# CV\n\n- revenue up 40% [verifikasi]\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, parsed, err, _text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertIsNone(parsed)
+        self.assertEqual(json.loads(err)["error"], "UnverifiedClaimError")
+        self.assertFalse(os.path.exists(out))
+
+    def test_allow_unverified_renders_and_reports_the_stripped_marker(self):
+        source = self.write_markdown("# CV\n\n- revenue up 40% [verifikasi]\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, parsed, err, _text = run(
+            ["render-pdf", "--in", source, "--out", out, "--allow-unverified"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed["out"], out)
+        self.assertTrue(os.path.exists(out))
+        self.assertTrue(any("marker(s) removed" in n for n in parsed["notes"]))
+        self.assertIn("marker(s) removed", err)
+
+    def test_an_unsupported_character_is_a_named_refusal(self):
+        source = self.write_markdown("# CV\n\nRevenue grew → upward.\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, parsed, err, _text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertIsNone(parsed)
+        self.assertEqual(json.loads(err)["error"], "UnsupportedCharacterError")
+        self.assertFalse(os.path.exists(out))
+
+    def test_notes_reach_both_stdout_json_and_stderr(self):
+        source = self.write_markdown(
+            "# CV\n\n| Skill | Years |\n|---|---|\n| Python | 8 |\n"
+        )
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, parsed, err, _text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertEqual(code, 0)
+        self.assertTrue(parsed["notes"])
+        self.assertIn("render-pdf: line 3: table flattened", err)
+
+    def test_stdout_holds_one_json_document_and_nothing_else(self):
+        source = self.write_markdown("# CV\n\nProduct engineer.\n")
+        out = os.path.join(self.tmp, "cv.pdf")
+        _code, parsed, _err, text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertIsNotNone(parsed)
+        self.assertEqual(text.count("\n{"), 0)
+        # The render's own observability line must not land on stdout.
+        self.assertNotIn("pdf.render:", text)
+
+    def test_a_missing_in_flag_is_a_usage_error(self):
+        out = os.path.join(self.tmp, "cv.pdf")
+        code, _parsed, err, _text = run(["render-pdf", "--out", out])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "UsageError")
+
+    def test_a_missing_out_flag_is_a_usage_error(self):
+        source = self.write_markdown("# CV\n")
+        code, _parsed, err, _text = run(["render-pdf", "--in", source])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "UsageError")
+
+    def test_a_missing_output_directory_is_a_named_refusal(self):
+        source = self.write_markdown("# CV\n")
+        out = os.path.join(self.tmp, "nope", "cv.pdf")
+        code, _parsed, err, _text = run(["render-pdf", "--in", source, "--out", out])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(err)["error"], "DestinationError")
 
 
 if __name__ == "__main__":

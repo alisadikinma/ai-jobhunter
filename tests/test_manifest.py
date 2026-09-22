@@ -25,7 +25,19 @@ _FIELD_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*)$")
 
 # Mirrors the exact hard-rule grep from the plan:
 #   grep -rniE "alisadikin|indusia|obsidian|Drive-D" skills/
-_CANDIDATE_SPECIFIC_RE = re.compile(r"alisadikin|indusia|obsidian|drive-d", re.IGNORECASE)
+# "sadikin" was added during AJOB-3 verifier round 1: the plugin author's
+# real surname reached tests/ and scripts/ written as "Ali Sadikin" (a space
+# between given name and surname), which "alisadikin" — one unbroken word —
+# never matched.
+_CANDIDATE_SPECIFIC_RE = re.compile(
+    r"alisadikin|sadikin|indusia|obsidian|drive-d", re.IGNORECASE
+)
+
+# tests/test_manifest.py itself is excluded from the scan below — it has to
+# hold the pattern (in the comment above and in the regex literal itself) to
+# define it, and neither occurrence is a leak.
+_MANIFEST_TEST_PATH = os.path.abspath(__file__)
+_EXTRA_SCAN_ROOTS = ("tests", "scripts", os.path.join("docs", "evals"))
 
 _EXPECTED_SKILLS = frozenset(
     {"profile", "discover", "score", "promote", "tailor", "outreach"}
@@ -74,7 +86,7 @@ class TestPluginJson(unittest.TestCase):
     def test_parses_and_has_required_fields(self):
         data = json.loads(_read(PLUGIN_JSON))
         self.assertEqual(data["name"], "ai-jobhunter")
-        self.assertEqual(data["version"], "0.1.0")
+        self.assertEqual(data["version"], "0.2.0")
         self.assertTrue(data.get("description"))
         self.assertTrue(data.get("keywords"))
         license_value = data.get("license")
@@ -126,6 +138,52 @@ class TestNoCandidateSpecificContent(unittest.TestCase):
         self.assertEqual(offenders, [], f"candidate-specific strings found in: {offenders}")
 
 
+class TestNoCandidateSpecificContentBeyondSkills(unittest.TestCase):
+    """`TestNoCandidateSpecificContent` above only ever walked `skills/` —
+    nothing stopped a real candidate's name from sitting in a test fixture
+    or a script's own comment. AJOB-3 verifier round 1 found "Ali Sadikin"
+    written out in tests/test_cli.py, tests/test_docx.py, tests/test_pdf.py,
+    and two comments in scripts/docx.py explaining a markdown-parsing bug
+    with the author's own name as the example. This widens the same regex
+    to tests/, scripts/ and docs/evals/ — everywhere but this file itself,
+    which has to hold the pattern to define it.
+    """
+
+    def test_no_candidate_specific_strings_outside_skills(self):
+        offenders = []
+        scanned = {}
+
+        def _raise(error):
+            raise error
+
+        for rel_root in _EXTRA_SCAN_ROOTS:
+            root_dir = os.path.join(REPO_ROOT, rel_root)
+            # `os.walk` on a missing directory yields nothing and the guard
+            # reports clean on a tree it never saw — the AJOB-1 fail-open.
+            # Hence the explicit isdir, `onerror` that raises, and a count.
+            self.assertTrue(os.path.isdir(root_dir), f"scan root missing: {rel_root}")
+            scanned[rel_root] = 0
+            for root, dirs, files in os.walk(root_dir, onerror=_raise):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                for fname in files:
+                    path = os.path.join(root, fname)
+                    if os.path.abspath(path) == _MANIFEST_TEST_PATH:
+                        continue
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            text = f.read()
+                    except (UnicodeDecodeError, OSError):
+                        continue  # a binary fixture (e.g. the sample .docx)
+                    scanned[rel_root] += 1
+                    if _CANDIDATE_SPECIFIC_RE.search(text):
+                        offenders.append(os.path.relpath(path, REPO_ROOT))
+        for rel_root, count in scanned.items():
+            self.assertGreater(count, 0, f"guard read no file under {rel_root}")
+        self.assertEqual(
+            offenders, [], f"candidate-specific strings found in: {offenders}"
+        )
+
+
 class TestNamedHardRulesInProse(unittest.TestCase):
     def test_tailor_states_jd_reading_is_mandatory_and_cv_never_sent_as_is(self):
         text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
@@ -145,6 +203,58 @@ class TestNamedHardRulesInProse(unittest.TestCase):
         text = _read(os.path.join(SKILLS_DIR, "profile", "SKILL.md")).lower()
         self.assertIn("verified: false", text)
         self.assertIn("allow-list", text)
+
+    def test_profile_states_pdf_in_any_tier_uses_xberg(self):
+        """AJOB-3 Phase F: a `.pdf` source in ANY tier — not just linkedin-pdf
+        — is extracted with `mcp__xberg__extract_file`. The three fragments
+        must appear together in the same paragraph, not just somewhere in the
+        file, so the rule reads as one sentence rather than three unrelated
+        mentions."""
+        text = _read(os.path.join(SKILLS_DIR, "profile", "SKILL.md")).lower()
+        paragraphs = text.split("\n\n")
+        matches = [
+            p
+            for p in paragraphs
+            if "mcp__xberg__extract_file" in p and "any tier" in p and ".pdf" in p
+        ]
+        self.assertTrue(
+            matches,
+            "no paragraph in profile/SKILL.md states the any-tier .pdf -> "
+            "mcp__xberg__extract_file rule",
+        )
+
+    def test_tailor_states_agreement_gate(self):
+        """AJOB-3 Phase G: tailor must name the requirements map, the
+        `approved:` line, the pasted-JD file, `render-pdf`, and state plainly
+        that no CV or cover letter is written before every row is agreed."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        self.assertIn("requirements-map.md", text)
+        self.assertIn("approved:", text)
+        self.assertIn("jd.md", text)
+        self.assertIn("render-pdf", text)
+        self.assertIn("no cv.md or cover-letter.md is written until", text)
+
+    def test_tailor_states_the_quantified_metric_preference_and_table_flattening(self):
+        """AJOB-3 verifier round 1: the AJOB-2 tailor SKILL.md had two rules
+        this rewrite dropped — "prefer bullets carrying a quantified metric"
+        (a selection rule) and the explanation of what `render-pdf` flattens
+        (tables to one bullet per row, keeping each cell's header). Both must
+        be back, in words a reader would actually recognise."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md")).lower()
+        self.assertIn("quantified metric", text)
+        # A bare "table" matched "stable across re-runs" and passed with the
+        # whole flattening paragraph deleted. Whitespace is collapsed first
+        # because the prose wraps mid-phrase.
+        prose = " ".join(text.split())
+        self.assertIn("a table becomes one bullet per row", prose)
+        self.assertIn("every cell keeping its own header", prose)
+
+    def test_tailor_no_longer_renders_docx(self):
+        """AJOB-3 reverses AJOB-2: tailor ships PDF only. `render-docx` stays
+        in the CLI (and in its own tests), but tailor's SKILL.md must not
+        call it any more."""
+        text = _read(os.path.join(SKILLS_DIR, "tailor", "SKILL.md"))
+        self.assertNotIn("render-docx", text)
 
 
 class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
@@ -340,17 +450,22 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         )
         return match.group(1).split(",")
 
-    def test_render_docx_and_all_three_of_its_flags_are_collected(self):
+    def test_render_pdf_and_all_four_of_its_flags_are_collected(self):
         """The guard must actually SEE the newest command, not just pass.
 
         This guard was twice found vacuous during AJOB-1 — checking zero of
         eighteen flags while staying green — so a new subcommand asserts its
         own collection rather than trusting that the general test covers it.
+        AJOB-3 replaces `render-docx` here because `tailor` (the only skill
+        that used to document it) now documents `render-pdf` instead;
+        `render-docx` stays a real CLI subcommand and keeps its own tests in
+        test_docx.py / test_cli.py, it is just no longer skill-documented.
         """
         commands = self._documented_commands()
-        self.assertIn("render-docx", commands)
+        self.assertIn("render-pdf", commands)
         self.assertEqual(
-            commands["render-docx"], {"--in", "--out", "--allow-unverified"}
+            commands["render-pdf"],
+            {"--in", "--out", "--page", "--allow-unverified"},
         )
 
     def test_every_documented_subcommand_exists_in_the_cli(self):
@@ -455,3 +570,23 @@ class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGitignore(unittest.TestCase):
+    def test_data_dir_is_ignored(self):
+        """`data/` is where a user drops their own CV PDF. This repo is public,
+        so one `git add .` would publish a real person's CV."""
+        lines = _read(os.path.join(REPO_ROOT, ".gitignore")).splitlines()
+        self.assertIn("data/", [line.strip() for line in lines])
+
+
+class TestClaudeMdNamesEverySubcommand(unittest.TestCase):
+    def test_subcommands_line_matches_the_cli(self):
+        """CLAUDE.md is the first file a new session reads. A subcommand it
+        does not list is one that session will not know to reach for."""
+        text = _read(os.path.join(REPO_ROOT, "CLAUDE.md"))
+        match = re.search(r"^Subcommands:(.*?)\.\n", text, re.M | re.S)
+        self.assertTrue(match, "CLAUDE.md has no 'Subcommands:' line")
+        listed = set(re.findall(r"`([a-z-]+)`", match.group(1)))
+        cli = set(TestSkillsNameARunnableEntrypoint()._cli_subcommands())
+        self.assertEqual(listed, cli)
