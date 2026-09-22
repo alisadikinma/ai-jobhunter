@@ -1,9 +1,9 @@
 ---
 name: outreach
-description: Find a hiring-manager contact for one job, draft an opener plus two follow-ups, and save them as Gmail drafts (or .eml files when no Gmail MCP tool is available). There is no send path anywhere in this skill. Invoked as /ai-jobhunter:outreach <queue-row-or-url>.
+description: Find a hiring-manager contact for one job, draft an opener plus two follow-ups, and save them as Gmail drafts (or .eml files when no Gmail MCP tool is available). There is no send path anywhere in this skill. Invoked as /gaspol-jobhunter:outreach <queue-row-or-url>.
 ---
 
-# /ai-jobhunter:outreach
+# /gaspol-jobhunter:outreach
 
 Drafts recruiter outreach for one job: an opener plus two follow-ups, saved
 for the user to review and send themselves. **There is no send path
@@ -13,7 +13,7 @@ anywhere in this skill.** It writes drafts; it never transmits anything.
 
 - `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
-  `/ai-jobhunter:profile` first.
+  `/gaspol-jobhunter:profile` first.
 - The target job's company and full description — from the matching row in
   `.jobhunter/queue/jobs.jsonl`.
 - `.jobhunter/profile/master-cv.md` and `.jobhunter/profile/variants.toml`,

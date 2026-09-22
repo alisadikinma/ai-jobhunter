@@ -431,7 +431,7 @@ def _build_pdf_bytes(blocks, pages, page_size):
         b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold "
         b"/Encoding /WinAnsiEncoding >>"
     )
-    info = b"/Producer (ai-jobhunter)"
+    info = b"/Producer (gaspol-jobhunter)"
     title = _first_heading_text(blocks)
     if title is not None:
         info += b" /Title (" + _pdf_literal(title) + b")"

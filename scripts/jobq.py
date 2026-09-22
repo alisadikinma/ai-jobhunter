@@ -210,8 +210,8 @@ def update_rows(path, updates, key=row_key):
 
     `updates` maps a row key to the fields to merge into that row. The queue
     is append-only for *new* postings, but a row has to change twice in its
-    life: `/ai-jobhunter:score` writes the score onto it, and
-    `/ai-jobhunter:promote` marks it promoted so a later run does not spend a
+    life: `/gaspol-jobhunter:score` writes the score onto it, and
+    `/gaspol-jobhunter:promote` marks it promoted so a later run does not spend a
     second request re-promoting it. `append_rows` cannot do either — it would
     see the changed row as a duplicate by `row_key` and drop it.
 

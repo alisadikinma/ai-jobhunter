@@ -1,6 +1,6 @@
 """jobsync payload mapping: `add_job`/`save_match_result` bodies, tag cap, request budget.
 
-Reads a scored queue row (the shape `jobq`/`ats` rows carry once `/ai-jobhunter:score` has
+Reads a scored queue row (the shape `jobq`/`ats` rows carry once `/gaspol-jobhunter:score` has
 written `fit_score`, `work_authorization`, `suggested_variant` and (optionally)
 `score_reasons` / `skills` back into it — see spec §5) and builds the exact payload
 dicts the `promote` skill later passes, verbatim, to jobsync's MCP tools. This module makes
@@ -137,12 +137,12 @@ class PromoteError(Exception):
 
 
 class ScoreMissingError(PromoteError):
-    """Raised when a row has no `fit_score` — it has not been through /ai-jobhunter:score."""
+    """Raised when a row has no `fit_score` — it has not been through /gaspol-jobhunter:score."""
 
     def __init__(self, row):
         ident = row.get("jobUrl") or f"{row.get('company')!r} / {row.get('jobTitle')!r}"
         super().__init__(
-            f"row has no fit_score; cannot promote {ident} — run /ai-jobhunter:score first"
+            f"row has no fit_score; cannot promote {ident} — run /gaspol-jobhunter:score first"
         )
 
 
@@ -161,7 +161,7 @@ class TitleOnlyError(PromoteError):
     """The row carries no posting text, so jobsync would refuse to match it.
 
     Promoting it would spend two requests to store a job that can never carry
-    a score. Re-run `/ai-jobhunter:discover` for the full posting first.
+    a score. Re-run `/gaspol-jobhunter:discover` for the full posting first.
     """
 
     def __init__(self, row):

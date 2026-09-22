@@ -1,4 +1,4 @@
-# Eval: `/ai-jobhunter:score`
+# Eval: `/gaspol-jobhunter:score`
 
 Governs the judgement `skills/score/SKILL.md` makes: the `work_authorization`
 gate, the `fit_score` rubric, `suggested_variant`, and the
@@ -9,7 +9,7 @@ and spec §5.
 ## How to run this eval
 
 For each case: load the named fixture from `docs/evals/fixtures/`, run
-`/ai-jobhunter:score` against it with the candidate's real
+`/gaspol-jobhunter:score` against it with the candidate's real
 `.jobhunter/profile/master-cv.md` and `variants.toml` (or a stand-in profile
 that states the candidate builds *with* models — LLM apps, agents,
 automation, generative media — and does not train or research them, per
@@ -178,7 +178,7 @@ prototyping, solo product engineer") even though the actual title is
 This is Case 1 promoted to a standing regression check: a run that ever
 starts writing back `"unclear"` or `"open"` for this fixture is a
 regression in the gate itself, not just a missed classification, because a
-`closed` role reaching `/ai-jobhunter:promote` would push a role the
+`closed` role reaching `/gaspol-jobhunter:promote` would push a role the
 candidate cannot legally take into jobsync as if it were viable.
 
 **Pass criteria:**

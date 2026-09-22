@@ -1,13 +1,13 @@
 ---
 name: discover
-description: Find roles from job boards, direct ATS APIs (Greenhouse/Lever/Ashby), and watched career pages; normalise and append them to the local work queue. Never writes to jobsync. Invoked as /ai-jobhunter:discover.
+description: Find roles from job boards, direct ATS APIs (Greenhouse/Lever/Ashby), and watched career pages; normalise and append them to the local work queue. Never writes to jobsync. Invoked as /gaspol-jobhunter:discover.
 ---
 
-# /ai-jobhunter:discover
+# /gaspol-jobhunter:discover
 
 Finds candidate roles and appends normalised rows to the local queue at
 `.jobhunter/queue/jobs.jsonl`. This skill only writes to the local queue; it
-never calls a jobsync MCP tool. `/ai-jobhunter:promote` is the only skill in
+never calls a jobsync MCP tool. `/gaspol-jobhunter:promote` is the only skill in
 this plugin permitted to write to jobsync.
 
 ## Inputs
@@ -15,7 +15,7 @@ this plugin permitted to write to jobsync.
 - `.jobhunter/config.toml`, read with `config-show` (see the commands below). If it is missing,
   this skill stops with the same named error every skill but `profile` uses
   (`config.ConfigMissingError`) and tells the user to run
-  `/ai-jobhunter:profile` first.
+  `/gaspol-jobhunter:profile` first.
 - `targets.companies` — ATS slugs to poll directly.
 - `targets.geo` — the geographies to search boards for.
 - `budgets.firecrawl_credits_per_run` — the hard ceiling for this run.
@@ -43,7 +43,7 @@ this plugin permitted to write to jobsync.
 
 jobsync's match-result quality depends on the full posting text: roughly
 150+ words gets a full match, shorter is stored but flagged *Provisional*,
-and a title-only row is refused outright by `/ai-jobhunter:promote` later.
+and a title-only row is refused outright by `/gaspol-jobhunter:promote` later.
 This skill therefore always captures the full description text at discovery
 time — from `ats.normalize_*` for ATS boards, and from a scrape of the
 posting page itself (not just the search-result snippet) for board search

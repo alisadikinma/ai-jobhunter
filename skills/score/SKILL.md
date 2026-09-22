@@ -1,21 +1,21 @@
 ---
 name: score
-description: Score every unscored row in the local queue against the candidate profile, writing fit_score, score_reasons, work_authorization, suggested_variant and skills back into the queue. Invoked as /ai-jobhunter:score.
+description: Score every unscored row in the local queue against the candidate profile, writing fit_score, score_reasons, work_authorization, suggested_variant and skills back into the queue. Invoked as /gaspol-jobhunter:score.
 ---
 
-# /ai-jobhunter:score
+# /gaspol-jobhunter:score
 
 Scores every unscored row in the local queue against
 `.jobhunter/profile/master-cv.md` and `.jobhunter/profile/variants.toml`, and
 writes the result back into `.jobhunter/queue/jobs.jsonl` in place. This
 skill only edits the local queue; it never writes to jobsync — that is
-`/ai-jobhunter:promote`'s job, using the fields this skill writes.
+`/gaspol-jobhunter:promote`'s job, using the fields this skill writes.
 
 ## Inputs
 
 - `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
-  `/ai-jobhunter:profile` first.
+  `/gaspol-jobhunter:profile` first.
 - `.jobhunter/queue/jobs.jsonl`, read with `queue-list` (see the commands below);
   `queue-list --unscored` selects the rows this run actually scores (any
   row already carrying a `fit_score` is left untouched, so re-running this
@@ -33,7 +33,7 @@ skill only edits the local queue; it never writes to jobsync — that is
 
 After this skill runs, a scored row carries exactly these fields in addition
 to whatever `jobq`/`ats.normalize_*` already put there.
-`/ai-jobhunter:promote` reads these exact names — this skill must write
+`/gaspol-jobhunter:promote` reads these exact names — this skill must write
 these exact names, nothing renamed and nothing extra standing in for them:
 
 | Field | Type | Notes |
@@ -42,7 +42,7 @@ these exact names, nothing renamed and nothing extra standing in for them:
 | `score_reasons` | dict | one entry per rubric dimension; the salary entry is **absent**, never `0`, when the posting states no salary |
 | `work_authorization` | `"open"` / `"unclear"` / `"closed"` | see the gate below |
 | `suggested_variant` | str | a key from the user's `variants.toml`. Omit it and `promote` falls back to `unclassified`, which the user then sees in their own tracker as the tag `variant:unclassified` — so choose one. |
-| `skills` | ordered list of str | drives the skill tags `/ai-jobhunter:promote` builds; only the first 8 survive its tag cap |
+| `skills` | ordered list of str | drives the skill tags `/gaspol-jobhunter:promote` builds; only the first 8 survive its tag cap |
 
 ## `work_authorization` — a gate, not a weighted dimension
 
@@ -56,7 +56,7 @@ of `fit_score`:
 - `closed` — US-citizens-only, a security-clearance requirement, or
   language equivalent to "must be authorized to work in the US without
   sponsorship". A `closed` row is not scored further for fit; it is
-  surfaced to the user as blocked, and `/ai-jobhunter:promote` refuses to
+  surfaced to the user as blocked, and `/gaspol-jobhunter:promote` refuses to
   push it to jobsync at all.
 
 Folding this into a single blended score would hide a strong role-fit match

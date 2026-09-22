@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single command-line entrypoint for every ai-jobhunter script.
+"""Single command-line entrypoint for every gaspol-jobhunter script.
 
 The skills are prose read by a model, and prose naming a Python function is
 not a way to call it. Before this file existed, a skill said "read with
@@ -348,7 +348,7 @@ class _JsonArgumentParser(argparse.ArgumentParser):
 def build_parser():
     parser = _JsonArgumentParser(
         prog="jobhunter",
-        description="Deterministic helpers behind the ai-jobhunter skills.",
+        description="Deterministic helpers behind the gaspol-jobhunter skills.",
     )
     sub = parser.add_subparsers(
         dest="command", required=True, parser_class=_JsonArgumentParser

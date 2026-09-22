@@ -1,9 +1,9 @@
 ---
 name: profile
-description: Compile the candidate profile from every user-named source (web pages, a LinkedIn PDF export, and local markdown) into a provenance-tracked master CV, through four passes — ingest, extract, reconcile, render. Re-runnable. Invoked as /ai-jobhunter:profile.
+description: Compile the candidate profile from every user-named source (web pages, a LinkedIn PDF export, and local markdown) into a provenance-tracked master CV, through four passes — ingest, extract, reconcile, render. Re-runnable. Invoked as /gaspol-jobhunter:profile.
 ---
 
-# /ai-jobhunter:profile
+# /gaspol-jobhunter:profile
 
 Compiles `.jobhunter/profile/master-cv.md` and `.jobhunter/profile/variants.toml`
 from every source the user names in `.jobhunter/config.toml`. This is the only
@@ -107,7 +107,7 @@ silently resolved at render time by picking one side.
 
 Also write or update `.jobhunter/profile/variants.toml` if the user's config
 implies new role variants worth tracking; each variant is stored as its own
-prose description plus 2-3 example job descriptions, since `/ai-jobhunter:score`
+prose description plus 2-3 example job descriptions, since `/gaspol-jobhunter:score`
 later treats this prose as the classification signal, not a keyword list.
 
 ## Two hard rules

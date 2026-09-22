@@ -1,9 +1,9 @@
 ---
 name: tailor
-description: Write a CV, cover letter and keyword-coverage report for one specific job description, only after the candidate has agreed a requirements map row by row. Reading the JD is mandatory; master-cv.md is never sent as-is. Invoked as /ai-jobhunter:tailor <queue-row-or-url-or-pasted-JD>.
+description: Write a CV, cover letter and keyword-coverage report for one specific job description, only after the candidate has agreed a requirements map row by row. Reading the JD is mandatory; master-cv.md is never sent as-is. Invoked as /gaspol-jobhunter:tailor <queue-row-or-url-or-pasted-JD>.
 ---
 
-# /ai-jobhunter:tailor
+# /gaspol-jobhunter:tailor
 
 Produces one document set — a CV, a cover letter, and a keyword-coverage
 report — written for **one specific job description**. It never emits a
@@ -15,7 +15,7 @@ evidence.
 
 - `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
-  `/ai-jobhunter:profile` first.
+  `/gaspol-jobhunter:profile` first.
 - The target job's full description text, from one of three places:
   - the matching row in `.jobhunter/queue/jobs.jsonl`,
   - scraped fresh with `mcp__firecrawl__firecrawl_scrape` if the user points
@@ -49,7 +49,7 @@ unchanged.
 
 ## Location check
 
-A JD read from the queue has already passed through `/ai-jobhunter:score`,
+A JD read from the queue has already passed through `/gaspol-jobhunter:score`,
 which checks geography. A **pasted** JD bypasses that check, so `tailor`
 itself reads any geographic restriction stated in the JD (e.g. "within the
 United States", "must reside in the same country as the office") and warns
@@ -99,7 +99,7 @@ not dumped as one long list. For each row the user can:
 
 Evidence the user adds during this walk is appended to `master-cv.md` with
 source `user, <YYYY-MM-DD>`, so every claim in the compiled profile stays
-traceable to where it came from, the same rule `/ai-jobhunter:profile`
+traceable to where it came from, the same rule `/gaspol-jobhunter:profile`
 enforces for every other source.
 
 **No cv.md or cover-letter.md is written until every row is agreed.**
@@ -128,7 +128,7 @@ otherwise equally relevant.
 
 Choose the role variant (from `.jobhunter/profile/variants.toml`) whose
 prose description and example JDs best match this specific posting, the
-same judgement-over-keywords approach `/ai-jobhunter:score` uses, and let
+same judgement-over-keywords approach `/gaspol-jobhunter:score` uses, and let
 that variant's framing (not a hardcoded template) shape the summary and
 section ordering.
 

@@ -2379,7 +2379,7 @@ PARITY_ORACLE = [
         # never should be given it silently.
         _eval_md("profile.md"),
         {"allow_unverified": True},
-        "3a571b91104c65a8496d64e3dab392a3d3e694901caa667e1ba02ba00369829f",
+        "94db8f9fb6089a6ed40b316af2ae856c04512e034ff6cd0e7a4d9c7c8aba3368",
         [
             "line 89: code fence opened, delimiters dropped",
             "line 92: code fence closed, delimiters dropped",
@@ -2390,14 +2390,14 @@ PARITY_ORACLE = [
         "scoring.md",
         _eval_md("scoring.md"),
         {},
-        "e214ae7ffa3c3046e304af5ed781822c822f10e12771d204b94edea5231dc6ac",
+        "369ee0b1ead2a7188ff130d329d1d4250c8901bdd4ede3a9ec81f554e8f27b85",
         ["line 33: table flattened to 7 line(s)"],
     ),
     (
         "tailoring.md",
         _eval_md("tailoring.md"),
         {},
-        "dda937b9514e6bb36969e49e849c91e1120f3052c218fa6d95ecc20b5bd60f9a",
+        "b734e6c9245fba8e42fcefad9b5b594276820410abcdee444cb7ceb57bf36a9f",
         [
             "line 14: inline html stripped (<slug>)",
             "line 31: table flattened to 4 line(s)",

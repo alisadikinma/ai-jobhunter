@@ -1,4 +1,4 @@
-# ai-jobhunter
+# gaspol-jobhunter
 
 Generic, public Claude Code plugin for an end-to-end job-hunting pipeline:
 discovery → scoring → per-JD CV/cover-letter tailoring → outreach, with tracking

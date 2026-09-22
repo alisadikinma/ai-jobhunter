@@ -178,7 +178,7 @@ def load(path):
     """
     if not os.path.exists(path):
         raise ConfigMissingError(
-            f"No config file at {path}. Run /ai-jobhunter:profile to create one."
+            f"No config file at {path}. Run /gaspol-jobhunter:profile to create one."
         )
 
     with open(path, "rb") as f:

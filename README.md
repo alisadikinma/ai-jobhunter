@@ -1,4 +1,4 @@
-# ai-jobhunter
+# gaspol-jobhunter
 
 A generic, publicly distributable Claude Code plugin that runs a job hunt as
 a pipeline: discover roles, score them against a candidate profile, write a
@@ -18,12 +18,12 @@ time from `.jobhunter/config.toml` in your own project.
 
 | Command | What it does |
 |---|---|
-| `/ai-jobhunter:profile` | Compiles your candidate profile from every source you name (web pages, a LinkedIn PDF export, local notes) into a provenance-tracked `master-cv.md`. Four passes: ingest, extract claims with sources, reconcile by precedence, render. Re-runnable. |
-| `/ai-jobhunter:discover` | Finds roles from job boards, direct ATS APIs (Greenhouse/Lever/Ashby), and watched career pages. Appends normalised, deduped rows to a local queue. Never touches jobsync. |
-| `/ai-jobhunter:score` | Scores every unscored queue row against your profile: a `fit_score` (0-100, five weighted dimensions) plus a separate `work_authorization` gate (`open` / `unclear` / `closed`). |
-| `/ai-jobhunter:promote` | Pushes the rows worth pursuing into jobsync — the only command that writes to jobsync — within jobsync's hourly MCP request budget. |
-| `/ai-jobhunter:tailor` | Writes a CV and cover letter (PDF) plus a keyword-overlap report for one specific job description — from the queue, a URL, or a JD you paste. First maps every JD requirement to evidence in your master CV and walks that map with you; nothing is written until you agree every row. Never sends your master CV unedited. |
-| `/ai-jobhunter:outreach` | Finds a hiring-manager contact, drafts an opener plus two follow-ups, and saves them as Gmail drafts (or `.eml` files as a fallback). Drafts only — there is no send path. |
+| `/gaspol-jobhunter:profile` | Compiles your candidate profile from every source you name (web pages, a LinkedIn PDF export, local notes) into a provenance-tracked `master-cv.md`. Four passes: ingest, extract claims with sources, reconcile by precedence, render. Re-runnable. |
+| `/gaspol-jobhunter:discover` | Finds roles from job boards, direct ATS APIs (Greenhouse/Lever/Ashby), and watched career pages. Appends normalised, deduped rows to a local queue. Never touches jobsync. |
+| `/gaspol-jobhunter:score` | Scores every unscored queue row against your profile: a `fit_score` (0-100, five weighted dimensions) plus a separate `work_authorization` gate (`open` / `unclear` / `closed`). |
+| `/gaspol-jobhunter:promote` | Pushes the rows worth pursuing into jobsync — the only command that writes to jobsync — within jobsync's hourly MCP request budget. |
+| `/gaspol-jobhunter:tailor` | Writes a CV and cover letter (PDF) plus a keyword-overlap report for one specific job description — from the queue, a URL, or a JD you paste. First maps every JD requirement to evidence in your master CV and walks that map with you; nothing is written until you agree every row. Never sends your master CV unedited. |
+| `/gaspol-jobhunter:outreach` | Finds a hiring-manager contact, drafts an opener plus two follow-ups, and saves them as Gmail drafts (or `.eml` files as a fallback). Drafts only — there is no send path. |
 
 There is no `status` command: jobsync already ships a Kanban board for
 tracking what you promoted. This plugin does not duplicate it.
@@ -46,13 +46,13 @@ was never an application.
 ## Prerequisites
 
 1. **A Firecrawl API key**, for the web search and scrape calls
-   `/ai-jobhunter:discover`, `/ai-jobhunter:tailor`'s JD lookup, and
-   `/ai-jobhunter:outreach`'s contact discovery all depend on.
+   `/gaspol-jobhunter:discover`, `/gaspol-jobhunter:tailor`'s JD lookup, and
+   `/gaspol-jobhunter:outreach`'s contact discovery all depend on.
 2. **A self-hosted jobsync instance with an MCP token.** jobsync is not
    bundled with this plugin. Run it yourself (`docker compose up -d` from a
    clone of [jobsync](https://github.com/Gsync/jobsync)), create an account
    at its local URL, and generate a token under Settings → MCP Access.
-   Only `/ai-jobhunter:promote` needs this; the other five commands work
+   Only `/gaspol-jobhunter:promote` needs this; the other five commands work
    without it.
 
 ## Install
@@ -65,12 +65,12 @@ was never an application.
    directories, target companies, and budgets. `.jobhunter/` is meant to
    stay local: it is gitignored in this repository and should be in yours
    too.
-3. Run `/ai-jobhunter:profile` first. It compiles your profile and, if
+3. Run `/gaspol-jobhunter:profile` first. It compiles your profile and, if
    `.jobhunter/config.toml` is missing entirely, walks you through creating
    it.
-4. Run `/ai-jobhunter:discover`, then `/ai-jobhunter:score`, then whichever
-   of `/ai-jobhunter:promote`, `/ai-jobhunter:tailor`, or
-   `/ai-jobhunter:outreach` you need next.
+4. Run `/gaspol-jobhunter:discover`, then `/gaspol-jobhunter:score`, then whichever
+   of `/gaspol-jobhunter:promote`, `/gaspol-jobhunter:tailor`, or
+   `/gaspol-jobhunter:outreach` you need next.
 
 ## What this plugin will not do
 

@@ -1,4 +1,4 @@
-# Eval: `/ai-jobhunter:profile`
+# Eval: `/gaspol-jobhunter:profile`
 
 Governs the judgement `skills/profile/SKILL.md` makes across its four
 passes (ingest, extract, reconcile, render): precedence-based conflict

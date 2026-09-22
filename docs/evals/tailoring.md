@@ -1,4 +1,4 @@
-# Eval: `/ai-jobhunter:tailor`
+# Eval: `/gaspol-jobhunter:tailor`
 
 Governs the judgement `skills/tailor/SKILL.md` makes: reading the job
 description before writing anything, never sending `master-cv.md` as-is,
@@ -7,7 +7,7 @@ keyword overlap without dressing it up as an ATS score. See spec §6.
 
 ## How to run this eval
 
-For each case: run `/ai-jobhunter:tailor` against the named fixture (as if
+For each case: run `/gaspol-jobhunter:tailor` against the named fixture (as if
 it were the matching row in `.jobhunter/queue/jobs.jsonl`, or its
 `jobDescription` pasted into the conversation where the case says so) with
 the candidate's real `.jobhunter/profile/master-cv.md`, and check the
@@ -160,7 +160,7 @@ CV unchanged."
 **Fixture:** `04-stripe-staff-product-manager-ai.json`
 
 **Pass criteria:**
-- Running `/ai-jobhunter:tailor` twice against the same fixture writes to
+- Running `/gaspol-jobhunter:tailor` twice against the same fixture writes to
   the same `.jobhunter/applications/<slug>/` directory both times — a
   second run updates `cv.md`, `cover-letter.md` and `keyword-report.md` in
   place rather than creating a second, differently-named directory for the

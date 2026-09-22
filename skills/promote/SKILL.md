@@ -1,25 +1,25 @@
 ---
 name: promote
-description: Push scored queue rows that clear the visa gate into jobsync via add_jobs_batch and save_match_results_batch, within the hourly MCP request budget. The only skill in this plugin permitted to call jobsync MCP tools. Invoked as /ai-jobhunter:promote.
+description: Push scored queue rows that clear the visa gate into jobsync via add_jobs_batch and save_match_results_batch, within the hourly MCP request budget. The only skill in this plugin permitted to call jobsync MCP tools. Invoked as /gaspol-jobhunter:promote.
 ---
 
-# /ai-jobhunter:promote
+# /gaspol-jobhunter:promote
 
 Pushes rows from the local queue into a self-hosted jobsync instance over
 its MCP server. **This is the only skill in this plugin permitted to call a
-jobsync MCP tool.** `/ai-jobhunter:discover` and `/ai-jobhunter:score` only
+jobsync MCP tool.** `/gaspol-jobhunter:discover` and `/gaspol-jobhunter:score` only
 ever touch the local queue file.
 
 ## Inputs
 
 - `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
-  `/ai-jobhunter:profile` first.
+  `/gaspol-jobhunter:profile` first.
 - `budgets.jobsync_requests_per_run` — this run's own ceiling, itself always
   clamped to jobsync's hard hourly limit of 60 MCP requests (see
   `promote.MAX_REQUESTS_PER_HOUR`).
 - `.jobhunter/queue/jobs.jsonl`, read with `queue-list` (see the commands below). Only rows
-  carrying a `fit_score` (i.e. already run through `/ai-jobhunter:score`),
+  carrying a `fit_score` (i.e. already run through `/gaspol-jobhunter:score`),
   with `work_authorization != "closed"`, and **not already promoted** are
   eligible. Read them with `queue-list --unscored`'s counterpart
   `queue-list --unpromoted`: a row already in jobsync costs two requests to
@@ -49,7 +49,7 @@ ever touch the local queue file.
 `review_resume` and `save_resume_review` are **not used** by this skill or
 this plugin. Their schema requires a SCORES line carrying an
 `ats=<0-100>` number, and per spec §6 this plugin does not claim an ATS
-score anywhere — `/ai-jobhunter:tailor`'s keyword-overlap report explicitly
+score anywhere — `/gaspol-jobhunter:tailor`'s keyword-overlap report explicitly
 says it is not one. Using either tool would contradict that decision, so
 they are out of scope for good, not just unimplemented yet.
 
@@ -78,7 +78,7 @@ the next run.
   writing to a substitute tracker.
 - **A row with no `fit_score`** — `promote.to_add_job` / `promote.to_match_text`
   raise `promote.ScoreMissingError` for it; this skill reports the row as
-  skipped and tells the user to run `/ai-jobhunter:score` first, rather than
+  skipped and tells the user to run `/gaspol-jobhunter:score` first, rather than
   promoting an unscored row.
 - **A row with `work_authorization == "closed"`** — `promote.py` raises
   `promote.AuthorizationClosedError` for it; this row is never sent to
@@ -88,7 +88,7 @@ the next run.
   posting. `promote.py` raises `promote.TitleOnlyError`. jobsync needs the
   posting text to produce a match, so storing one would spend two requests on
   a job that can never carry a score. Report it and tell the user to re-run
-  `/ai-jobhunter:discover` for the full posting.
+  `/gaspol-jobhunter:discover` for the full posting.
 
 ## Provisional matches
 

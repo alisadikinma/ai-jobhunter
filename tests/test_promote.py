@@ -21,7 +21,7 @@ SCORES_LINE_RE = re.compile(
 #   print(json.dumps(ats.normalize_ashby('/tmp/ab.json','Ramp')[0],indent=2))"
 # run here against the committed fixture instead of a re-fetched /tmp file. `fit_score`,
 # `work_authorization`, `suggested_variant` and `skills` are not produced by `ats.py` — they
-# are the scoring step's output (spec §5) — and are added here exactly as `/ai-jobhunter:score`
+# are the scoring step's output (spec §5) — and are added here exactly as `/gaspol-jobhunter:score`
 # would write them back onto this same row.
 REAL_ASHBY_ROW = {
     "company": "Ramp",
@@ -395,7 +395,7 @@ class TestNoNetworkImports(unittest.TestCase):
 
 class TestRealAshbyRow(unittest.TestCase):
     """Built from a real row produced by `ats.normalize_ashby` against the committed Ashby
-    fixture, augmented with the scoring fields `/ai-jobhunter:score` would have written."""
+    fixture, augmented with the scoring fields `/gaspol-jobhunter:score` would have written."""
 
     def test_to_add_job_payload_shape(self):
         payload = promote.to_add_job(REAL_ASHBY_ROW)

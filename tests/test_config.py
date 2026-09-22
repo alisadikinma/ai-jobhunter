@@ -42,7 +42,7 @@ class TestLoadErrors(unittest.TestCase):
             path = os.path.join(tmp, "does-not-exist.toml")
             with self.assertRaises(config.ConfigMissingError) as ctx:
                 config.load(path)
-            self.assertIn("/ai-jobhunter:profile", str(ctx.exception))
+            self.assertIn("/gaspol-jobhunter:profile", str(ctx.exception))
 
     def test_malformed_toml_surfaces_underlying_tomllib_error(self):
         with tempfile.TemporaryDirectory() as tmp:

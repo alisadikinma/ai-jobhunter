@@ -98,7 +98,7 @@ def fetch(board, slug, dest):
     if template is None:
         raise AtsError(f"Unknown ATS board {board!r}; expected one of {sorted(_ENDPOINTS)}")
     url = template.format(slug=slug)
-    request = urllib.request.Request(url, headers={"User-Agent": "ai-jobhunter/0.1"})
+    request = urllib.request.Request(url, headers={"User-Agent": "gaspol-jobhunter/0.2"})
 
     try:
         response = urllib.request.urlopen(request, timeout=_FETCH_TIMEOUT_SECONDS)
