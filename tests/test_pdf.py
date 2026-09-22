@@ -323,14 +323,14 @@ class TestTextOrderAndRoundTrip(PdfTempDirCase):
     def test_text_order_matches_block_order(self):
         path = self.out()
         pdf.render(
-            "# Ali Sadikin\n\n- Grew ARR\n- Shipped the thing\n\n## Skills\n\nPython\n",
+            "# Rin Halvorsen\n\n- Grew ARR\n- Shipped the thing\n\n## Skills\n\nPython\n",
             path,
         )
         parsed = read_pdf(open(path, "rb").read())
         self.assertEqual(
             parsed["texts"],
             [
-                "Ali Sadikin",
+                "Rin Halvorsen",
                 pdf.BULLET_CHAR,
                 "Grew ARR",
                 pdf.BULLET_CHAR,
@@ -397,9 +397,9 @@ class TestBulletIndent(unittest.TestCase):
 class TestTitle(PdfTempDirCase):
     def test_title_equals_first_heading(self):
         path = self.out()
-        pdf.render("# Ali Sadikin\n\n## Skills\n\nPython\n", path)
+        pdf.render("# Rin Halvorsen\n\n## Skills\n\nPython\n", path)
         data = open(path, "rb").read()
-        self.assertIn(b"/Title (Ali Sadikin)", data)
+        self.assertIn(b"/Title (Rin Halvorsen)", data)
 
     def test_no_title_when_there_is_no_heading(self):
         path = self.out()
@@ -410,7 +410,7 @@ class TestTitle(PdfTempDirCase):
 
 class TestDeterministicOutput(PdfTempDirCase):
     def test_same_input_twice_is_byte_identical(self):
-        markdown = "# Ali Sadikin\n\n- Grew ARR\n- Shipped the thing\n"
+        markdown = "# Rin Halvorsen\n\n- Grew ARR\n- Shipped the thing\n"
         first = self.out("first.pdf")
         second = self.out("second.pdf")
         pdf.render(markdown, first)

@@ -523,7 +523,7 @@ class TestRenderDocx(unittest.TestCase):
         return path
 
     def test_it_renders_and_reports_the_output_blocks_and_notes(self):
-        source = self.write_markdown("# Ali Sadikin\n\nProduct engineer.\n")
+        source = self.write_markdown("# Rin Halvorsen\n\nProduct engineer.\n")
         out = os.path.join(self.tmp, "cv.docx")
         code, parsed, _err, _text = run(["render-docx", "--in", source, "--out", out])
         self.assertEqual(code, 0)
@@ -727,7 +727,7 @@ class TestRenderPdf(unittest.TestCase):
         return path
 
     def test_it_renders_and_reports_the_output_pages_blocks_and_notes(self):
-        source = self.write_markdown("# Ali Sadikin\n\nProduct engineer.\n")
+        source = self.write_markdown("# Rin Halvorsen\n\nProduct engineer.\n")
         out = os.path.join(self.tmp, "cv.pdf")
         code, parsed, _err, _text = run(["render-pdf", "--in", source, "--out", out])
         self.assertEqual(code, 0)

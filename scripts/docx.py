@@ -92,7 +92,7 @@ _RULE_RE = re.compile(r"^\s*(?:-{3,}|\*{3,}|_{3,})\s*$")
 
 # A setext underline. "===" was matched by nothing, so it was joined to the
 # line above as a soft break and the candidate's NAME rendered as
-# "Ali Sadikin ===========". The "---" form was swallowed by `_RULE_RE`,
+# "Rin Halvorsen ===========". The "---" form was swallowed by `_RULE_RE`,
 # which silently demoted the heading above it to a paragraph.
 _SETEXT_H1_RE = re.compile(r"^\s*={2,}\s*$")
 _SETEXT_H2_RE = re.compile(r"^\s*-{2,}\s*$")
@@ -329,7 +329,7 @@ def parse_blocks(markdown):
         # horizontal rule. `_RULE_RE` used to swallow both, silently demoting
         # the heading above it to a paragraph, while "===" matched nothing at
         # all and got joined on as a soft break — rendering the candidate's
-        # name as "Ali Sadikin ===========".
+        # name as "Rin Halvorsen ===========".
         setext = None
         if _SETEXT_H1_RE.match(line):
             setext = 1

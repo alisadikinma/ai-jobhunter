@@ -25,7 +25,19 @@ _FIELD_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):[ \t]*(.*)$")
 
 # Mirrors the exact hard-rule grep from the plan:
 #   grep -rniE "alisadikin|indusia|obsidian|Drive-D" skills/
-_CANDIDATE_SPECIFIC_RE = re.compile(r"alisadikin|indusia|obsidian|drive-d", re.IGNORECASE)
+# "sadikin" was added during AJOB-3 verifier round 1: the plugin author's
+# real surname reached tests/ and scripts/ written as "Ali Sadikin" (a space
+# between given name and surname), which "alisadikin" — one unbroken word —
+# never matched.
+_CANDIDATE_SPECIFIC_RE = re.compile(
+    r"alisadikin|sadikin|indusia|obsidian|drive-d", re.IGNORECASE
+)
+
+# tests/test_manifest.py itself is excluded from the scan below — it has to
+# hold the pattern (in the comment above and in the regex literal itself) to
+# define it, and neither occurrence is a leak.
+_MANIFEST_TEST_PATH = os.path.abspath(__file__)
+_EXTRA_SCAN_ROOTS = ("tests", "scripts", os.path.join("docs", "evals"))
 
 _EXPECTED_SKILLS = frozenset(
     {"profile", "discover", "score", "promote", "tailor", "outreach"}
@@ -124,6 +136,39 @@ class TestNoCandidateSpecificContent(unittest.TestCase):
                 if _CANDIDATE_SPECIFIC_RE.search(text):
                     offenders.append(os.path.relpath(path, REPO_ROOT))
         self.assertEqual(offenders, [], f"candidate-specific strings found in: {offenders}")
+
+
+class TestNoCandidateSpecificContentBeyondSkills(unittest.TestCase):
+    """`TestNoCandidateSpecificContent` above only ever walked `skills/` —
+    nothing stopped a real candidate's name from sitting in a test fixture
+    or a script's own comment. AJOB-3 verifier round 1 found "Ali Sadikin"
+    written out in tests/test_cli.py, tests/test_docx.py, tests/test_pdf.py,
+    and two comments in scripts/docx.py explaining a markdown-parsing bug
+    with the author's own name as the example. This widens the same regex
+    to tests/, scripts/ and docs/evals/ — everywhere but this file itself,
+    which has to hold the pattern to define it.
+    """
+
+    def test_no_candidate_specific_strings_outside_skills(self):
+        offenders = []
+        for rel_root in _EXTRA_SCAN_ROOTS:
+            root_dir = os.path.join(REPO_ROOT, rel_root)
+            for root, dirs, files in os.walk(root_dir):
+                dirs[:] = [d for d in dirs if d != "__pycache__"]
+                for fname in files:
+                    path = os.path.join(root, fname)
+                    if os.path.abspath(path) == _MANIFEST_TEST_PATH:
+                        continue
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            text = f.read()
+                    except (UnicodeDecodeError, OSError):
+                        continue  # a binary fixture (e.g. the sample .docx)
+                    if _CANDIDATE_SPECIFIC_RE.search(text):
+                        offenders.append(os.path.relpath(path, REPO_ROOT))
+        self.assertEqual(
+            offenders, [], f"candidate-specific strings found in: {offenders}"
+        )
 
 
 class TestNamedHardRulesInProse(unittest.TestCase):

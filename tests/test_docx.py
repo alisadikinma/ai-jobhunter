@@ -1458,9 +1458,9 @@ class TestRenderTextFidelity(DocxTempDirCase):
 
     def test_a_single_heading_and_nothing_else_renders(self):
         path = self.out()
-        result = docx.render("# Ali Sadikin\n", path)
+        result = docx.render("# Rin Halvorsen\n", path)
         self.assertEqual(result["blocks"], 1)
-        self.assertIn("Ali Sadikin", self.document_xml(path))
+        self.assertIn("Rin Halvorsen", self.document_xml(path))
 
     def test_five_hundred_blocks_all_reach_the_document(self):
         path = self.out()
@@ -1516,7 +1516,7 @@ class TestRenderTextFidelity(DocxTempDirCase):
         # XML 1.0 forbids them: one stray byte makes the file unopenable
         # rather than merely ugly.
         path = self.out()
-        docx.render("# Ali\x07 Sadikin\n", path)
+        docx.render("# Rin\x07 Halvorsen\n", path)
         body = self.document_xml(path)
         self.assertNotIn("\x07", body)
         ElementTree.fromstring(body)
@@ -1545,7 +1545,7 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
     CONSTRUCTS = {
         "ordered list": "1. Cut p95 latency.\n2. Led migration.\n",
         "plus bullet": "+ Shipped billing v2\n",
-        "setext h1": "Ali Sadikin\n===========\n",
+        "setext h1": "Rin Halvorsen\n===========\n",
         "setext h2": "Experience\n----------\n",
         "blockquote": "> Ali rebuilt our billing pipeline.\n",
         "fenced code": "```python\ndef solve(x):\n    return x\n```\n",
@@ -1597,9 +1597,9 @@ class TestEverySupportedConstructIsReportedPerSpecFive(unittest.TestCase):
         self.assertEqual(blocks[2]["text"], "3. Mentored 6.")
 
     def test_a_setext_underline_becomes_a_heading_not_a_suffix(self):
-        blocks = docx.parse_blocks(docx.flatten("Ali Sadikin\n===========\n")[0])
+        blocks = docx.parse_blocks(docx.flatten("Rin Halvorsen\n===========\n")[0])
         self.assertEqual(
-            blocks, [{"kind": "heading", "level": 1, "text": "Ali Sadikin"}]
+            blocks, [{"kind": "heading", "level": 1, "text": "Rin Halvorsen"}]
         )
 
     def test_a_dashed_setext_underline_keeps_the_heading(self):
@@ -2168,7 +2168,7 @@ class TestRoundSixFollowups(unittest.TestCase):
     def test_a_reference_link_note_names_its_own_original_line(self):
         _blocks, notes = self.blocks(
             "[pycon]: https://pycon.org\n"
-            "Ali Sadikin\n"
+            "Rin Halvorsen\n"
             "Spoke at [PyCon][pycon]\n"
         )
         self.assertTrue(
@@ -2178,7 +2178,7 @@ class TestRoundSixFollowups(unittest.TestCase):
 
     def test_a_note_after_a_dropped_block_line_names_the_original_line(self):
         _blocks, notes = self.blocks(
-            "Ali Sadikin\n"
+            "Rin Halvorsen\n"
             "[pycon]: https://pycon.org\n"
             "Worked at <b>Acme</b> on AT&amp;T billing.\n"
             "![logo](logo.png)\n"
