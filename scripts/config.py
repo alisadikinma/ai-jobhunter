@@ -27,12 +27,18 @@ import warnings
 
 TOML_DECODE_ERROR = tomllib.TOMLDecodeError
 
-_KNOWN_TOP_LEVEL_KEYS = frozenset({"profile_sources", "targets", "budgets", "tracking"})
+_KNOWN_TOP_LEVEL_KEYS = frozenset(
+    {"profile_sources", "targets", "budgets", "tracking", "linkedin"}
+)
 
 _BUDGET_DEFAULTS = {
     "firecrawl_credits_per_run": 150,
     "jobsync_requests_per_run": 50,
+    "apify_max_items_per_run": 100,
 }
+
+_KNOWN_LINKEDIN_KEYS = frozenset({"keywords", "locations", "work_types"})
+_LINKEDIN_WORK_TYPES = ("on-site", "remote", "hybrid")
 
 # tier name (as it appears in profile_sources.precedence) -> how to resolve
 # it to a list of (tier, path_or_url) entries. "project" is handled
@@ -112,6 +118,47 @@ def _normalize_min_salary(raw_targets, provenance):
     if value == 0:
         return None
     return value
+
+
+def _require_string_list(section_name, key, value):
+    """`linkedin.keywords`/`locations`/`work_types` must be lists of non-empty strings."""
+    if not isinstance(value, list) or not all(
+        isinstance(v, str) and v.strip() for v in value
+    ):
+        raise ConfigError(
+            f"{section_name}.{key} must be a list of non-empty strings, got {value!r}"
+        )
+    return value
+
+
+def _parse_linkedin(raw, provenance):
+    raw_linkedin = raw.get("linkedin", {})
+    _warn_unknown_section_keys("linkedin", raw_linkedin, _KNOWN_LINKEDIN_KEYS)
+
+    linkedin = {}
+    for key in ("keywords", "locations"):
+        if key in raw_linkedin:
+            linkedin[key] = _require_string_list("linkedin", key, raw_linkedin[key])
+            provenance[f"linkedin.{key}"] = "file"
+        else:
+            linkedin[key] = []
+            provenance[f"linkedin.{key}"] = "default"
+
+    if "work_types" in raw_linkedin:
+        work_types = _require_string_list("linkedin", "work_types", raw_linkedin["work_types"])
+        for value in work_types:
+            if value not in _LINKEDIN_WORK_TYPES:
+                raise ConfigError(
+                    f"linkedin.work_types: {value!r} is not one of "
+                    f"{', '.join(_LINKEDIN_WORK_TYPES)}"
+                )
+        linkedin["work_types"] = work_types
+        provenance["linkedin.work_types"] = "file"
+    else:
+        linkedin["work_types"] = []
+        provenance["linkedin.work_types"] = "default"
+
+    return linkedin
 
 
 _KNOWN_TARGET_KEYS = frozenset({"geo", "companies", "min_salary_usd"})
@@ -246,11 +293,15 @@ def load(path):
     # tracking
     tracking = dict(raw.get("tracking", {}))
 
+    # linkedin
+    linkedin = _parse_linkedin(raw, provenance)
+
     cfg = {
         "budgets": budgets,
         "targets": targets,
         "profile_sources": profile_sources,
         "tracking": tracking,
+        "linkedin": linkedin,
         "_provenance": provenance,
     }
     return cfg

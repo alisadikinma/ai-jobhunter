@@ -692,5 +692,101 @@ class TestNestedSectionTypos(unittest.TestCase):
         self.assertFalse(config._is_under("/Users", "/etc"))
 
 
+class TestApifyMaxItemsPerRunBudget(unittest.TestCase):
+    def test_default_is_100(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, "[targets]\ngeo = []\n")
+            cfg = config.load(path)
+            self.assertEqual(cfg["budgets"]["apify_max_items_per_run"], 100)
+
+    def test_file_value_kept_with_provenance_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, "[budgets]\napify_max_items_per_run = 25\n")
+            cfg = config.load(path)
+            self.assertEqual(cfg["budgets"]["apify_max_items_per_run"], 25)
+            self.assertEqual(cfg["_provenance"]["budgets.apify_max_items_per_run"], "file")
+
+    def test_string_value_raises_budget_type_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, '[budgets]\napify_max_items_per_run = "25"\n')
+            with self.assertRaises(config.BudgetTypeError):
+                config.load(path)
+
+    def test_negative_value_raises_budget_type_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, "[budgets]\napify_max_items_per_run = -1\n")
+            with self.assertRaises(config.BudgetTypeError):
+                config.load(path)
+
+
+class TestLinkedinSection(unittest.TestCase):
+    def test_linkedin_section_parsed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(
+                path,
+                "[linkedin]\n"
+                'keywords = ["AI engineer"]\n'
+                'locations = ["United States"]\n'
+                'work_types = ["remote"]\n',
+            )
+            cfg = config.load(path)
+            self.assertEqual(cfg["linkedin"]["keywords"], ["AI engineer"])
+            self.assertEqual(cfg["linkedin"]["locations"], ["United States"])
+            self.assertEqual(cfg["linkedin"]["work_types"], ["remote"])
+
+    def test_absent_section_yields_empty_lists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, "[targets]\ngeo = []\n")
+            cfg = config.load(path)
+            self.assertEqual(cfg["linkedin"]["keywords"], [])
+            self.assertEqual(cfg["linkedin"]["locations"], [])
+            self.assertEqual(cfg["linkedin"]["work_types"], [])
+
+    def test_keywords_not_a_list_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, '[linkedin]\nkeywords = "x"\n')
+            with self.assertRaises(config.ConfigError):
+                config.load(path)
+
+    def test_keywords_with_empty_string_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, '[linkedin]\nkeywords = [""]\n')
+            with self.assertRaises(config.ConfigError):
+                config.load(path)
+
+    def test_work_types_bad_value_raises_config_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, '[linkedin]\nwork_types = ["remote-ish"]\n')
+            with self.assertRaises(config.ConfigError):
+                config.load(path)
+
+    def test_unknown_linkedin_key_warns(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, '[linkedin]\nkeyword = ["typo"]\n')
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                config.load(path)
+            self.assertTrue(any("keyword" in str(w.message) for w in caught))
+
+    def test_linkedin_section_does_not_trigger_unknown_top_level_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "config.toml")
+            _write(path, '[linkedin]\nkeywords = ["AI engineer"]\n')
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                config.load(path)
+            self.assertFalse(any("linkedin" in str(w.message) for w in caught))
+
+
 if __name__ == "__main__":
     unittest.main()
