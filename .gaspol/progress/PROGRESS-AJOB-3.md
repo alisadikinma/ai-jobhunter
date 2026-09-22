@@ -180,6 +180,19 @@
 | H — tailoring evals | DONE | `3afd5fe` |
 | I — docs sync | DONE | `2c8b3f2` |
 | I — E2E + fix permission 0600 | DONE | `3071678` |
+| Fix — verifier round 1 | DONE | `02254c4` |
+
+## Plan-verifier round 1
+
+| Finding | Fix commit | Test | Mutation result |
+|---|---|---|---|
+| 1. `HELVETICA_WIDTHS`/`HELVETICA_BOLD_WIDTHS` had 0 for `²`/`³`/`¹` (AGLFN has no entry for those codepoints); `encode` didn't treat 0x7F (DEL) as a control char | `ff87e3e` | `TestWidthTablesArePinned.test_superscript_digit_widths_pinned`, `test_every_encodable_cp1252_byte_has_a_positive_width`, `TestEncode.test_del_becomes_a_space` | width table reverted to 0 → 4 subTest gagal; `encode` 0x7F handling direvert → test gagal |
+| 2. Unsupported-char line number fell back to a hardcoded `1` for a character `flatten` produces (e.g. `&rarr;` decoded from an entity) | `112cf03` | `TestUnsupportedCharacterLineNumberAfterFlatten` (2 test) | direvert ke fallback `1` → kedua test gagal |
+| 3. tailor SKILL.md lost the "prefer a quantified metric" selection rule and the renderer-flattening explanation (tables/images/links/nested bullets) during the render-pdf rewrite | `97df651` | `TestNamedHardRulesInProse.test_tailor_states_the_quantified_metric_preference_and_table_flattening` | kalimat quantified-metric dihapus → test gagal |
+| 4. Real candidate name "Ali Sadikin" (space between given name and surname) leaked into tests/ and scripts/ comments; `_CANDIDATE_SPECIFIC_RE` only matched the unbroken word "alisadikin" | `0abf786` | `TestNoCandidateSpecificContentBeyondSkills.test_no_candidate_specific_strings_outside_skills` | nama dikembalikan ke satu file test → guard gagal |
+| 5a. `PARITY_ORACLE` didn't cover `docs/evals/` content | `0d44469` | `TestRenderOutputIsUnchangedByThePrepareExtraction.test_every_recorded_case_still_renders_byte_identical` | `docx.BULLET_GLYPH` diubah → 9 kasus baru gagal |
+| 5b. `test_pdf.py` had no gate-parity coverage for the 8 line-breaking split spellings `test_docx.py` pins | `0d44469` | `TestGateParityWithDocx.test_pdf_refuses_every_line_breaking_split_spelling_docx_refuses` | residual check (`"".join(rendered)` half) dihapus dari `docx.prepare` → 8 kasus gagal |
+| 5c. No test for an unwritable destination directory on `pdf.render` | `0d44469` | `TestUnwritableDestinationDirectory.test_render_refuses_when_the_destination_directory_is_unwritable` | try/except `OSError` di sekitar `mkstemp` dihapus → `PermissionError` mentah lolos, test gagal |
 
 ## Utang terbuka
 
@@ -198,4 +211,5 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase G done — 615 lulus, mutasi (a) hapus kalimat agreement-gate → test_tailor_states_agreement_gate gagal, mutasi (b) --page → --paper di blok perintah → test_every_documented_flag_exists_on_its_subcommand gagal — NEXT: Phase H
 - 2026-09-22 Phase H done — 618 lulus, mutasi (ganti judul "agreement gate" → "approval gate") → test_agreement_gate_case_present gagal — NEXT: Phase I
 - 2026-09-22 Phase I bagian docs done — 619 lulus, guard Subcommands CLAUDE.md dimutasi → gagal — NEXT: Phase I E2E bersama Ali (profile dari data/master-cv.pdf, tailor JD City of Hope)
-- 2026-09-22 Phase I done — E2E: profile dari data/master-cv.pdf → master-cv.md; tailor City of Hope: peta 28 baris (match 14 / partial 7 / gap 7), gate disetujui Ali, keyword loop 1 putaran (covered 93→105), cv.pdf 2 hal 54 blok, cover-letter.pdf 1 hal 10 blok, round-trip xberg utuh & berurutan; fix mode 0600 `3071678`; 623 lulus — NEXT: gaspol-verify + plan-verifier
+- 2026-09-22 Phase I done — E2E: profile dari data/master-cv.pdf → master-cv.md; tailor City of Hope: peta 28 baris (match 14 / partial 7 / gap 7), gate disetujui Ali, keyword loop 1 putaran (covered 93→105), cv.pdf 2 hal 54 blok, cover-letter.pdf 1 hal 10 blok, round-trip xberg utuh & berurutan; fix mode 0600 `3071678` — mutasi (hapus `os.chmod` di pdf.py) → `TestOutputPermissions.test_a_new_pdf_gets_the_mode_open_would_give_it` dan `test_a_re_render_keeps_the_existing_files_mode` gagal (2), mutasi (hapus `os.chmod` di docx.py) → `test_docx_follows_the_same_rule` gagal (1); 623 lulus — NEXT: gaspol-verify + plan-verifier
+- 2026-09-22 verifier round 1 fixes done — 632 lulus, 8 mutasi semua tertangkap — NEXT: plan-verifier round 2
