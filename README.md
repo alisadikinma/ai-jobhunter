@@ -19,7 +19,7 @@ time from `.jobhunter/config.toml` in your own project.
 | Command | What it does |
 |---|---|
 | `/gaspol-jobhunter:profile` | Compiles your candidate profile from every source you name (web pages, a LinkedIn PDF export, local notes) into a provenance-tracked `master-cv.md`. Four passes: ingest, extract claims with sources, reconcile by precedence, render. Re-runnable. |
-| `/gaspol-jobhunter:discover` | Finds roles from job boards, direct ATS APIs (Greenhouse/Lever/Ashby), and watched career pages. Appends normalised, deduped rows to a local queue. Never touches jobsync. |
+| `/gaspol-jobhunter:discover` | Finds roles from job boards (Firecrawl REST search/scrape), direct ATS APIs (Greenhouse/Lever/Ashby), and LinkedIn (Apify's `bebity/linkedin-jobs-scraper` actor). Appends normalised, deduped rows to a local queue. Never touches jobsync. |
 | `/gaspol-jobhunter:score` | Scores every unscored queue row against your profile: a `fit_score` (0-100, five weighted dimensions) plus a separate `work_authorization` gate (`open` / `unclear` / `closed`). |
 | `/gaspol-jobhunter:promote` | Pushes the rows worth pursuing into jobsync — the only command that writes to jobsync — within jobsync's hourly MCP request budget. |
 | `/gaspol-jobhunter:tailor` | Writes a CV and cover letter (PDF) plus a keyword-overlap report for one specific job description — from the queue, a URL, or a JD you paste. First maps every JD requirement to evidence in your master CV and walks that map with you; nothing is written until you agree every row. Proposes one of three ATS CV templates (`hybrid`, `technical`, `leadership`) and writes the letter to a research-backed format (word band by seniority, four paragraphs); `template-check` must pass both before anything renders. Adds DOCX when the job runs on Workday, Taleo or iCIMS. Never sends your master CV unedited. |
@@ -32,7 +32,7 @@ tracking what you promoted. This plugin does not duplicate it.
 
 ```
 site URL + CV/LinkedIn PDF --profile-->  .jobhunter/profile/
-boards + ATS + monitors   --discover--> .jobhunter/queue/jobs.jsonl      (local, uncapped)
+boards + ATS + LinkedIn   --discover--> .jobhunter/queue/jobs.jsonl      (local, uncapped)
 queue + profile           --score-->    .jobhunter/queue/jobs.jsonl      (scores written in place)
 queue (above threshold)   --promote-->  jobsync via MCP                  (rate-limited)
 queue row / pasted JD     --tailor-->   .jobhunter/applications/<slug>/  (cv.pdf, cover-letter.pdf, + .docx for enterprise portals)
@@ -45,15 +45,28 @@ was never an application.
 
 ## Prerequisites
 
-1. **A Firecrawl API key**, for the web search and scrape calls
-   `/gaspol-jobhunter:discover`, `/gaspol-jobhunter:tailor`'s JD lookup, and
-   `/gaspol-jobhunter:outreach`'s contact discovery all depend on.
-2. **A self-hosted jobsync instance with an MCP token.** jobsync is not
+1. **A Firecrawl API key** (`FIRECRAWL_API_KEY`), for the board search/scrape
+   calls `/gaspol-jobhunter:discover` makes over Firecrawl's REST API v2 —
+   plus `/gaspol-jobhunter:tailor`'s JD lookup and
+   `/gaspol-jobhunter:outreach`'s contact discovery, both still MCP-based.
+2. **An Apify API token** (`APIFY_TOKEN`), if you want `/gaspol-jobhunter:discover`
+   to search LinkedIn. It runs the public `bebity/linkedin-jobs-scraper`
+   actor against public guest listings only — never your own LinkedIn
+   account — and enforces a per-run charge cap before every start. Optional:
+   leave it unset and `discover` skips LinkedIn, no other source falls back
+   to it.
+3. **A self-hosted jobsync instance with an MCP token.** jobsync is not
    bundled with this plugin. Run it yourself (`docker compose up -d` from a
    clone of [jobsync](https://github.com/Gsync/jobsync)), create an account
    at its local URL, and generate a token under Settings → MCP Access.
    Only `/gaspol-jobhunter:promote` needs this; the other five commands work
    without it.
+
+Both `FIRECRAWL_API_KEY` and `APIFY_TOKEN` live in a `.env` file at your
+project's root — never in `.jobhunter/config.toml`. Run
+`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keys-check` any time to
+see which are present, without ever printing a value. Make sure `.env` is
+git-ignored in your own project; `discover` warns if it is not.
 
 ## Install
 
@@ -62,13 +75,15 @@ was never an application.
 2. Copy `templates/config.toml` to `.jobhunter/config.toml` in the project
    you want to run your job hunt from, and fill in your own values — site
    URLs, LinkedIn PDF path, local profile notes, allow-listed project
-   directories, target companies, and budgets. `.jobhunter/` is meant to
-   stay local: it is gitignored in this repository and should be in yours
-   too.
-3. Run `/gaspol-jobhunter:profile` first. It compiles your profile and, if
+   directories, target companies, `[linkedin]` search keywords/locations, and
+   budgets. `.jobhunter/` is meant to stay local: it is gitignored in this
+   repository and should be in yours too.
+3. Create a `.env` at your project root with `FIRECRAWL_API_KEY=...` and,
+   if you want LinkedIn search, `APIFY_TOKEN=...`. Git-ignore it.
+4. Run `/gaspol-jobhunter:profile` first. It compiles your profile and, if
    `.jobhunter/config.toml` is missing entirely, walks you through creating
    it.
-4. Run `/gaspol-jobhunter:discover`, then `/gaspol-jobhunter:score`, then whichever
+5. Run `/gaspol-jobhunter:discover`, then `/gaspol-jobhunter:score`, then whichever
    of `/gaspol-jobhunter:promote`, `/gaspol-jobhunter:tailor`, or
    `/gaspol-jobhunter:outreach` you need next.
 
