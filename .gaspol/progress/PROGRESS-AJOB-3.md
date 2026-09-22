@@ -69,24 +69,24 @@
 - [x] width tables carry a source URL and fetch date; pinned values match
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase D: `pdf.py` layout, writer and `render()` refusals
-- [ ] Write failing test for `pdf.render("# T\n\nBody\n", <tmp>/cv.pdf)` producing a file that starts with `%PDF-1.4` and ends with `%%EOF\n`. Expected error: `AttributeError: module 'pdf' has no attribute 'render'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Implement `layout` and the writer per Contracts § Layout / § Writer, and `render` per § render order
-- [ ] Add a test-only PDF reader helper in `tests/test_pdf.py`: parse `startxref`, the xref table, assert each offset points at `"<n> 0 obj"`, assert each stream's `/Length` equals its byte length, extract `(text) Tj` strings in order (unescaping `\\`, `\(`, `\)`, `\ddd`, decoding cp1252)
-- [ ] Tests: text order equals block order; `(`, `)`, `\` in text round-trip; `é` round-trips via `\351`; letter MediaBox `[0 0 612 792]`, a4 `[0 0 595 842]`; 300 bullets → `pages > 1` and `/Count` equals pages; heading never last line on a page (construct a case); bullet glyph at `MARGIN`, continuation at `MARGIN + 14`; `/Title` equals first heading; same input twice → identical bytes
-- [ ] Refusal tests, each asserting **no file and no `*.pdf.tmp`** left in the dir: `[verifikasi]` → `docx.UnverifiedClaimError`; empty → `docx.EmptyDocumentError`; missing dir → `docx.DestinationError`; `"a → b\n中\n"` → `pdf.UnsupportedCharacterError` whose message names `U+2192` line 1 and `U+4E2D` line 2
-- [ ] Gate parity: loop over every marker spelling already pinned in `tests/test_docx.py` (import its fixture list if it exposes one; otherwise copy the list into `test_pdf.py` with a comment naming its source test) and assert `pdf.render` refuses each exactly as `docx.render` does
-- [ ] Run full suite green. Mutations: (a) drop the encode-check → the UnsupportedCharacter test fails; (b) write directly to `path` instead of mkstemp → the no-file-on-failure test fails (force a failure after partial write via monkeypatched `os.replace`); restore both
-- [ ] Commit: `feat(pdf): hand-written PDF 1.4 renderer sharing the docx gate`
+### [x] Phase D: `pdf.py` layout, writer and `render()` refusals
+- [x] Write failing test for `pdf.render("# T\n\nBody\n", <tmp>/cv.pdf)` producing a file that starts with `%PDF-1.4` and ends with `%%EOF\n`. Expected error: `AttributeError: module 'pdf' has no attribute 'render'`
+- [x] Run it, confirm it fails for that reason
+- [x] Implement `layout` and the writer per Contracts § Layout / § Writer, and `render` per § render order
+- [x] Add a test-only PDF reader helper in `tests/test_pdf.py`: parse `startxref`, the xref table, assert each offset points at `"<n> 0 obj"`, assert each stream's `/Length` equals its byte length, extract `(text) Tj` strings in order (unescaping `\\`, `\(`, `\)`, `\ddd`, decoding cp1252)
+- [x] Tests: text order equals block order; `(`, `)`, `\` in text round-trip; `é` round-trips via `\351`; letter MediaBox `[0 0 612 792]`, a4 `[0 0 595 842]`; 300 bullets → `pages > 1` and `/Count` equals pages; heading never last line on a page (construct a case); bullet glyph at `MARGIN`, continuation at `MARGIN + 14`; `/Title` equals first heading; same input twice → identical bytes
+- [x] Refusal tests, each asserting **no file and no `*.pdf.tmp`** left in the dir: `[verifikasi]` → `docx.UnverifiedClaimError`; empty → `docx.EmptyDocumentError`; missing dir → `docx.DestinationError`; `"a → b\n中\n"` → `pdf.UnsupportedCharacterError` whose message names `U+2192` line 1 and `U+4E2D` line 2
+- [x] Gate parity: loop over every marker spelling already pinned in `tests/test_docx.py` (import its fixture list if it exposes one; otherwise copy the list into `test_pdf.py` with a comment naming its source test) and assert `pdf.render` refuses each exactly as `docx.render` does — copied `test_the_override_strips_every_spelling_the_gate_catches`'s `spellings` dict (test_docx.py ~line 1258) into `TestGateParityWithDocx.SPELLINGS`, since it is a local variable there, not exported
+- [x] Run full suite green. Mutations: (a) drop the encode-check → the UnsupportedCharacter test fails; (b) write directly to `path` instead of mkstemp → the no-file-on-failure test fails (force a failure after partial write via monkeypatched `os.replace`); restore both — both confirmed and restored
+- [x] Commit: `feat(pdf): hand-written PDF 1.4 renderer sharing the docx gate` — `35445ec`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] xref offsets and stream lengths verified by the test reader
-- [ ] every refusal leaves no file and no temp file
-- [ ] security: input text is escaped in PDF literal strings (no raw `(`/`)`/`\` reaches a content stream); no path outside `--out`'s directory is written
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] xref offsets and stream lengths verified by the test reader
+- [x] every refusal leaves no file and no temp file
+- [x] security: input text is escaped in PDF literal strings (no raw `(`/`)`/`\` reaches a content stream); no path outside `--out`'s directory is written
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase E: CLI `render-pdf`
 - [ ] Write failing test for `main(["render-pdf", "--in", md, "--out", pdf])` exiting 0 with stdout JSON keys `{"out","pages","blocks","notes","bytes"}`. Expected error: `SystemExit`/exit code 1 with `invalid choice: 'render-pdf'`
@@ -169,6 +169,7 @@
 | A — ignore data/ | DONE | `724f41c` |
 | B — docx.prepare() | DONE | `ad82ff0` |
 | C — pdf primitives | DONE | `097c935` |
+| D — pdf renderer | DONE | `35445ec` |
 
 ## Utang terbuka
 
@@ -181,3 +182,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase A done — suite 554 lulus, mutasi (hapus baris) → test gagal — NEXT: Phase B
 - 2026-09-22 Phase B done — 562 lulus, parity 8 input sama, mutasi → test_a_line_breaking_character_is_caught_when_the_blocks_rejoin gagal — NEXT: Phase C
 - 2026-09-22 Phase C done — 579 lulus, AFM dari github.com/foliojs/pdfkit (raw, 2026-09-22), mutasi → test_one_point_more_forces_a_second_line + property test gagal — NEXT: Phase D
+- 2026-09-22 Phase D done — 597 lulus, mutasi (a) hapus encode-check → UnsupportedCharacter test gagal (jadi UnicodeEncodeError mentah), mutasi (b) tulis langsung ke --out tanpa mkstemp → no-file-on-failure test gagal (DestinationError tak pernah terlempar) — NEXT: Phase E
