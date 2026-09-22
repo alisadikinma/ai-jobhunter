@@ -68,19 +68,19 @@
 - [x] every rule id has a failing-input test and a passing-input test
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase D: cover-letter format and `check_letter`
-- [ ] Write failing test for `templates.letter_levels() == {"entry": (200, 250), "mid": (250, 400), "executive": (400, 450)}`. Expected error: `AttributeError: module 'templates' has no attribute 'letter_levels'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Write `templates/cover-letter.md` per Contracts; implement `letter_levels` and `check_letter`
-- [ ] Tests: a generated valid letter per level (build bodies of exact word counts in the test with a helper) → `[]`; word count at 200/250 (entry pass), 199 and 251 (fail), same for mid and executive edges; `paragraphs` with 3 and 5; `no-salutation`; `generic-salutation` both phrases; `no-sign-off`; each sign-off accepted; optional H2 subject line before the salutation ignored; `opening-company`/`opening-role` only when given; `weak-opening`; `weak-close`; unknown level → `TemplateError`; the template file itself parses and renders through `pdf.render`
-- [ ] Mutation: make the band exclusive at the top → the 250-entry test fails; restore
-- [ ] Commit: `feat(templates): research-backed cover-letter format and check_letter`
+### [x] Phase D: cover-letter format and `check_letter`
+- [x] Write failing test for `templates.letter_levels() == {"entry": (200, 250), "mid": (250, 400), "executive": (400, 450)}`. Expected error: `AttributeError: module 'templates' has no attribute 'letter_levels'`
+- [x] Run it, confirm it fails for that reason — confirmed exactly: `AttributeError: module 'templates' has no attribute 'letter_levels'`
+- [x] Write `templates/cover-letter.md` per Contracts; implement `letter_levels` and `check_letter`
+- [x] Tests: a generated valid letter per level (build bodies of exact word counts in the test with a helper) → `[]`; word count at 200/250 (entry pass), 199 and 251 (fail), same for mid and executive edges; `paragraphs` with 3 and 5; `no-salutation`; `generic-salutation` both phrases; `no-sign-off`; each sign-off accepted; optional H2 subject line before the salutation ignored; `opening-company`/`opening-role` only when given; `weak-opening`; `weak-close`; unknown level → `TemplateError`; the template file itself parses and renders through `pdf.render`
+- [x] Mutation: make the band exclusive at the top → the 250-entry test fails (3 tests failed: entry/mid/executive edge tests); restore
+- [x] Commit: `feat(templates): research-backed cover-letter format and check_letter` (`d5d1e0c`)
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] band edges tested inclusive on both ends for all three levels
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 706 lulus
+- [x] band edges tested inclusive on both ends for all three levels
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase E: CLI `template-check`
 - [ ] Write failing test for `main(["template-check", "--cv", p, "--template", "technical"])` exiting 0 with JSON `{"kind": "cv", "template": "technical", "findings": [], "ok": true}`. Expected error: exit 1 with `invalid choice: 'template-check'`
@@ -147,6 +147,7 @@
 | A — multi-line html comment strip | DONE | `4160291` |
 | B — CV templates + loader | DONE | `81b9ef8` |
 | C — check_cv | DONE | `195b9c6` |
+| D — cover-letter format + check_letter | DONE | `d5d1e0c` |
 
 ## Utang terbuka
 
@@ -159,3 +160,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase A done — 642 lulus, parity sama, mutasi → test_a_comment_spanning_lines_is_stripped_not_rendered gagal — NEXT: Phase B
 - 2026-09-22 Phase B done — 654 lulus, mutasi → test_no_candidate_specific_strings_outside_skills dan test_headings_equal_canonical_section_names_in_order gagal — NEXT: Phase C
 - 2026-09-22 Phase C done — 679 lulus, mutasi → test_order_education_before_work_experience dan test_i_slash_o_is_not_flagged gagal — NEXT: Phase D
+- 2026-09-22 Phase D done — 706 lulus, mutasi (band exclusive di top) → 3 test band-edge gagal — NEXT: Phase E
