@@ -49,24 +49,53 @@ was never an application.
    calls `/gaspol-jobhunter:discover` makes over Firecrawl's REST API v2 —
    plus `/gaspol-jobhunter:tailor`'s JD lookup and
    `/gaspol-jobhunter:outreach`'s contact discovery, both still MCP-based.
+   Get yours from the Firecrawl dashboard's API Keys page after signing up
+   at [firecrawl.dev](https://www.firecrawl.dev/).
 2. **An Apify API token** (`APIFY_TOKEN`), if you want `/gaspol-jobhunter:discover`
    to search LinkedIn. It runs the public `bebity/linkedin-jobs-scraper`
    actor against public guest listings only — never your own LinkedIn
-   account — and enforces a per-run charge cap before every start. Optional:
-   leave it unset and `discover` skips LinkedIn, no other source falls back
-   to it.
+   account — and enforces a per-run charge cap before every start. Get
+   yours from the Integrations page of your
+   [Apify Console](https://console.apify.com/) settings after signing up.
+   Optional: leave it unset and `discover` skips LinkedIn, no other source
+   falls back to it.
 3. **A self-hosted jobsync instance with an MCP token.** jobsync is not
-   bundled with this plugin. Run it yourself (`docker compose up -d` from a
-   clone of [jobsync](https://github.com/Gsync/jobsync)), create an account
-   at its local URL, and generate a token under Settings → MCP Access.
-   Only `/gaspol-jobhunter:promote` needs this; the other five commands work
-   without it.
+   bundled with this plugin. See "Setting up jobsync" below.
 
 Both `FIRECRAWL_API_KEY` and `APIFY_TOKEN` live in a `.env` file at your
-project's root — never in `.jobhunter/config.toml`. Run
-`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keys-check` any time to
-see which are present, without ever printing a value. Make sure `.env` is
-git-ignored in your own project; `discover` warns if it is not.
+project's root — never in `.jobhunter/config.toml`. Copy `.env.example` to
+`.env` and fill in the values you have; leaving `APIFY_TOKEN` empty is fine.
+Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keys-check` any
+time to see which are present, without ever printing a value. `.env` is
+git-ignored already in this repository — keep it that way in yours;
+`discover` warns if it is not.
+
+## Setting up jobsync
+
+[jobsync](https://github.com/Gsync/jobsync) is the tracker `/gaspol-jobhunter:promote`
+writes to. It is a separate project you run yourself — locally with Docker,
+or on your own server/VPS for a persistent instance reachable from anywhere
+you run Claude Code.
+
+1. **Run jobsync.** Locally: `docker compose up -d` from a clone of
+   [jobsync](https://github.com/Gsync/jobsync). On a VPS: deploy it the same
+   way, behind whatever reverse proxy/TLS setup you already use, and note
+   its public URL (e.g. `https://jobsync.your-domain.com`).
+2. **Create an account** at that URL and sign in.
+3. **Generate an MCP token.** In jobsync, go to **Settings → MCP Access** and
+   create a new token. Copy it immediately — most such tokens are shown once.
+4. **Register jobsync as an MCP server for Claude Code.** From this project's
+   directory:
+   ```bash
+   claude mcp add --transport http jobsync <your-jobsync-url>/api/mcp \
+     --header "Authorization: Bearer <your-mcp-token>"
+   ```
+   `-s local` (the default) keeps this scoped to the current project and
+   stores it in your local Claude Code config — never in this repository.
+   Verify with `claude mcp list`; `jobsync` should show as Connected.
+5. `/gaspol-jobhunter:promote` can now push scored, above-threshold rows from
+   your local queue into jobsync — that is the only thing that reaches it;
+   nothing else in this plugin calls a jobsync tool.
 
 ## Install
 
@@ -78,8 +107,11 @@ git-ignored in your own project; `discover` warns if it is not.
    directories, target companies, `[linkedin]` search keywords/locations, and
    budgets. `.jobhunter/` is meant to stay local: it is gitignored in this
    repository and should be in yours too.
-3. Create a `.env` at your project root with `FIRECRAWL_API_KEY=...` and,
-   if you want LinkedIn search, `APIFY_TOKEN=...`. Git-ignore it.
+3. Copy this plugin's `.env.example` to `.env` in the project you want to run
+   your job hunt from — `cp "${CLAUDE_PLUGIN_ROOT}/.env.example" .env` — and
+   fill in `FIRECRAWL_API_KEY` and, if you want LinkedIn search, `APIFY_TOKEN`
+   (see Prerequisites above for where to get each). Git-ignore `.env` in your
+   project.
 4. Run `/gaspol-jobhunter:profile` first. It compiles your profile and, if
    `.jobhunter/config.toml` is missing entirely, walks you through creating
    it.
