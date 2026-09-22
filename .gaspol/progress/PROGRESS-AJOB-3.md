@@ -14,6 +14,10 @@
 
 ## Keputusan saat jalan
 
+- 2026-09-22, Ali (gate E2E): lanjut walau JD hanya untuk AS; 13 match disetujui; pasangan pendidikan BINUS=BCS, PCR=Diploma benar; 7 partial tetap partial; celah dikonfirmasi: #3 Microsoft, #11 S2, #12/#14/#15/#20/#26 kesehatan; #27 diisi bukti user (plugin Claude Code di gaspol-one).
+- 2026-09-22, Claude: `Kind` di peta hanya `required`/`preferred` (kontrak) — tugas & skill → `required`, software → `preferred`.
+- 2026-09-22, Claude: bug ditemukan saat E2E — PDF (dan DOCX sejak AJOB-2) keluar mode 0600 karena `mkstemp`; diperbaiki dengan `docx.output_mode()` (TDD, 4 test, mutasi ditangkap).
+
 - 2026-09-22, Ali: **output tailor PDF saja** (`cv.pdf`, `cover-letter.pdf`). Membalik keputusan AJOB-2 "DOCX saja, tanpa PDF". `render-docx` tetap ada di CLI.
 - 2026-09-22, Ali: PDF dibuat dengan `render-pdf` stdlib buatan sendiri, bukan konversi LibreOffice, bukan langkah manual.
 - 2026-09-22, Ali: peta syarat JD vs master CV **dibahas dulu bersama Ali**; CV baru ditulis setelah semua baris disepakati.
@@ -146,20 +150,20 @@
 - [x] eval cases reference only committed fixtures — Case 7 reuses `04-stripe-staff-product-manager-ai.json`, Case 8 reuses `06-stripe-engineering-manager-agentic-commerce.json`, Case 9 reuses `03-stripe-staff-ml-engineer-phd.json`, all already committed under `docs/evals/fixtures/`
 - [x] No placeholder/TODO comments in new code
 
-### [>] Phase I: docs sync and real end-to-end run
+### [x] Phase I: docs sync and real end-to-end run
 - [x] Write failing test for CLAUDE.md's subcommand list naming `render-pdf` (extend the existing manifest/CLAUDE.md guard if one exists; otherwise assert `render-pdf` in CLAUDE.md's "Subcommands:" line). Expected error: `AssertionError`
 - [x] Run it, confirm it fails for that reason
 - [x] Update CLAUDE.md: subcommand list (11), layout row `scripts/pdf.py` — "markdown → text PDF 1.4. Hand-written, Helvetica/WinAnsi, stdlib only", error classes add `pdf.{PdfError, UnsupportedCharacterError}`, test count **measured** from the suite run
-- [ ] E2E in the **main checkout's** `.jobhunter/` (gitignored), with Ali present: run `/ai-jobhunter:profile` with `primary = "data/master-cv.pdf"` → `master-cv.md`; run `/ai-jobhunter:tailor` with the City of Hope JD pasted → location warning shown (US-only vs Batam), map written, agreement gate walked with Ali, then `cv.pdf` + `cover-letter.pdf`
-- [ ] Extract `cv.pdf` back with `mcp__xberg__extract_file`; confirm every heading and bullet text present, in order; record result in the ledger
+- [x] E2E in the **main checkout's** `.jobhunter/` (gitignored), with Ali present: run `/ai-jobhunter:profile` with `primary = "data/master-cv.pdf"` → `master-cv.md`; run `/ai-jobhunter:tailor` with the City of Hope JD pasted → location warning shown (US-only vs Batam), map written, agreement gate walked with Ali, then `cv.pdf` + `cover-letter.pdf`
+- [x] Extract `cv.pdf` back with `mcp__xberg__extract_file`; confirm every heading and bullet text present, in order; record result in the ledger
 - [x] Run full suite green; commit docs: `docs(AJOB-3): CLAUDE.md for render-pdf and the tailor gate`
 
 **Verification:**
 - [x] static: `python3 -m compileall -q scripts tests` passes
 - [x] unit: `python3 -m unittest discover -s tests -t .` passes
 - [x] CLAUDE.md test count equals the measured count
-- [ ] xberg round-trip of the real `cv.pdf` returns complete text in order
-- [ ] `git status` in main shows nothing under `data/` or `.jobhunter/`
+- [x] xberg round-trip of the real `cv.pdf` returns complete text in order
+- [x] `git status` in main shows nothing under `.jobhunter/`; `data/` still shows as untracked in main until merge brings the `.gitignore` line — never added
 - [x] No placeholder/TODO comments in new code
 
 ## Phase log
@@ -174,11 +178,12 @@
 | F — profile PDF any tier | DONE | `5a55ed3` |
 | G — tailor flow | DONE | `b68328f` |
 | H — tailoring evals | DONE | `3afd5fe` |
-| I — docs sync | DONE (E2E belum) | `2c8b3f2` |
+| I — docs sync | DONE | `2c8b3f2` |
+| I — E2E + fix permission 0600 | DONE | `3071678` |
 
 ## Utang terbuka
 
-(kosong sampai ada yang sengaja ditinggal; tiap butir bernama)
+- Layout PDF: baris terakhir bullet bisa sendirian di halaman berikutnya (E2E: "SV." pindah ke hal. 2). Kosmetik; teks & urutan tetap utuh di xberg. Belum ada widow/orphan control untuk bullet.
 
 design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-09-22)
 
@@ -193,3 +198,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase G done — 615 lulus, mutasi (a) hapus kalimat agreement-gate → test_tailor_states_agreement_gate gagal, mutasi (b) --page → --paper di blok perintah → test_every_documented_flag_exists_on_its_subcommand gagal — NEXT: Phase H
 - 2026-09-22 Phase H done — 618 lulus, mutasi (ganti judul "agreement gate" → "approval gate") → test_agreement_gate_case_present gagal — NEXT: Phase I
 - 2026-09-22 Phase I bagian docs done — 619 lulus, guard Subcommands CLAUDE.md dimutasi → gagal — NEXT: Phase I E2E bersama Ali (profile dari data/master-cv.pdf, tailor JD City of Hope)
+- 2026-09-22 Phase I done — E2E: profile dari data/master-cv.pdf → master-cv.md; tailor City of Hope: peta 28 baris (match 14 / partial 7 / gap 7), gate disetujui Ali, keyword loop 1 putaran (covered 93→105), cv.pdf 2 hal 54 blok, cover-letter.pdf 1 hal 10 blok, round-trip xberg utuh & berurutan; fix mode 0600 `3071678`; 623 lulus — NEXT: gaspol-verify + plan-verifier
