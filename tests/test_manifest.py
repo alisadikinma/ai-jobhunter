@@ -86,7 +86,7 @@ class TestPluginJson(unittest.TestCase):
     def test_parses_and_has_required_fields(self):
         data = json.loads(_read(PLUGIN_JSON))
         self.assertEqual(data["name"], "ai-jobhunter")
-        self.assertEqual(data["version"], "0.1.0")
+        self.assertEqual(data["version"], "0.2.0")
         self.assertTrue(data.get("description"))
         self.assertTrue(data.get("keywords"))
         license_value = data.get("license")
