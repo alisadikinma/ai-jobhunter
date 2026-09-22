@@ -171,5 +171,7 @@
 
 (kosong sampai ada yang sengaja ditinggal; tiap butir bernama)
 
+design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-09-22)
+
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
