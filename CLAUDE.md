@@ -18,9 +18,14 @@ budgets all arrive at runtime through `.jobhunter/` in the user's own project.
 - **Nothing candidate-specific ships under `skills/`.** Enforced by `tests/test_manifest.py`.
 - **Every CV and cover letter is written against the specific job description.**
   There is no one fixed CV.
-- **`render-docx` refuses rather than warns.** Markdown still carrying
-  `[verifikasi]` or `[Assumption]` produces no file at all. `--allow-unverified`
-  is the user's per-run decision, never a default and never the skill's.
+- **`render-pdf` and `render-docx` refuse rather than warn.** Markdown still
+  carrying `[verifikasi]` or `[Assumption]` produces no file at all — both share
+  one gate, `docx.prepare()`. `--allow-unverified` is the user's per-run
+  decision, never a default and never the skill's.
+- **`tailor` writes nothing before the agreement gate.** The requirements map
+  (JD requirement → `master-cv.md` evidence, or `gap`) is walked with the user;
+  no `cv.md` exists until `requirements-map.md` carries `approved: <date>`. A
+  `gap` never reaches a CV or cover letter. Output is PDF only.
 
 ## Stack
 
@@ -28,7 +33,7 @@ Python 3 **standard library only** — no pip, no pytest, no PyYAML. Tests are
 `unittest`; config is TOML via `tomllib`.
 
 ```bash
-python3 -m unittest discover -s tests -t .   # unit  (553 tests)
+python3 -m unittest discover -s tests -t .   # unit  (619 tests)
 python3 -m compileall -q scripts tests       # static
 ```
 
@@ -43,7 +48,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 
 Subcommands: `config-show`, `ats-fetch`, `ats-normalize`, `queue-append`,
 `queue-list`, `queue-update`, `queue-key`, `keywords-report`, `promote-prepare`,
-`render-docx`.
+`render-docx`, `render-pdf`.
 
 Large payloads arrive as `--rows @path` / `--updates @path`. Every subcommand
 prints one JSON document on stdout — except `keywords-report --markdown`, which
@@ -54,13 +59,14 @@ prints the report. Logging goes to stderr. A refusal is
 
 | Path | What it holds |
 | --- | --- |
-| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, ten subcommands |
+| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, eleven subcommands |
 | `scripts/config.py` | TOML loader + `resolve_profile_sources`; owns the allow-list |
 | `scripts/jobq.py` | local JSONL queue — `load`, `append_rows`, `row_key`, `iter_unscored`, `iter_unpromoted`, `update_rows` |
 | `scripts/ats.py` | `fetch` (the only network call, GET) + `normalize_{greenhouse,lever,ashby}` |
 | `scripts/keywords.py` | JD-vs-CV overlap report. **Not an ATS score** |
 | `scripts/promote.py` | jobsync payload building and request budget. No network imports |
-| `scripts/docx.py` | markdown → ATS-readable `.docx`. Hand-written OOXML, five parts, `zipfile` only |
+| `scripts/docx.py` | markdown → ATS-readable `.docx`. Hand-written OOXML, five parts, `zipfile` only. Owns `prepare()`, the marker gate both renderers share |
+| `scripts/pdf.py` | markdown → text PDF 1.4 (what `tailor` ships). Hand-written, Helvetica / WinAnsi, stdlib only; refuses characters outside WinAnsi |
 | `skills/{profile,discover,score,promote,tailor,outreach}/` | the six commands |
 | `templates/config.toml` | the config example; byte-identical to spec §4 and the plan's copy, guarded by a test |
 | `docs/evals/` | judgement evals for the non-deterministic steps, plus 7 real JD fixtures |
@@ -89,7 +95,8 @@ one job costs 2 requests.
 files lie): `config.{ConfigError, ConfigMissingError, ProjectSourceError,
 PrecedenceError, BudgetTypeError, SalaryTypeError}`, `ats.{AtsError,
 MissingFieldError}`, `keywords.KeywordsError`, `docx.{DocxError, UnverifiedClaimError,
-EmptyDocumentError, DestinationError}`, `promote.{PromoteError,
+EmptyDocumentError, DestinationError}`, `pdf.{PdfError,
+UnsupportedCharacterError}`, `promote.{PromoteError,
 ScoreMissingError, AuthorizationClosedError, TitleOnlyError, WorkplaceTypeError,
 FieldMissingError}`.
 

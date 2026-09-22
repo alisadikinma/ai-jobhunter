@@ -22,7 +22,7 @@ time from `.jobhunter/config.toml` in your own project.
 | `/ai-jobhunter:discover` | Finds roles from job boards, direct ATS APIs (Greenhouse/Lever/Ashby), and watched career pages. Appends normalised, deduped rows to a local queue. Never touches jobsync. |
 | `/ai-jobhunter:score` | Scores every unscored queue row against your profile: a `fit_score` (0-100, five weighted dimensions) plus a separate `work_authorization` gate (`open` / `unclear` / `closed`). |
 | `/ai-jobhunter:promote` | Pushes the rows worth pursuing into jobsync — the only command that writes to jobsync — within jobsync's hourly MCP request budget. |
-| `/ai-jobhunter:tailor` | Writes a CV, cover letter, and keyword-overlap report for one specific job description. Never sends your master CV unedited. |
+| `/ai-jobhunter:tailor` | Writes a CV and cover letter (PDF) plus a keyword-overlap report for one specific job description — from the queue, a URL, or a JD you paste. First maps every JD requirement to evidence in your master CV and walks that map with you; nothing is written until you agree every row. Never sends your master CV unedited. |
 | `/ai-jobhunter:outreach` | Finds a hiring-manager contact, drafts an opener plus two follow-ups, and saves them as Gmail drafts (or `.eml` files as a fallback). Drafts only — there is no send path. |
 
 There is no `status` command: jobsync already ships a Kanban board for
@@ -31,11 +31,11 @@ tracking what you promoted. This plugin does not duplicate it.
 ## Data flow
 
 ```
-site URL + LinkedIn PDF   --profile-->  .jobhunter/profile/
+site URL + CV/LinkedIn PDF --profile-->  .jobhunter/profile/
 boards + ATS + monitors   --discover--> .jobhunter/queue/jobs.jsonl      (local, uncapped)
 queue + profile           --score-->    .jobhunter/queue/jobs.jsonl      (scores written in place)
 queue (above threshold)   --promote-->  jobsync via MCP                  (rate-limited)
-queue row + profile       --tailor-->   .jobhunter/applications/<slug>/
+queue row / pasted JD     --tailor-->   .jobhunter/applications/<slug>/  (cv.pdf, cover-letter.pdf)
 queue row + profile       --outreach--> Gmail draft or .eml fallback
 ```
 

@@ -505,3 +505,15 @@ class TestGitignore(unittest.TestCase):
         so one `git add .` would publish a real person's CV."""
         lines = _read(os.path.join(REPO_ROOT, ".gitignore")).splitlines()
         self.assertIn("data/", [line.strip() for line in lines])
+
+
+class TestClaudeMdNamesEverySubcommand(unittest.TestCase):
+    def test_subcommands_line_matches_the_cli(self):
+        """CLAUDE.md is the first file a new session reads. A subcommand it
+        does not list is one that session will not know to reach for."""
+        text = _read(os.path.join(REPO_ROOT, "CLAUDE.md"))
+        match = re.search(r"^Subcommands:(.*?)\.\n", text, re.M | re.S)
+        self.assertTrue(match, "CLAUDE.md has no 'Subcommands:' line")
+        listed = set(re.findall(r"`([a-z-]+)`", match.group(1)))
+        cli = set(TestSkillsNameARunnableEntrypoint()._cli_subcommands())
+        self.assertEqual(listed, cli)
