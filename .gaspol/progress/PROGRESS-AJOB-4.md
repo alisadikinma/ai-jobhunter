@@ -22,20 +22,20 @@
 
 ## Checklist
 
-### [ ] Phase A: strip multi-line HTML comments before rendering
-- [ ] Write failing test for `docx.prepare("<!-- a\nb\n-->\n# Name\n\nline\n", "t.md")` returning only the heading and the paragraph, with a note `"lines 1-3: html comment stripped"`. Expected error: `AssertionError` (blocks contain `'<!-- a b'`)
-- [ ] Run it, confirm it fails for that reason
-- [ ] In `docx.flatten`, before the per-line pass, remove every `<!--` … `-->` span that crosses a newline (outside fenced/indented code — reuse however flatten already detects code so a comment inside a code block stays verbatim), keeping line count stable by replacing the span with the same number of empty lines so later line numbers do not shift; emit one note per span `lines A-B: html comment stripped`
-- [ ] Tests: comment at start, middle, end; two comments; unterminated `<!--` (no `-->`) → left as-is, no crash, note `line N: unterminated html comment left in place`; comment inside a fenced code block → kept; single-line comment behaviour unchanged (existing tests); a later note's line number is unchanged by the strip; `pdf.render` output text does not contain `sections:` for a template-like input
-- [ ] Re-run `PARITY_ORACLE` (`tests/test_docx.py`) — must stay green; if an oracle input contains a multi-line comment and its hash changes, STOP and report (the change would be a behaviour change on a committed fixture)
-- [ ] Mutation: remove the new strip → the step-1 test fails; restore
-- [ ] Commit: `fix(docx): strip multi-line html comments instead of rendering them`
+### [x] Phase A: strip multi-line HTML comments before rendering
+- [x] Write failing test for `docx.prepare("<!-- a\nb\n-->\n# Name\n\nline\n", "t.md")` returning only the heading and the paragraph, with a note `"lines 1-3: html comment stripped"`. Expected error: `AssertionError` (blocks contain `'<!-- a b'`)
+- [x] Run it, confirm it fails for that reason
+- [x] In `docx.flatten`, before the per-line pass, remove every `<!--` … `-->` span that crosses a newline (outside fenced/indented code — reuse however flatten already detects code so a comment inside a code block stays verbatim), keeping line count stable by replacing the span with the same number of empty lines so later line numbers do not shift; emit one note per span `lines A-B: html comment stripped`
+- [x] Tests: comment at start, middle, end; two comments; unterminated `<!--` (no `-->`) → left as-is, no crash, note `line N: unterminated html comment left in place`; comment inside a fenced code block → kept; single-line comment behaviour unchanged (existing tests); a later note's line number is unchanged by the strip; `pdf.render` output text does not contain `sections:` for a template-like input
+- [x] Re-run `PARITY_ORACLE` (`tests/test_docx.py`) — must stay green; if an oracle input contains a multi-line comment and its hash changes, STOP and report (the change would be a behaviour change on a committed fixture)
+- [x] Mutation: remove the new strip → the step-1 test fails; restore
+- [x] Commit: `fix(docx): strip multi-line html comments instead of rendering them`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] PARITY_ORACLE unchanged
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] PARITY_ORACLE unchanged
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase B: CV template files and their loader
 - [ ] Write failing test for `templates.load_cv_template("technical")["sections"][0] == {"name": "Professional Summary", "aliases": ["Summary"], "optional": False}`. Expected error: `ModuleNotFoundError: No module named 'templates'`
@@ -144,6 +144,7 @@
 
 | Phase | Status | Commit |
 |---|---|---|
+| A — multi-line html comment strip | DONE | `4160291` |
 
 ## Utang terbuka
 
@@ -153,3 +154,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 
 ## Log
 - 2026-09-22 plan ditulis — NEXT: Phase A
+- 2026-09-22 Phase A done — 642 lulus, parity sama, mutasi → test_a_comment_spanning_lines_is_stripped_not_rendered gagal — NEXT: Phase B
