@@ -1124,20 +1124,19 @@ def document_xml(blocks):
     return DOCUMENT_XML.format(body="".join(body))
 
 
-def render(markdown, path, allow_unverified=False, source=None):
-    """Write `markdown` to `path` as an ATS-readable `.docx`.
+def prepare(markdown, label, allow_unverified=False):
+    """Lint, refuse, repair and parse `markdown` into blocks — no filesystem.
 
-    The order is the whole design: lint, then refuse, then repair, then
-    parse, then write. Nothing touches the filesystem until the refusal has
-    had its chance, so a refused render leaves no file — not a truncated one,
-    not a stale one, none.
+    Everything `render` used to do between the unverified-claim gate and the
+    empty-document check, moved unchanged so a second renderer (`pdf.render`)
+    can share this one gate instead of reimplementing it. `label` names the
+    source in a refusal message; `render` computes it from `source`/`path`
+    and passes it straight through.
 
-    Returns `{"out", "blocks", "notes", "bytes"}`. Raises
-    `UnverifiedClaimError` unless `allow_unverified`, and
-    `EmptyDocumentError` when there is nothing to write.
+    Returns `(blocks, notes)`. Raises `UnverifiedClaimError` unless
+    `allow_unverified`, and `EmptyDocumentError` when there is nothing to
+    render.
     """
-    label = source or os.path.basename(path) or "<markdown>"
-
     unverified = unverified_findings(markdown)
     if unverified and not allow_unverified:
         raise UnverifiedClaimError(unverified, label)
@@ -1192,6 +1191,25 @@ def render(markdown, path, allow_unverified=False, source=None):
             "refused to render %s: the markdown holds no headings, "
             "paragraphs or bullets. An empty document is never the intent." % label
         )
+
+    return blocks, notes
+
+
+def render(markdown, path, allow_unverified=False, source=None):
+    """Write `markdown` to `path` as an ATS-readable `.docx`.
+
+    The order is the whole design: lint, then refuse, then repair, then
+    parse, then write. Nothing touches the filesystem until the refusal has
+    had its chance, so a refused render leaves no file — not a truncated one,
+    not a stale one, none.
+
+    Returns `{"out", "blocks", "notes", "bytes"}`. Raises
+    `UnverifiedClaimError` unless `allow_unverified`, and
+    `EmptyDocumentError` when there is nothing to write.
+    """
+    label = source or os.path.basename(path) or "<markdown>"
+
+    blocks, notes = prepare(markdown, label, allow_unverified)
 
     payload = {
         "[Content_Types].xml": CONTENT_TYPES_XML,
