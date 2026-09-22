@@ -179,11 +179,10 @@ credit balance when the run started and the credits spent so far. Before each ca
 Rows found before the ceiling are still appended; the report says how many credits were spent and
 how many remained when it stopped — the existing SKILL.md rule, now backed by code.
 
-**Monitors — proposed for removal.** The skill documents `firecrawl_monitor_create` for
+**Monitors — removed (user confirmed at spec review, 2026-09-22).** The skill documents `firecrawl_monitor_create` for
 "configured career pages", but no config key has ever held a career-page list, so the tool has no
 input. A monitor also spends credits on its own schedule, outside any run's budget. This spec drops
 it; a later ticket can add `[targets] career_pages` and REST `/v2/monitor` together if wanted.
-**Needs the user's confirmation at spec review.**
 
 ### CLI (`scripts/jobhunter.py`)
 
