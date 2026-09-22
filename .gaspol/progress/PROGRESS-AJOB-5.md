@@ -56,6 +56,8 @@
     overspend di run berikutnya. `credit_remaining_usd` di laporan JSON murni informasional.
      Direkonsiliasi kalau sempat saat Phase J live.
   - 857 tes tetap lulus setelah semua perbaikan di atas.
+- 2026-09-23 plan-verifier round 2: CLEAN (5/5 FOUND, mutation test dikonfirmasi load-bearing);
+  merged to master as 5fabe0b (--no-ff), worktree dihapus, belum di-push — NEXT: DONE
 
 ## Checklist
 
