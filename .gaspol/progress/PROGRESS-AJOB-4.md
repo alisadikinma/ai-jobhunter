@@ -82,20 +82,20 @@
 - [x] band edges tested inclusive on both ends for all three levels
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase E: CLI `template-check`
-- [ ] Write failing test for `main(["template-check", "--cv", p, "--template", "technical"])` exiting 0 with JSON `{"kind": "cv", "template": "technical", "findings": [], "ok": true}`. Expected error: exit 1 with `invalid choice: 'template-check'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Add `cmd_template_check` + parser per Contracts § CLI, after `render-pdf`
-- [ ] Tests: CV with findings → exit 0, `ok: false`, findings list; letter path with `--level`/`--company`/`--role`; each refusal (both flags, neither, `--cv` without `--template`, `--letter` without `--level`, unknown template, unknown level, missing file) → exit 1, stderr JSON `error` = `TemplateError`, no traceback; `--help` lists the subcommand
-- [ ] Mutation: drop the "both flags" check → its test fails; restore
-- [ ] Commit: `feat(cli): template-check subcommand`
+### [x] Phase E: CLI `template-check`
+- [x] Write failing test for `main(["template-check", "--cv", p, "--template", "technical"])` exiting 0 with JSON `{"kind": "cv", "template": "technical", "findings": [], "ok": true}`. Expected error: exit 1 with `invalid choice: 'template-check'`
+- [x] Run it, confirm it fails for that reason — confirmed exactly: stderr `UsageError` "argument command: invalid choice: 'template-check' (choose from ...)"
+- [x] Add `cmd_template_check` + parser per Contracts § CLI, after `render-pdf`
+- [x] Tests: CV with findings → exit 0, `ok: false`, findings list; letter path with `--level`/`--company`/`--role`; each refusal (both flags, neither, `--cv` without `--template`, `--letter` without `--level`, unknown template, unknown level, missing file) → exit 1, stderr JSON `error` = `TemplateError`, no traceback; `--help` lists the subcommand
+- [x] Mutation: drop the "both flags" check → its test fails (`0 != 1`); restore
+- [x] Commit: `feat(cli): template-check subcommand` (`7441e67`) — also updated CLAUDE.md's `Subcommands:` line and "eleven"→"twelve subcommands" (nothing else in CLAUDE.md touched) to keep `TestClaudeMdNamesEverySubcommand` green
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] `python3 scripts/jobhunter.py --help` lists `template-check`
-- [ ] security: input paths are only read, never written; no path is executed
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes — 718 lulus
+- [x] `python3 scripts/jobhunter.py --help` lists `template-check`
+- [x] security: input paths are only read, never written; no path is executed
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase F: `tailor` — portal, template, letter level, check, DOCX
 - [ ] Write failing test for tailor SKILL.md naming the new flow (`test_tailor_states_templates_and_letter_format`): asserts (whitespace-collapsed, lowercased) `templates/cv/`, `templates/cover-letter.md`, `template-check`, `myworkdayjobs.com`, `taleo.net`, `icims.com`, `never guess`, `letter-level:`, `template:`, `portal:`, `nothing is invented`, `render-docx`. Expected error: `AssertionError`
@@ -148,6 +148,7 @@
 | B — CV templates + loader | DONE | `81b9ef8` |
 | C — check_cv | DONE | `195b9c6` |
 | D — cover-letter format + check_letter | DONE | `d5d1e0c` |
+| E — CLI template-check | DONE | `7441e67` |
 
 ## Utang terbuka
 
@@ -161,3 +162,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase B done — 654 lulus, mutasi → test_no_candidate_specific_strings_outside_skills dan test_headings_equal_canonical_section_names_in_order gagal — NEXT: Phase C
 - 2026-09-22 Phase C done — 679 lulus, mutasi → test_order_education_before_work_experience dan test_i_slash_o_is_not_flagged gagal — NEXT: Phase D
 - 2026-09-22 Phase D done — 706 lulus, mutasi (band exclusive di top) → 3 test band-edge gagal — NEXT: Phase E
+- 2026-09-22 Phase E done — 718 lulus, mutasi (hapus cek both-flags) → test_both_cv_and_letter_flags_is_refused gagal — NEXT: Phase F
