@@ -88,20 +88,20 @@
 - [x] security: input text is escaped in PDF literal strings (no raw `(`/`)`/`\` reaches a content stream); no path outside `--out`'s directory is written
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase E: CLI `render-pdf`
-- [ ] Write failing test for `main(["render-pdf", "--in", md, "--out", pdf])` exiting 0 with stdout JSON keys `{"out","pages","blocks","notes","bytes"}`. Expected error: `SystemExit`/exit code 1 with `invalid choice: 'render-pdf'`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Add `cmd_render_pdf` and its parser block (Contracts § CLI), mirroring `cmd_render_docx`
-- [ ] Tests: `--out cv.md` → exit 1, stderr JSON `error` = `DestinationError`, input file unchanged; `--out` same file as `--in` → `DestinationError`; `--out X.PDF` accepted; `--page a4` → MediaBox a4; `--page b5` → exit 1 usage error; missing `--in` file → exit 1 JSON, no traceback; `[verifikasi]` input → `UnverifiedClaimError`, no file; `--allow-unverified` → exit 0 and a note reporting markers removed; unsupported char → `UnsupportedCharacterError`; notes echoed to stderr prefixed `render-pdf: `
-- [ ] Run full suite green; mutation: remove the `.pdf` suffix check, see the `--out cv.md` test fail, restore
-- [ ] Commit: `feat(cli): render-pdf subcommand`
+### [x] Phase E: CLI `render-pdf`
+- [x] Write failing test for `main(["render-pdf", "--in", md, "--out", pdf])` exiting 0 with stdout JSON keys `{"out","pages","blocks","notes","bytes"}`. Expected error: `SystemExit`/exit code 1 with `invalid choice: 'render-pdf'`
+- [x] Run it, confirm it fails for that reason
+- [x] Add `cmd_render_pdf` and its parser block (Contracts § CLI), mirroring `cmd_render_docx`
+- [x] Tests: `--out cv.md` → exit 1, stderr JSON `error` = `DestinationError`, input file unchanged; `--out` same file as `--in` → `DestinationError`; `--out X.PDF` accepted; `--page a4` → MediaBox a4; `--page b5` → exit 1 usage error; missing `--in` file → exit 1 JSON, no traceback; `[verifikasi]` input → `UnverifiedClaimError`, no file; `--allow-unverified` → exit 0 and a note reporting markers removed; unsupported char → `UnsupportedCharacterError`; notes echoed to stderr prefixed `render-pdf: `
+- [x] Run full suite green; mutation: remove the `.pdf` suffix check, see the `--out cv.md` test fail, restore
+- [x] Commit: `feat(cli): render-pdf subcommand`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] `python3 scripts/jobhunter.py --help` lists `render-pdf`
-- [ ] security: `--out` suffix and same-file checks run before any read or write
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] `python3 scripts/jobhunter.py --help` lists `render-pdf`
+- [x] security: `--out` suffix and same-file checks run before any read or write
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase F: `profile` reads a PDF in any tier
 - [ ] Write failing test for profile SKILL.md stating that any `.pdf` source in any tier is extracted with `mcp__xberg__extract_file` (assert the sentence fragments `any tier` and `.pdf` appear in the same paragraph as `mcp__xberg__extract_file`). Expected error: `AssertionError`
@@ -170,6 +170,7 @@
 | B — docx.prepare() | DONE | `ad82ff0` |
 | C — pdf primitives | DONE | `097c935` |
 | D — pdf renderer | DONE | `35445ec` |
+| E — CLI render-pdf | DONE | `480798d` |
 
 ## Utang terbuka
 
@@ -183,3 +184,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase B done — 562 lulus, parity 8 input sama, mutasi → test_a_line_breaking_character_is_caught_when_the_blocks_rejoin gagal — NEXT: Phase C
 - 2026-09-22 Phase C done — 579 lulus, AFM dari github.com/foliojs/pdfkit (raw, 2026-09-22), mutasi → test_one_point_more_forces_a_second_line + property test gagal — NEXT: Phase D
 - 2026-09-22 Phase D done — 597 lulus, mutasi (a) hapus encode-check → UnsupportedCharacter test gagal (jadi UnicodeEncodeError mentah), mutasi (b) tulis langsung ke --out tanpa mkstemp → no-file-on-failure test gagal (DestinationError tak pernah terlempar) — NEXT: Phase E
+- 2026-09-22 Phase E done — 612 lulus, mutasi → test_an_out_that_is_not_a_pdf_is_refused gagal — NEXT: Phase F
