@@ -1143,6 +1143,33 @@ class TestFlattenMultiLineHtmlComments(unittest.TestCase):
         self.assertIn("lines 3-5: html comment stripped", notes)
         self.assertIn("lines 5-7: html comment stripped", notes)
 
+    # gaspol-review (AJOB-4 finish): the strip ran AFTER `_flatten_blocks`,
+    # which had already marked an indented line inside the comment as code;
+    # the scan stopped there and printed a private note on the CV, with a
+    # false "unterminated" note on a closed comment.
+
+    def test_an_indented_line_inside_a_comment_is_stripped_with_it(self):
+        for body in ("    keep private: left Acme", "\tkeep private: left Acme"):
+            markdown = "# Ann\n\nJakarta\n\n<!-- draft note\n%s\n-->\n\n## Summary\n\nText.\n" % body
+            blocks, notes = docx.prepare(markdown, "t.md")
+            self.assertEqual(
+                [b["text"] for b in blocks], ["Ann", "Jakarta", "Summary", "Text."], body
+            )
+            self.assertIn("lines 5-7: html comment stripped", notes)
+            self.assertFalse(any("unterminated" in note for note in notes), notes)
+
+    def test_a_fence_inside_a_comment_is_stripped_with_it(self):
+        markdown = "# Ann\n\n<!-- old block\n```\nprivate code\n```\n-->\n\nText.\n"
+        blocks, notes = docx.prepare(markdown, "t.md")
+        self.assertEqual([b["text"] for b in blocks], ["Ann", "Text."])
+        self.assertIn("lines 3-7: html comment stripped", notes)
+
+    def test_an_indented_code_block_carrying_a_comment_opener_is_kept(self):
+        # Four-space code after a blank line is the author's literal text;
+        # only a comment that STARTS outside code is a comment.
+        flat, _notes = docx.flatten("# CV\n\n    <!-- literal\n    still code -->\n\nAfter\n")
+        self.assertIn("<!-- literal", flat)
+
     def test_crlf_input_is_stripped_the_same_way(self):
         blocks, notes = docx.prepare("<!-- a\r\nb\r\n-->\r\n# Name\r\n\r\nline\r\n", "t.md")
         self.assertEqual(
