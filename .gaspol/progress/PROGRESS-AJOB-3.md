@@ -103,18 +103,18 @@
 - [x] security: `--out` suffix and same-file checks run before any read or write
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase F: `profile` reads a PDF in any tier
-- [ ] Write failing test for profile SKILL.md stating that any `.pdf` source in any tier is extracted with `mcp__xberg__extract_file` (assert the sentence fragments `any tier` and `.pdf` appear in the same paragraph as `mcp__xberg__extract_file`). Expected error: `AssertionError`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Edit Pass 1 step 1 and the "Scripts and MCP tools" bullet: a source path ending in `.pdf` (case-insensitive) in **any** tier — `primary`, `local`, `linkedin_pdf` — is extracted with `mcp__xberg__extract_file`; the native Read tool cannot parse PDF. Other sources keep their reader. Add one example line: `primary = "data/master-cv.pdf"` makes a curated CV PDF the highest-precedence source
-- [ ] Run full suite green (`TestNoCandidateSpecificContent` included); mutation: revert the prose, see the test fail, restore
-- [ ] Commit: `feat(profile): extract a PDF source in any tier with xberg`
+### [x] Phase F: `profile` reads a PDF in any tier
+- [x] Write failing test for profile SKILL.md stating that any `.pdf` source in any tier is extracted with `mcp__xberg__extract_file` (assert the sentence fragments `any tier` and `.pdf` appear in the same paragraph as `mcp__xberg__extract_file`). Expected error: `AssertionError`
+- [x] Run it, confirm it fails for that reason
+- [x] Edit Pass 1 step 1 and the "Scripts and MCP tools" bullet: a source path ending in `.pdf` (case-insensitive) in **any** tier — `primary`, `local`, `linkedin_pdf` — is extracted with `mcp__xberg__extract_file`; the native Read tool cannot parse PDF. Other sources keep their reader. Add one example line: `primary = "data/master-cv.pdf"` makes a curated CV PDF the highest-precedence source
+- [x] Run full suite green (`TestNoCandidateSpecificContent` included); mutation: revert the prose, see the test fail, restore
+- [x] Commit: `feat(profile): extract a PDF source in any tier with xberg`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] allow-list prose for `projects` unchanged (diff shows no edit there)
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] allow-list prose for `projects` unchanged (diff shows no edit there)
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase G: `tailor` — pasted JD, map, agreement gate, keyword loop, PDF
 - [ ] Write failing test for tailor SKILL.md stating the agreement gate (`test_tailor_states_agreement_gate`), asserting tailor SKILL.md contains `requirements-map.md`, `approved:`, `jd.md`, `render-pdf`, and the phrase `no cv.md or cover-letter.md is written until` (lowercased compare). Expected error: `AssertionError`
@@ -171,6 +171,7 @@
 | C — pdf primitives | DONE | `097c935` |
 | D — pdf renderer | DONE | `35445ec` |
 | E — CLI render-pdf | DONE | `480798d` |
+| F — profile PDF any tier | DONE | `5a55ed3` |
 
 ## Utang terbuka
 
@@ -185,3 +186,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase C done — 579 lulus, AFM dari github.com/foliojs/pdfkit (raw, 2026-09-22), mutasi → test_one_point_more_forces_a_second_line + property test gagal — NEXT: Phase D
 - 2026-09-22 Phase D done — 597 lulus, mutasi (a) hapus encode-check → UnsupportedCharacter test gagal (jadi UnicodeEncodeError mentah), mutasi (b) tulis langsung ke --out tanpa mkstemp → no-file-on-failure test gagal (DestinationError tak pernah terlempar) — NEXT: Phase E
 - 2026-09-22 Phase E done — 612 lulus, mutasi → test_an_out_that_is_not_a_pdf_is_refused gagal — NEXT: Phase F
+- 2026-09-22 Phase F done — 613 lulus, mutasi (revert prosa) → test_profile_states_pdf_in_any_tier_uses_xberg gagal — NEXT: Phase G
