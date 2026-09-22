@@ -132,19 +132,19 @@
 - [x] no candidate-specific strings under `skills/`
 - [x] No placeholder/TODO comments in new code
 
-### [ ] Phase H: tailoring evals for the new judgement
-- [ ] Write failing test for the tailoring eval cases (in `tests/test_evals.py`), asserting `docs/evals/tailoring.md` has cases titled `pasted JD`, `agreement gate`, `gap never rendered`. Expected error: `AssertionError`
-- [ ] Run it, confirm it fails for that reason
-- [ ] Add three pass@3 cases using existing fictional/real-posting fixtures (not Ali's data): (a) pasted JD → `jd.md` written verbatim, slug asked when company missing; (b) agreement gate → no `cv.md` exists before `approved:` line; (c) gap never rendered → every `gap` row's requirement term absent from `cv.md` and `cover-letter.md` unless an approved row evidences it
-- [ ] Update "How to run" so outputs listed are the PDF set
-- [ ] Run full suite green; mutation: rename one case heading, see the test fail, restore
-- [ ] Commit: `docs(evals): tailoring cases for pasted JD, agreement gate, gaps`
+### [x] Phase H: tailoring evals for the new judgement
+- [x] Write failing test for the tailoring eval cases (in `tests/test_evals.py`), asserting `docs/evals/tailoring.md` has cases titled `pasted JD`, `agreement gate`, `gap never rendered`. Expected error: `AssertionError`
+- [x] Run it, confirm it fails for that reason
+- [x] Add three pass@3 cases using existing fictional/real-posting fixtures (not Ali's data): (a) pasted JD → `jd.md` written verbatim, slug asked when company missing; (b) agreement gate → no `cv.md` exists before `approved:` line; (c) gap never rendered → every `gap` row's requirement term absent from `cv.md` and `cover-letter.md` unless an approved row evidences it
+- [x] Update "How to run" so outputs listed are the PDF set
+- [x] Run full suite green; mutation: rename one case heading, see the test fail, restore
+- [x] Commit: `docs(evals): tailoring cases for pasted JD, agreement gate, gaps`
 
 **Verification:**
-- [ ] static: `python3 -m compileall -q scripts tests` passes
-- [ ] unit: `python3 -m unittest discover -s tests -t .` passes
-- [ ] eval cases reference only committed fixtures
-- [ ] No placeholder/TODO comments in new code
+- [x] static: `python3 -m compileall -q scripts tests` passes
+- [x] unit: `python3 -m unittest discover -s tests -t .` passes
+- [x] eval cases reference only committed fixtures — Case 7 reuses `04-stripe-staff-product-manager-ai.json`, Case 8 reuses `06-stripe-engineering-manager-agentic-commerce.json`, Case 9 reuses `03-stripe-staff-ml-engineer-phd.json`, all already committed under `docs/evals/fixtures/`
+- [x] No placeholder/TODO comments in new code
 
 ### [ ] Phase I: docs sync and real end-to-end run
 - [ ] Write failing test for CLAUDE.md's subcommand list naming `render-pdf` (extend the existing manifest/CLAUDE.md guard if one exists; otherwise assert `render-pdf` in CLAUDE.md's "Subcommands:" line). Expected error: `AssertionError`
@@ -173,6 +173,7 @@
 | E — CLI render-pdf | DONE | `480798d` |
 | F — profile PDF any tier | DONE | `5a55ed3` |
 | G — tailor flow | DONE | `b68328f` |
+| H — tailoring evals | DONE | `3afd5fe` |
 
 ## Utang terbuka
 
@@ -189,3 +190,4 @@ design-artifact: skipped — Ali: mau cepat, prioritas hasil bukan visual (2026-
 - 2026-09-22 Phase E done — 612 lulus, mutasi → test_an_out_that_is_not_a_pdf_is_refused gagal — NEXT: Phase F
 - 2026-09-22 Phase F done — 613 lulus, mutasi (revert prosa) → test_profile_states_pdf_in_any_tier_uses_xberg gagal — NEXT: Phase G
 - 2026-09-22 Phase G done — 615 lulus, mutasi (a) hapus kalimat agreement-gate → test_tailor_states_agreement_gate gagal, mutasi (b) --page → --paper di blok perintah → test_every_documented_flag_exists_on_its_subcommand gagal — NEXT: Phase H
+- 2026-09-22 Phase H done — 618 lulus, mutasi (ganti judul "agreement gate" → "approval gate") → test_agreement_gate_case_present gagal — NEXT: Phase I
