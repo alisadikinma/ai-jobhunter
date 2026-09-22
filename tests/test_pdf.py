@@ -154,6 +154,35 @@ class TestWidthTablesArePinned(unittest.TestCase):
         self.assertEqual(len(pdf.HELVETICA_WIDTHS), 224)
         self.assertEqual(len(pdf.HELVETICA_BOLD_WIDTHS), 224)
 
+    def test_superscript_digit_widths_pinned(self):
+        # 0xB2 (twosuperior), 0xB3 (threesuperior), 0xB9 (onesuperior) — the
+        # AGLFN glyph-name mapping the tables were generated from has no
+        # entry for these three codepoints, so the generator silently left
+        # them at 0. The Adobe Core14 AFM (Helvetica.afm / Helvetica-Bold.afm)
+        # gives WX 333 for all three, in both weights.
+        cases = {"²": 333, "³": 333, "¹": 333}
+        for char, width in cases.items():
+            with self.subTest(char=repr(char), bold=False):
+                self.assertEqual(pdf.text_width(char, 1000, False), width)
+            with self.subTest(char=repr(char), bold=True):
+                self.assertEqual(pdf.text_width(char, 1000, True), width)
+
+    def test_every_encodable_cp1252_byte_has_a_positive_width(self):
+        # Every byte 0x20-0xFF that cp1252 actually decodes to a character
+        # has a real glyph in Helvetica except 0x7F (DEL), which `encode`
+        # turns into a space before it ever reaches the width table and so
+        # is legitimately never looked up as a printable character.
+        for byte in range(0x20, 0x100):
+            if byte == 0x7F:
+                continue
+            try:
+                char = bytes([byte]).decode("cp1252")
+            except UnicodeDecodeError:
+                continue  # one of the 5 WinAnsi bytes with no cp1252 mapping
+            with self.subTest(byte=hex(byte), char=repr(char)):
+                self.assertGreater(pdf.text_width(char, 1000, False), 0)
+                self.assertGreater(pdf.text_width(char, 1000, True), 0)
+
 
 class TestEncode(unittest.TestCase):
     def test_winansi_characters_encode(self):
@@ -169,6 +198,11 @@ class TestEncode(unittest.TestCase):
 
     def test_a_control_character_becomes_a_space(self):
         self.assertEqual(pdf.encode("a\x01b"), b"a b")
+
+    def test_del_becomes_a_space(self):
+        # 0x7F (DEL) is not `ord < 0x20`, so it slipped past the control-char
+        # replacement and reached `cp1252` as a raw, invisible control byte.
+        self.assertEqual(pdf.encode("a\x7fb"), b"a b")
 
     def test_unmappable_characters_raise(self):
         for char in ("→", "中", "\U0001f600"):  # →, 中, 😀

@@ -82,9 +82,18 @@ class UnsupportedCharacterError(PdfError):
 # spec's WinAnsiEncoding table, neither of which the cp1252 decode step
 # reaches on its own.
 #
+# AGLFN maps a Unicode CODEPOINT to a glyph name, and it has no entries for
+# U+00B2/B3/B9 (superscript two/three/one) at all — those three codepoints
+# are absent from AGLFN outright, not merely mismatched, so the by-name
+# lookup above silently produced 0 for WinAnsi bytes 0xB2, 0xB3, 0xB9
+# (`²`, `³`, `¹`). They were re-checked directly against the AFM's own glyph
+# names (`twosuperior`, `threesuperior`, `onesuperior` — present in the AFM
+# even though AGLFN doesn't carry them) and hand-patched to the AFM's WX 333
+# for all three, in both weights.
+#
 # Every one of the pinned values below (space 278, A 667/722, a 556/556,
-# W 944, i 222/278, m 833/889, bullet 0x95 350) came out of that fetch
-# unchanged — nothing here was typed from memory.
+# W 944, i 222/278, m 833/889, bullet 0x95 350, superscripts 0xB2/B3/B9 333)
+# came out of that fetch unchanged — nothing here was typed from memory.
 HELVETICA_WIDTHS = (
     278, 278, 355, 556, 556, 889, 667, 191, 333, 333, 389, 584, 278, 333, 278, 278,
     556, 556, 556, 556, 556, 556, 556, 556, 556, 556, 278, 278, 584, 584, 584, 556,
@@ -95,7 +104,7 @@ HELVETICA_WIDTHS = (
     556, 0, 222, 556, 333, 1000, 556, 556, 333, 1000, 667, 333, 1000, 0, 611, 0,
     0, 222, 222, 333, 333, 350, 556, 1000, 333, 1000, 500, 333, 944, 0, 500, 667,
     278, 333, 556, 556, 556, 556, 260, 556, 333, 737, 370, 556, 584, 333, 737, 333,
-    400, 584, 0, 0, 333, 556, 537, 278, 333, 0, 365, 556, 834, 834, 834, 611,
+    400, 584, 333, 333, 333, 556, 537, 278, 333, 333, 365, 556, 834, 834, 834, 611,
     667, 667, 667, 667, 667, 667, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278,
     722, 722, 778, 778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611,
     556, 556, 556, 556, 556, 556, 889, 500, 556, 556, 556, 556, 278, 278, 278, 278,
@@ -112,7 +121,7 @@ HELVETICA_BOLD_WIDTHS = (
     556, 0, 278, 556, 500, 1000, 556, 556, 333, 1000, 667, 333, 1000, 0, 611, 0,
     0, 278, 278, 500, 500, 350, 556, 1000, 333, 1000, 556, 333, 944, 0, 500, 667,
     278, 333, 556, 556, 556, 556, 280, 556, 333, 737, 370, 556, 584, 333, 737, 333,
-    400, 584, 0, 0, 333, 611, 556, 278, 333, 0, 365, 556, 834, 834, 834, 611,
+    400, 584, 333, 333, 333, 611, 556, 278, 333, 333, 365, 556, 834, 834, 834, 611,
     722, 722, 722, 722, 722, 722, 1000, 722, 667, 667, 667, 667, 278, 278, 278, 278,
     722, 722, 778, 778, 778, 778, 778, 584, 778, 722, 722, 722, 722, 667, 667, 611,
     556, 556, 556, 556, 556, 556, 889, 556, 556, 556, 556, 556, 278, 278, 278, 278,
@@ -123,16 +132,19 @@ HELVETICA_BOLD_WIDTHS = (
 def encode(text):
     """`text` as WinAnsi (cp1252) bytes, the encoding every object below assumes.
 
-    Every character with `ord < 0x20` becomes a space first — a raw control
-    character in a content stream is either illegal or reinterpreted by the
-    viewer, and a CV line quietly losing its tab-turned-nothing is worse than
-    the same line with a space in its place. What is left is handed straight
-    to the `cp1252` codec, whose `UnicodeEncodeError` on an unmapped
-    character (`→`, `中`, `😀`, ...) is the signal `render` turns into
-    `UnsupportedCharacterError` once it also knows which markdown line the
-    character came from.
+    Every character with `ord < 0x20`, plus `0x7F` (DEL), becomes a space
+    first — a raw control character in a content stream is either illegal or
+    reinterpreted by the viewer, and a CV line quietly losing its
+    tab-turned-nothing is worse than the same line with a space in its
+    place. DEL is not `< 0x20` but is exactly as much a control character:
+    `cp1252` happily encodes it (it round-trips to U+007F), so without this
+    it would reach the content stream as an invisible byte instead of being
+    caught here. What is left is handed straight to the `cp1252` codec,
+    whose `UnicodeEncodeError` on an unmapped character (`→`, `中`, `😀`,
+    ...) is the signal `render` turns into `UnsupportedCharacterError` once
+    it also knows which markdown line the character came from.
     """
-    text = "".join(" " if ord(ch) < 0x20 else ch for ch in text)
+    text = "".join(" " if ord(ch) < 0x20 or ord(ch) == 0x7F else ch for ch in text)
     return text.encode("cp1252")
 
 
