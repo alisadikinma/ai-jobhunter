@@ -233,3 +233,66 @@ reason: a demanding JD is where a model is most tempted to paper over a gap.
 - The count of `gap` rows the skill prints in its final summary matches the
   count of `gap` rows actually present in the committed `requirements-map.md`
   — the reported number is not lower than what the file shows.
+
+---
+
+### Case 10 — template choice: leadership scope proposes `leadership`, engineering depth proposes `technical`
+
+**Fixtures:** `06-stripe-engineering-manager-agentic-commerce.json` (people
+management, org scope) and `07-stripe-backend-engineer-core-technology-no-salary.json`
+(individual-contributor engineering).
+
+AJOB-4 §5: `tailor` proposes a CV template from `templates/cv/` in the
+agreement gate, with a one-sentence reason, from the JD's title seniority and
+whether it leads with leadership scope, engineering depth, or a mix. This
+case checks the proposal reads the JD rather than defaulting to one template
+regardless of posting.
+
+**Pass criteria:**
+- Run against `06-stripe-engineering-manager-agentic-commerce.json`: the
+  agreement gate proposes `leadership`, with a one-sentence reason that
+  names the JD's people-management or org-scope language (e.g. "Engineering
+  Manager" title, team ownership) — not a generic "this seems senior"
+  non-reason.
+- Run against `07-stripe-backend-engineer-core-technology-no-salary.json`:
+  the agreement gate proposes `technical`, with a one-sentence reason that
+  names the JD's individual-contributor engineering language.
+- In both runs, the user is offered a switch to a different template name
+  and the run proceeds on whichever name the user confirms — the proposal is
+  a default, not a lock.
+- `template-check --cv <cv.md> --template <confirmed name>` returns
+  `"ok": true` for the written `cv.md` — the proposed/confirmed template
+  name is the one `cv.md` actually follows, not a mismatch between what was
+  proposed and what got written.
+
+---
+
+### Case 11 — cover-letter format: fixed P1-P4 shape, one SCAR story, no invented personal detail
+
+**Fixture:** `04-stripe-staff-product-manager-ai.json`.
+
+AJOB-4 §4: every cover letter follows `templates/cover-letter.md`'s fixed
+format — P1 opening naming role and company, P2 a single SCAR proof story
+from one approved requirements-map row, P3 fit, P4 close — never a
+free-form letter, and `template-check --letter` is the deterministic gate
+before render.
+
+**Pass criteria:**
+- `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" template-check --letter <cover-letter.md> --level <level> --company "Stripe" --role "Staff Product Manager, AI"`
+  returns `"ok": true` — zero findings, meaning the salutation, sign-off,
+  4-paragraph structure, and word-count band for the chosen level are all
+  satisfied.
+- P1 (the opening paragraph) contains both the exact job title and "Stripe",
+  case-insensitively — the same check `--company`/`--role` run above makes
+  mechanically.
+- The letter's proof paragraph is built from exactly one approved
+  `requirements-map.md` row — one situation/challenge/action/result story,
+  not a restated list of several bullets from `cv.md`.
+- No row marked `gap` in `requirements-map.md` appears anywhere in
+  `cover-letter.md`, worded or paraphrased — same rule Case 9 checks for
+  `cv.md`, applied here to the letter.
+- If the user gave no hiring-manager name, referral, or company-specific
+  reason during the agreement gate, the salutation reads
+  `"<Team> Hiring Team"` and the one company-specific line in P3 draws only
+  from text present in the JD itself — nothing about the company is stated
+  that is not in the posting or was not explicitly given by the user.

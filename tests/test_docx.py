@@ -2506,10 +2506,13 @@ PARITY_ORACLE = [
         ["line 33: table flattened to 7 line(s)"],
     ),
     (
+        # AJOB-4 Phase G added eval cases 10-11 (template choice, cover-letter
+        # format), which is why this hash and its notes differ from AJOB-3's
+        # recorded value — the content changed, not `docx.render`'s behaviour.
         "tailoring.md",
         _eval_md("tailoring.md"),
         {},
-        "b734e6c9245fba8e42fcefad9b5b594276820410abcdee444cb7ceb57bf36a9f",
+        "d9d51677b7cb716010c3af1131fd279b23e397e42fe4a7c444ecc152726c0013",
         [
             "line 14: inline html stripped (<slug>)",
             "line 31: table flattened to 4 line(s)",
@@ -2519,6 +2522,9 @@ PARITY_ORACLE = [
             "line 182: inline html stripped (<slug>)",
             "line 184: inline html stripped (<slug>)",
             "line 204: inline html stripped (<slug>)",
+            "line 263: inline html stripped (<confirmed name>)",
+            "line 281: inline html stripped (<level>)",
+            "line 296: inline html stripped (<Team>)",
         ],
     ),
     (
