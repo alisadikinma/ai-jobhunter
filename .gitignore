@@ -3,6 +3,7 @@
 
 # runtime user data — never committed, holds personal profile and job queue
 .jobhunter/
+data/
 
 # python
 __pycache__/

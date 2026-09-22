@@ -455,3 +455,11 @@ class TestConfigTemplateMatchesTheSpec(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestGitignore(unittest.TestCase):
+    def test_data_dir_is_ignored(self):
+        """`data/` is where a user drops their own CV PDF. This repo is public,
+        so one `git add .` would publish a real person's CV."""
+        lines = _read(os.path.join(REPO_ROOT, ".gitignore")).splitlines()
+        self.assertIn("data/", [line.strip() for line in lines])
