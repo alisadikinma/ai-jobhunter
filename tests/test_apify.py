@@ -280,7 +280,7 @@ class TestFetchLinkedinSuccess(unittest.TestCase):
                 apify.fetch_linkedin({"titles": ["x"]}, 100, "tok", dest)
         start_url = fake.requests[0].full_url
         self.assertIn("maxItems=100", start_url)
-        self.assertIn("maxTotalChargeUsd=0.225", start_url)
+        self.assertIn("maxTotalChargeUsd=0.375", start_url)
 
     def test_empty_dataset_returns_zero_no_error(self):
         responses = [

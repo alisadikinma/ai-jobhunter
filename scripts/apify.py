@@ -26,7 +26,13 @@ _WORKPLACE_FOLD_RE = re.compile(r"[\s\-_]+")
 # Verified against docs.apify.com and actor build 0.0.222, 2026-09-22.
 _ACTOR = "bebity~linkedin-jobs-scraper"
 _API = "https://api.apify.com/v2"
-_PRICE_PER_JOB_USD = 0.0015
+# apify-default-dataset-item ($0.0015) + premium-company ($0.001), since
+# build_actor_input defaults enrich_company=True (Phase C ledger decision:
+# workType came back empty on every item without it). Capping on the
+# dataset-item price alone undercounted the real per-job cost and could
+# abort a paid run with zero rows written — plan-verifier round 1 caught
+# this as a money-real risk before any live run spent on it.
+_PRICE_PER_JOB_USD = 0.0015 + 0.001
 _CAP_HEADROOM = 1.5
 _POLL_WAIT_SECONDS = 60
 _CEILING_SECONDS = 900
@@ -139,7 +145,45 @@ def remaining_credit_usd(token):
     return data["limits"]["maxMonthlyUsageUsd"] - data["current"]["monthlyUsageUsd"]
 
 
-def fetch_linkedin(actor_input, max_items, token, dest, *, clock=time.monotonic, sleep=time.sleep):
+_CHUNK_SIZE = 65536
+
+
+def _stream_items(url, token, dest):
+    """GET the dataset items and write the response body straight to `dest`
+    in fixed-size chunks, mirroring `ats.fetch` — a LinkedIn dataset can be
+    large, and holding the whole parsed array in memory before writing it
+    back out is exactly the pattern `ats.fetch`'s own docstring calls out.
+    Returns the item count by re-reading the file once, same as `ats.fetch`.
+    """
+    request = urllib.request.Request(url, method="GET")
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("User-Agent", "gaspol-jobhunter/0.3")
+    path = urllib.parse.urlsplit(url).path
+
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            with open(dest, "wb") as out:
+                while True:
+                    chunk = response.read(_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+    except urllib.error.HTTPError as exc:
+        raise ApifyError(f"Apify GET {path} failed: HTTP {exc.code}") from exc
+    except (TimeoutError, urllib.error.URLError) as exc:
+        raise ApifyError(f"Apify GET {path} failed: {exc}") from exc
+
+    with open(dest, "r", encoding="utf-8") as f:
+        try:
+            items = json.load(f)
+        except json.JSONDecodeError as exc:
+            raise ApifyError(f"Apify GET {path} returned a non-JSON response body") from exc
+    if not isinstance(items, list):
+        raise ApifyError(f"Apify GET {path} did not return a JSON array")
+    return len(items)
+
+
+def fetch_linkedin(actor_input, max_items, token, dest, *, clock=time.monotonic):
     """Run the bebity actor to completion and stream its dataset to `dest`.
 
     Polls with a 60 s server-side long-poll (`waitForFinish=60`) so most runs
@@ -171,15 +215,13 @@ def fetch_linkedin(actor_input, max_items, token, dest, *, clock=time.monotonic,
 
     dataset_id = polled["defaultDatasetId"]
     items_url = f"{_API}/datasets/{dataset_id}/items?format=json&clean=true&limit={max_items}"
-    items = _request("GET", items_url, token)
-    with open(dest, "w", encoding="utf-8") as f:
-        json.dump(items, f)
+    returned = _stream_items(items_url, token, dest)
 
     print(
-        f"apify.fetch: run={run_id} status={status} returned={len(items)} usd={usd_charged}",
+        f"apify.fetch: run={run_id} status={status} returned={returned} usd={usd_charged}",
         file=sys.stderr,
     )
-    return {"run_id": run_id, "status": status, "returned": len(items), "usd_charged": usd_charged}
+    return {"run_id": run_id, "status": status, "returned": returned, "usd_charged": usd_charged}
 
 
 def choose_window(state_path, now):

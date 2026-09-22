@@ -14,8 +14,11 @@ import urllib.error
 import urllib.request
 
 _API = "https://api.firecrawl.dev/v2"
+# 3 total attempts means 2 backoff intervals between them (after attempt 1
+# and after attempt 2; attempt 3 either succeeds or raises) — a third
+# backoff value has nothing to precede, so it is not carried here.
 _RETRIES = 3
-_BACKOFF_SECONDS = (2, 4, 8)
+_BACKOFF_SECONDS = (2, 4)
 _RETRY_AFTER_CAP_SECONDS = 60
 _RETRYABLE_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
 
