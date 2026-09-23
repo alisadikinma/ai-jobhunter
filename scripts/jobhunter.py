@@ -260,6 +260,8 @@ def cmd_render_docx(args):
             "command writes nothing else." % args.out
         )
 
+    _check_named_for_posting(args.out)
+
     if _same_file(args.input_path, args.out):
         raise docx.DestinationError(
             "refusing to write the .docx over its own source markdown (%s). "
@@ -287,6 +289,58 @@ def cmd_render_docx(args):
     )
 
 
+def _check_named_for_posting(out_path):
+    try:
+        jdstore.check_output_name(out_path)
+    except jdstore.JdStoreError as exc:
+        raise docx.DestinationError(str(exc)) from exc
+
+
+_ENTERPRISE_PORTALS = ("workday", "taleo", "icims")
+
+
+def cmd_render_application(args):
+    """Render `cv.md` and `cover-letter.md` of one posting folder to company-named files.
+
+    Names come from `.jobmeta.json` (company) and the CV's H1 (person), so a folder
+    for Acme yields `Jane-Doe-CV-Acme.pdf` and `Jane-Doe-Cover-Letter-Acme.pdf`.
+    An enterprise portal in `requirements-map.md` (workday, taleo, icims) adds `.docx`.
+    The generic `cv.pdf`/`cover-letter.pdf` from older runs are removed.
+    """
+    folder = args.dir
+    with open(os.path.join(folder, ".jobmeta.json"), "r", encoding="utf-8") as f:
+        company = json.load(f)["company"]
+    with open(os.path.join(folder, "cv.md"), "r", encoding="utf-8") as f:
+        cv_markdown = f.read()
+    person = next((line[2:].strip() for line in cv_markdown.splitlines() if line.startswith("# ")), None)
+    if not person:
+        raise docx.DestinationError("cv.md has no '# Name' heading to build the file name from")
+    portal = "other"
+    map_path = os.path.join(folder, "requirements-map.md")
+    if os.path.isfile(map_path):
+        with open(map_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.startswith("portal:"):
+                    portal = line.split(":", 1)[1].strip().lower()
+                    break
+    written = []
+    for kind, source in (("cv", "cv.md"), ("cover-letter", "cover-letter.md")):
+        with open(os.path.join(folder, source), "r", encoding="utf-8") as f:
+            markdown = f.read()
+        out = os.path.join(folder, jdstore.application_filename(person, kind, company, "pdf"))
+        pdf.render(markdown, out, allow_unverified=False, source=source, page=args.page)
+        written.append(out)
+        if portal in _ENTERPRISE_PORTALS:
+            out = os.path.join(folder, jdstore.application_filename(person, kind, company, "docx"))
+            docx.render(markdown, out, allow_unverified=False, source=source)
+            written.append(out)
+    for legacy in ("cv.pdf", "cover-letter.pdf", "cv.docx", "cover-letter.docx"):
+        path = os.path.join(folder, legacy)
+        if os.path.isfile(path):
+            os.remove(path)
+    _emit({"portal": portal, "written": written})
+
+
 def cmd_render_pdf(args):
     """Render a tailored CV or cover letter to a hand-written PDF 1.4.
 
@@ -304,6 +358,8 @@ def cmd_render_pdf(args):
             "refusing to write to %s: --out must end in .pdf, and this "
             "command writes nothing else." % args.out
         )
+
+    _check_named_for_posting(args.out)
 
     if _same_file(args.input_path, args.out):
         raise docx.DestinationError(
@@ -777,6 +833,14 @@ def build_parser():
         help="user-verified facts TOML (contact line, forbidden text), checked on --cv and --letter",
     )
     p.set_defaults(func=cmd_template_check)
+
+    p = sub.add_parser(
+        "render-application",
+        help="Render a posting folder's CV and cover letter to files named with the company",
+    )
+    p.add_argument("--dir", required=True, help="Data/<Source>/<Company>/<Role> folder")
+    p.add_argument("--page", choices=("letter", "a4"), default="letter")
+    p.set_defaults(func=cmd_render_application)
 
     p = sub.add_parser("data-index", help="Write Data/INDEX.md showing which postings have a tailored CV")
     p.add_argument("--root", required=True, help="Data directory root, e.g. Data")

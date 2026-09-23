@@ -18,8 +18,11 @@ _ORDER = {"tailored": 0, "in progress": 1, "todo": 2, "blocked": 3}
 
 
 def _status(folder, work_authorization):
-    has = lambda name: os.path.isfile(os.path.join(folder, name))  # noqa: E731
-    if has("cv.pdf") and has("cover-letter.pdf"):
+    names = [n.lower() for n in os.listdir(folder)]
+    has = lambda name: name in names  # noqa: E731
+    named_cv = any("-cv-" in n and n.endswith(".pdf") for n in names)
+    named_letter = any("-cover-letter-" in n and n.endswith(".pdf") for n in names)
+    if (named_cv and named_letter) or (has("cv.pdf") and has("cover-letter.pdf")):
         return "tailored"
     if work_authorization == "closed":
         return "blocked"

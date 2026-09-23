@@ -76,3 +76,39 @@ class TestMarkDone(unittest.TestCase):
             path = jdstore.write_jd(tmp, row)["path"]
             self.assertEqual(dataindex.mark_done(dataindex.collect(tmp, [row]), tmp), [])
             self.assertTrue(os.path.isdir(path))
+
+
+class TestApplicationFileNames(unittest.TestCase):
+    def test_name_carries_person_kind_and_company(self):
+        self.assertEqual(jdstore.application_filename("Jane Doe", "cv", "Acme Corp", "pdf"), "Jane-Doe-CV-Acme-Corp.pdf")
+        self.assertEqual(jdstore.application_filename("Jane Doe", "cover-letter", "Acme", ".docx"), "Jane-Doe-Cover-Letter-Acme.docx")
+        with self.assertRaises(jdstore.JdStoreError):
+            jdstore.company_slug("!!!")
+
+    def test_generic_name_inside_a_posting_folder_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = jdstore.write_jd(tmp, _row("Acme"))["path"]
+            with self.assertRaises(jdstore.JdStoreError) as ctx:
+                jdstore.check_output_name(os.path.join(path, "cv.pdf"))
+            self.assertIn("Acme", str(ctx.exception))
+            jdstore.check_output_name(os.path.join(path, "Jane-Doe-CV-Acme.pdf"))  # accepted
+            jdstore.check_output_name(os.path.join(tmp, "cv.pdf"))  # not a posting folder: untouched
+
+    def test_render_application_writes_named_files_and_index_sees_them(self):
+        import subprocess
+        jobhunter = os.path.join(os.path.dirname(__file__), "..", "scripts", "jobhunter.py")
+        with tempfile.TemporaryDirectory() as tmp:
+            row = _row("Acme")
+            path = jdstore.write_jd(tmp, row)["path"]
+            with open(os.path.join(path, "cv.md"), "w", encoding="utf-8") as f:
+                f.write("# Jane Doe\n\nBatam · a@b.com · +62 1\n\n## Summary\n\nBuilds things.\n")
+            with open(os.path.join(path, "cover-letter.md"), "w", encoding="utf-8") as f:
+                f.write("# Jane Doe\n\nDear Acme,\n\nHello there.\n")
+            open(os.path.join(path, "cv.pdf"), "w").close()  # stale generic file from an older run
+            done = subprocess.run([sys.executable, jobhunter, "render-application", "--dir", path], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0, done.stderr)
+            names = sorted(os.listdir(path))
+            self.assertIn("Jane-Doe-CV-Acme.pdf", names)
+            self.assertIn("Jane-Doe-Cover-Letter-Acme.pdf", names)
+            self.assertNotIn("cv.pdf", names)
+            self.assertEqual(dataindex.collect(tmp, [row])[0]["status"], "tailored")

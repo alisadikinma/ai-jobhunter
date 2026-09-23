@@ -365,6 +365,48 @@ def _normalize_for_compare(text, company):
     return _WHITESPACE_RE.sub(" ", text.lower()).strip()
 
 
+def company_slug(company):
+    """`Acme Corp` -> `Acme-Corp`: letters and digits, hyphen-joined."""
+    slug = re.sub(r"[^0-9A-Za-z]+", "-", company or "").strip("-")
+    if not slug:
+        raise JdStoreError(f"company_slug: nothing usable in company name {company!r}")
+    return slug
+
+
+def application_filename(person, kind, company, ext):
+    """The file name a recruiter sees: `Jane-Doe-CV-Acme.pdf`, never a bare `cv.pdf`.
+
+    Every posting folder used to hold identically named `cv.pdf` and
+    `cover-letter.pdf`, so the wrong company's file could be uploaded. `kind`
+    is `cv` or `cover-letter`.
+    """
+    label = {"cv": "CV", "cover-letter": "Cover-Letter"}[kind]
+    return f"{company_slug(person)}-{label}-{company_slug(company)}.{ext.lstrip('.')}"
+
+
+def check_output_name(out_path):
+    """Refuse an output file inside a posting folder whose name lacks the company.
+
+    Only folders carrying `.jobmeta.json` are posting folders; any other
+    destination is left alone.
+    """
+    directory = os.path.dirname(os.path.abspath(out_path))
+    meta_path = os.path.join(directory, ".jobmeta.json")
+    if not os.path.isfile(meta_path):
+        return
+    try:
+        with open(meta_path, "r", encoding="utf-8") as f:
+            company = json.load(f).get("company")
+    except (OSError, json.JSONDecodeError):
+        return
+    if company and company_slug(company).lower() not in os.path.basename(out_path).lower():
+        raise JdStoreError(
+            f"refusing to write {os.path.basename(out_path)!r}: a file for {company!r} must carry "
+            f"'{company_slug(company)}' in its name so it cannot be uploaded to the wrong company. "
+            "Use `render-application --dir <folder>`, which names the files."
+        )
+
+
 def _find_renamed(company_dir, identity_key):
     """The existing folder for this posting under `company_dir`, whatever it is now called.
 

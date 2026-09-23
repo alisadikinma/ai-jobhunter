@@ -266,6 +266,21 @@ the coverage count.
 
 ## Render
 
+Render with one command per posting folder. It names every file with the company and the
+candidate, so the wrong company's file cannot be uploaded by mistake:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-application --dir "Data/<Source>/<Company>/<Role>"
+```
+
+It writes `<Person>-CV-<Company>.pdf` and `<Person>-Cover-Letter-<Company>.pdf` (for example
+`Jane-Doe-CV-Acme.pdf`), adds `.docx` copies for enterprise portals (`portal:` in `requirements-map.md` is workday,
+taleo or icims), and removes the old generic `cv.pdf` and `cover-letter.pdf`. `render-pdf` and
+`render-docx` refuse a file inside a posting folder whose name lacks the company; never bypass
+that with a different folder. The generic-name and Render notes below describe what each renderer
+does; the naming above is what you upload.
+
+
 `render-pdf` twice — once for `cv.md`, once for `cover-letter.md` — after
 both are written, both pass `template-check`, and the keyword loop is done.
 When the detected portal is **enterprise** (Workday, Taleo, or iCIMS),
@@ -479,8 +494,8 @@ the codepoint responsible.
   approved rows only.
 - `cover-letter.md` — likewise written for this JD, not a template filled
   with placeholders.
-- `cv.pdf` and `cover-letter.pdf` — built from the two markdown files by
-  `render-pdf`. Nobody can attach a `.md` to a Workday form and no ATS
+- `<Person>-CV-<Company>.pdf` and `<Person>-Cover-Letter-<Company>.pdf` — built from the two
+  markdown files by `render-application` (`render-pdf` underneath). Nobody can attach a `.md` to a Workday form and no ATS
   parses one, so the markdown is the working copy and the `.pdf` is what
   gets sent.
 - `cv.docx` and `cover-letter.docx` — built by `render-docx`, only when the
