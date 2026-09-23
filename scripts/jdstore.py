@@ -149,6 +149,10 @@ def job_dir(root, source, company, title, identity_key):
     safe_company = safe_component(company)
     safe_title = safe_component(title)
 
+    renamed = _find_renamed(os.path.join(root, safe_source, safe_company), identity_key)
+    if renamed:
+        return renamed
+
     candidate = os.path.join(root, safe_source, safe_company, safe_title)
     if _belongs_to(candidate, identity_key):
         return candidate
@@ -359,6 +363,24 @@ def _normalize_for_compare(text, company):
     if company:
         text = re.sub(re.escape(company), "", text, flags=re.IGNORECASE)
     return _WHITESPACE_RE.sub(" ", text.lower()).strip()
+
+
+def _find_renamed(company_dir, identity_key):
+    """The existing folder for this posting under `company_dir`, whatever it is now called.
+
+    `tailor` renames a finished folder to `<Role> - DONE`. Path resolution from
+    the row alone would then miss it and `jd-write` would recreate an empty
+    `<Role>` beside it, so the identity marker, not the name, decides.
+    """
+    if not os.path.isdir(company_dir):
+        return None
+    for name in sorted(os.listdir(company_dir)):
+        path = os.path.join(company_dir, name)
+        if os.path.isdir(path) and _belongs_to(path, identity_key) and os.path.exists(
+            os.path.join(path, ".jobmeta.json")
+        ):
+            return path
+    return None
 
 
 def _belongs_to(candidate, identity_key):

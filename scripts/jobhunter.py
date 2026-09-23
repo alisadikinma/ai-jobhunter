@@ -156,14 +156,16 @@ def _blocked_view(blocked):
 
 def cmd_data_index(args):
     """Write Data/INDEX.md: status of every posting folder (tailored / in progress / todo / blocked)."""
-    entries = dataindex.collect(args.root, jobq.load(args.queue))
+    queue_rows = jobq.load(args.queue)
+    entries = dataindex.collect(args.root, queue_rows)
+    renamed = dataindex.mark_done(entries, args.root) if args.rename else []
     out = args.out or os.path.join(args.root, "INDEX.md")
     with open(out, "w", encoding="utf-8") as f:
         f.write(dataindex.render(entries))
     counts = {}
     for e in entries:
         counts[e["status"]] = counts.get(e["status"], 0) + 1
-    _emit({"path": out, "postings": len(entries), "by_status": counts})
+    _emit({"path": out, "postings": len(entries), "by_status": counts, "renamed": renamed})
 
 
 def cmd_auth_check(args):
@@ -766,6 +768,7 @@ def build_parser():
     p.add_argument("--root", required=True, help="Data directory root, e.g. Data")
     p.add_argument("--queue", required=True)
     p.add_argument("--out", help="default: <root>/INDEX.md")
+    p.add_argument("--rename", action="store_true", help="also rename tailored folders to '<Role> - DONE'")
     p.set_defaults(func=cmd_data_index)
 
     p = sub.add_parser(

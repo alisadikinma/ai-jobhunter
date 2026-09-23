@@ -286,11 +286,12 @@ updates the same directory instead of scattering duplicates.
 As the last step, run `data-index` so `Data/INDEX.md` shows this posting as `tailored`:
 
 ```bash
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" data-index --root Data --queue .jobhunter/queue/jobs.jsonl
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" data-index --root Data --queue .jobhunter/queue/jobs.jsonl --rename
 ```
 
-Never move finished folders: `jd-write` and `jd-similar` resolve `Data/<Source>/<Company>/<Role>/`
-from the row, so a moved folder is recreated empty. The index is the status view.
+`--rename` adds ` - DONE` to the role folder of every tailored posting (`Head of AI Engineering - DONE`).
+Only that suffix: never move a folder elsewhere. `jd-write` finds a renamed folder by its
+`.jobmeta.json` identity, so nothing is recreated. `Data/INDEX.md` stays the full status view.
 
 Before finishing, this skill prints: which JD it read (title, company,
 source), the location warning if any, the requirements-map counts (match /

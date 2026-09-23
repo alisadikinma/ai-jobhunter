@@ -79,3 +79,27 @@ def render(entries):
             f"| {e['status']} | {score} | {e['work_authorization']} | {e['company']} | {role} | {folder} | {apply} |"
         )
     return "\n".join(lines) + "\n"
+
+
+DONE_SUFFIX = " - DONE"
+
+
+def mark_done(entries, root):
+    """Rename every `tailored` folder to `<Role> - DONE`; returns the new relative paths.
+
+    `jdstore.job_dir` finds a renamed folder by its `.jobmeta.json` identity, so
+    `jd-write` and `jd-similar` keep working. Idempotent, and never overwrites:
+    if the target name is taken the folder is left alone.
+    """
+    renamed = []
+    for e in entries:
+        if e["status"] != "tailored" or e["path"].endswith(DONE_SUFFIX):
+            continue
+        old = os.path.join(root, e["path"])
+        new = old + DONE_SUFFIX
+        if os.path.exists(new):
+            continue
+        os.rename(old, new)
+        e["path"] += DONE_SUFFIX
+        renamed.append(e["path"])
+    return renamed

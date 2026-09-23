@@ -48,3 +48,31 @@ class TestDataIndex(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMarkDone(unittest.TestCase):
+    def test_rename_then_jd_write_finds_it_and_creates_nothing_new(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = _row("Acme")
+            path = jdstore.write_jd(tmp, row)["path"]
+            for name in ("cv.pdf", "cover-letter.pdf"):
+                open(os.path.join(path, name), "w").close()
+            entries = dataindex.collect(tmp, [row])
+            renamed = dataindex.mark_done(entries, tmp)
+            self.assertEqual(len(renamed), 1)
+            self.assertTrue(renamed[0].endswith("Eng - DONE"))
+            self.assertFalse(os.path.exists(path))
+            again = jdstore.write_jd(tmp, row)
+            self.assertFalse(again["created"])
+            self.assertTrue(again["path"].endswith("Eng - DONE"))
+            self.assertEqual(os.listdir(os.path.join(tmp, "Web", "Acme")), ["Eng - DONE"])
+            # idempotent, and the index still sees it as tailored
+            self.assertEqual(dataindex.mark_done(dataindex.collect(tmp, [row]), tmp), [])
+            self.assertEqual(dataindex.collect(tmp, [row])[0]["status"], "tailored")
+
+    def test_untailored_folder_is_not_renamed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = _row("Acme")
+            path = jdstore.write_jd(tmp, row)["path"]
+            self.assertEqual(dataindex.mark_done(dataindex.collect(tmp, [row]), tmp), [])
+            self.assertTrue(os.path.isdir(path))

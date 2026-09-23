@@ -206,6 +206,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
   --root Data --rows @/tmp/rows.json
 
 # Refresh Data/INDEX.md: status (tailored / in progress / todo / blocked), score, apply link.
+# Add --rename to suffix tailored role folders with ' - DONE'.
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" data-index --root Data --queue .jobhunter/queue/jobs.jsonl
 
 # LinkedIn rows are queued inside linkedin-fetch and never pass through queue-append, so
