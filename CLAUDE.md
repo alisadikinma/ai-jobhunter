@@ -54,7 +54,7 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" <subcommand> [options]
 Subcommands: `config-show`, `ats-fetch`, `ats-normalize`, `queue-append`,
 `queue-list`, `queue-update`, `queue-key`, `keywords-report`, `linkedin-fetch`,
 `firecrawl-search`, `firecrawl-scrape`, `keys-check`, `promote-prepare`,
-`render-docx`, `render-pdf`, `template-check`.
+`render-docx`, `render-pdf`, `template-check`, `jd-write`, `jd-similar`.
 
 Large payloads arrive as `--rows @path` / `--updates @path`. Every subcommand
 prints one JSON document on stdout — except `keywords-report --markdown`, which
@@ -65,9 +65,10 @@ prints the report. Logging goes to stderr. A refusal is
 
 | Path | What it holds |
 | --- | --- |
-| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, sixteen subcommands |
+| `scripts/jobhunter.py` | the CLI every skill invokes; one `argparse`, eighteen subcommands |
 | `scripts/config.py` | TOML loader + `resolve_profile_sources`; owns the allow-list |
 | `scripts/jobq.py` | local JSONL queue — `load`, `append_rows`, `row_key`, `iter_unscored`, `iter_unpromoted`, `update_rows` |
+| `scripts/jdstore.py` | `Data/<source>/<company>/<role>/` folder resolution, `JD.md` + `.jobmeta.json` materialization, near-duplicate detection via stdlib `difflib` — `safe_component`, `job_dir`, `write_jd`, `write_jd_files`, `find_similar` |
 | `scripts/ats.py` | `fetch` (the only network call, GET) + `normalize_{greenhouse,lever,ashby}` |
 | `scripts/envfile.py` | `.env`/process-env key reader — `read_key`, `key_status`; env always wins over the file |
 | `scripts/apify.py` | LinkedIn through Apify's bebity actor — `fetch_linkedin`, `normalize_linkedin`, `build_actor_input`, `choose_window`, `write_state`, `remaining_credit_usd` |
@@ -100,6 +101,12 @@ Salary is left empty when unstated, never 0, and its weight is redistributed.
 `local-primary`, `local`, `project`, `linkedin-pdf`, `site`. An unknown tier
 raises `PrecedenceError` rather than resolving to zero sources.
 
+**`.jobmeta.json`** (one per `Data/<source>/<company>/<role>/` folder): `row_key`,
+`jobUrl`, `company`, `jobTitle`, `source`, `written_at`. `jd-similar`'s
+near-duplicate threshold is a stdlib `difflib.SequenceMatcher` ratio >= 0.90 by
+default; a match requires the candidate's `requirements-map.md` to carry an
+`approved:` line.
+
 **jobsync MCP:** 9 tools, all writes, no list/read tool, 60 requests/hour.
 A batch costs 1 request per item; `add_jobs_batch` takes at most 10; promoting
 one job costs 2 requests.
@@ -109,7 +116,7 @@ files lie): `config.{ConfigError, ConfigMissingError, ProjectSourceError,
 PrecedenceError, BudgetTypeError, SalaryTypeError}`, `ats.{AtsError,
 MissingFieldError}`, `apify.{ApifyError, ApifyTokenMissingError,
 ApifyCreditError}`, `firecrawl.{FirecrawlError, FirecrawlKeyMissingError,
-FirecrawlCreditError, FirecrawlBudgetError}`, `keywords.KeywordsError`,
+FirecrawlCreditError, FirecrawlBudgetError}`, `keywords.KeywordsError`, `jdstore.JdStoreError`,
 `docx.{DocxError, UnverifiedClaimError,
 EmptyDocumentError, DestinationError}`, `pdf.{PdfError,
 UnsupportedCharacterError}`, `templates.TemplateError`, `promote.{PromoteError,
@@ -137,4 +144,4 @@ was replaced with another wrong number.
 ## gaspol Ticket Counter
 
 Prefix: AJOB
-Last ticket: AJOB-5
+Last ticket: AJOB-6
