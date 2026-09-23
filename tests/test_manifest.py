@@ -535,7 +535,7 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
             {"--in", "--out", "--page", "--allow-unverified"},
         )
 
-    def test_template_check_and_all_six_of_its_flags_are_collected(self):
+    def test_template_check_and_all_seven_of_its_flags_are_collected(self):
         """Same reasoning as `test_render_pdf_and_all_four_of_its_flags_are_
         collected` above, one ticket later: AJOB-4's newest subcommand must
         actually be seen by the guard, across its two documented command
@@ -545,7 +545,7 @@ class TestSkillsNameARunnableEntrypoint(unittest.TestCase):
         self.assertIn("template-check", commands)
         self.assertEqual(
             commands["template-check"],
-            {"--cv", "--template", "--letter", "--level", "--company", "--role"},
+            {"--cv", "--template", "--letter", "--level", "--company", "--role", "--facts"},
         )
 
     def test_linkedin_fetch_and_all_four_of_its_flags_are_collected(self):
