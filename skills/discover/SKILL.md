@@ -192,10 +192,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
   --queue .jobhunter/queue/jobs.jsonl --rows @/tmp/rows.json
 
 # Materialize Data/<source>/<company>/<role>/JD.md for the same rows, after queue-append.
-# queue-append reports counts only, so pass the same rows file; jd-write skips any posting
-# whose folder already exists.
+# queue-append reports counts only, so pass the same rows file. jd-write leaves a folder
+# that already holds this posting untouched, and reports a posting whose stored JD.md
+# differs in `errors` instead of overwriting it.
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
   --root Data --rows @/tmp/rows.json
+
+# LinkedIn rows are queued inside linkedin-fetch and never pass through queue-append, so
+# take them from the queue: queue-list prints {"count", "rows"}, which jd-write accepts.
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-list \
+  --queue .jobhunter/queue/jobs.jsonl > /tmp/queue.json
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
+  --root Data --rows @/tmp/queue.json
 ```
 
 When a single posting cannot be normalised the rest of the board still comes

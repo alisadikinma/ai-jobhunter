@@ -31,9 +31,9 @@ def safe_component(value):
     """Clean `value` into a single filesystem-safe path component.
 
     - Replaces path separators and other unsafe characters with `-`.
-    - Collapses whitespace runs to a single space, strips.
-    - Strips leading/trailing `.` and `-` characters.
-    - Truncates to 80 characters.
+    - Collapses whitespace runs to a single space.
+    - Truncates to 80 characters, and strips leading/trailing `.`, `-` and space
+      (before and after the cut).
 
     Raises `JdStoreError` if the input is empty/whitespace-only, if the
     cleaned result is empty, or if the cleaned result is exactly `.` or
@@ -45,9 +45,10 @@ def safe_component(value):
         raise JdStoreError(f"safe_component: input is empty or whitespace-only: {value!r}")
 
     cleaned = _UNSAFE_CHARS_RE.sub("-", value)
-    cleaned = _WHITESPACE_RE.sub(" ", cleaned).strip()
-    cleaned = cleaned.strip(".-")
-    cleaned = cleaned[:_MAX_COMPONENT_LENGTH]
+    cleaned = _WHITESPACE_RE.sub(" ", cleaned)
+    # Trim dots, dashes and spaces together, after the cut: trimming spaces first
+    # left ". ." as " " and cutting last could end a name on a space or dot.
+    cleaned = cleaned.strip(". -")[:_MAX_COMPONENT_LENGTH].strip(". -")
 
     if not cleaned:
         raise JdStoreError(f"safe_component: cleaned result is empty for input: {value!r}")
@@ -128,6 +129,7 @@ def write_jd(root, row):
         except (OSError, json.JSONDecodeError):
             existing_meta = None
         if existing_meta is not None and existing_meta.get("row_key") == identity_key:
+            _refuse_if_jd_differs(path, job_description)
             return {"path": path, "created": False}
 
     os.makedirs(path, exist_ok=True)
@@ -148,6 +150,25 @@ def write_jd(root, row):
     return {"path": path, "created": True}
 
 
+def _refuse_if_jd_differs(path, job_description):
+    """Same identity, different text: keep the file, but say so.
+
+    A pasted JD has no URL, so its identity is company|title alone. Pasting a
+    different JD for the same company and title would otherwise be skipped as
+    "already there" and `tailor` would then check the CV against the old text.
+    """
+    try:
+        with open(os.path.join(path, "JD.md"), "r", encoding="utf-8") as f:
+            existing = f.read()
+    except OSError:
+        return
+    if existing != job_description:
+        raise JdStoreError(
+            f"write_jd: {path!r} already holds a different JD.md for this posting; "
+            "it was not overwritten — ask the user whether the posting changed"
+        )
+
+
 def write_jd_files(root, rows):
     """Materialize `write_jd` for every row, never aborting the batch on one bad row.
 
@@ -158,8 +179,16 @@ def write_jd_files(root, rows):
     sitting where the folder belongs) — same resilience pattern as
     `ats._normalize_all`.
     """
+    if not isinstance(rows, list):
+        raise JdStoreError(f"write_jd_files: rows must be a list, got {type(rows).__name__}")
     result = {"written": [], "skipped_existing": [], "errors": []}
     for row in rows:
+        if not isinstance(row, dict):
+            result["errors"].append(
+                {"company": None, "jobTitle": None,
+                 "message": f"write_jd_files: row is not an object: {row!r}"}
+            )
+            continue
         try:
             outcome = write_jd(root, row)
         except (JdStoreError, OSError) as exc:
@@ -180,7 +209,7 @@ def write_jd_files(root, rows):
     return result
 
 
-def find_similar(root, jd_text, threshold=0.90):
+def find_similar(root, jd_text, threshold=0.90, exclude=None):
     """Find previously-tailored postings whose JD is a near-duplicate of `jd_text`.
 
     Only folders whose `requirements-map.md` carries an `approved:` line are
@@ -192,12 +221,16 @@ def find_similar(root, jd_text, threshold=0.90):
     company name removed (from both sides, so an identical JD scores 1.0)
     before `difflib.SequenceMatcher` compares them. Returns
     `[{"path", "company", "role", "ratio"}]` with `ratio >= threshold`,
-    highest ratio first. A nonexistent `root` yields `[]`.
+    highest ratio first. A nonexistent `root` yields `[]`. `exclude` is a folder
+    to skip — the posting being tailored, which would otherwise match itself.
     """
     pattern = os.path.join(root, "*", "*", "*", "requirements-map.md")
     matches = []
+    exclude = os.path.realpath(exclude) if exclude else None
     for map_path in glob.glob(pattern):
         folder = os.path.dirname(map_path)
+        if exclude and os.path.realpath(folder) == exclude:
+            continue
         try:
             with open(map_path, "r", encoding="utf-8") as f:
                 map_text = f.read()
@@ -214,12 +247,16 @@ def find_similar(root, jd_text, threshold=0.90):
 
         # autojunk=False: on texts over 200 chars the default heuristic discards
         # common characters and scores a near-identical JD around 0.1.
-        ratio = difflib.SequenceMatcher(
+        matcher = difflib.SequenceMatcher(
             None,
             _normalize_for_compare(jd_text, company),
             _normalize_for_compare(candidate_text, company),
             autojunk=False,
-        ).ratio()
+        )
+        # Both are upper bounds on ratio(); ratio() is quadratic on long texts.
+        if matcher.real_quick_ratio() < threshold or matcher.quick_ratio() < threshold:
+            continue
+        ratio = matcher.ratio()
         if ratio >= threshold:
             matches.append({"path": folder, "company": company, "role": role, "ratio": ratio})
 

@@ -63,7 +63,9 @@ escaping `Data/`.
   is in hand, and before the location and portal checks, call `jd-write` with a
   one-row list — `company`, `jobTitle`, `jobDescription` (the text verbatim),
   `source` (`Pasted` or `Web`), and `jobUrl` when there is one — so the same
-  folder and collision rules apply however the JD arrived. `JD.md` in that
+  folder and collision rules apply however the JD arrived. If `jd-write` reports the row in `errors` because the folder already
+  holds a *different* `JD.md`, stop and ask the user whether the posting changed —
+  never tailor against the stale text. `JD.md` in that
   folder is what `keywords-report --jd` and `jd-similar --jd` read later.
 
 ## Location check

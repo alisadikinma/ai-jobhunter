@@ -450,5 +450,48 @@ class TestWriteJdFilesResilience(unittest.TestCase):
         self.assertEqual(len(result["errors"]), 1)
 
 
+class TestReviewFixes(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = self._tmp.name
+
+    def _row(self, text):
+        return {"company": "Acme", "jobTitle": "Eng", "jobDescription": text, "source": "Pasted"}
+
+    def test_same_posting_with_different_jd_text_is_refused_not_silently_kept(self):
+        jdstore.write_jd(self.root, self._row("OLD"))
+        with self.assertRaises(jdstore.JdStoreError) as ctx:
+            jdstore.write_jd(self.root, self._row("NEW DIFFERENT"))
+        self.assertIn("different JD.md", str(ctx.exception))
+        with open(os.path.join(self.root, "Pasted", "Acme", "Eng", "JD.md")) as f:
+            self.assertEqual(f.read(), "OLD")
+
+    def test_same_posting_with_same_text_still_idempotent(self):
+        jdstore.write_jd(self.root, self._row("SAME"))
+        self.assertFalse(jdstore.write_jd(self.root, self._row("SAME"))["created"])
+
+    def test_non_dict_row_and_non_list_rows_are_reported_not_crashed(self):
+        result = jdstore.write_jd_files(self.root, ["a", self._row("ok")])
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(len(result["errors"]), 1)
+        with self.assertRaises(jdstore.JdStoreError):
+            jdstore.write_jd_files(self.root, {"a": 1})
+
+    def test_dots_and_spaces_only_component_is_rejected(self):
+        for value in (". .", ". . .", " . "):
+            with self.assertRaises(jdstore.JdStoreError, msg=value):
+                jdstore.safe_component(value)
+
+    def test_dots_spaces_trimmed_together(self):
+        self.assertEqual(jdstore.safe_component(". Acme ."), "Acme")
+
+    def test_find_similar_excludes_the_posting_being_tailored(self):
+        text = _JD_BODY.format(company="Acme Corp")
+        folder = _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer", text)
+        self.assertEqual(len(jdstore.find_similar(self.root, text)), 1)
+        self.assertEqual(jdstore.find_similar(self.root, text, exclude=folder), [])
+
+
 if __name__ == "__main__":
     unittest.main()

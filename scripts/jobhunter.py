@@ -469,13 +469,20 @@ def cmd_keys_check(args):
 
 def cmd_jd_write(args):
     rows = _read_json_arg(args.rows)
+    # `queue-list` prints {"count", "rows"}; take its rows directly so LinkedIn
+    # postings (which `linkedin-fetch` queues without printing) can reach jd-write.
+    if isinstance(rows, dict) and "rows" in rows:
+        rows = rows["rows"]
     _emit(jdstore.write_jd_files(args.root, rows))
 
 
 def cmd_jd_similar(args):
     with open(args.jd, "r", encoding="utf-8") as f:
         jd_text = f.read()
-    _emit({"matches": jdstore.find_similar(args.root, jd_text, threshold=args.threshold)})
+    matches = jdstore.find_similar(
+        args.root, jd_text, threshold=args.threshold, exclude=os.path.dirname(args.jd)
+    )
+    _emit({"matches": matches})
 
 
 def cmd_promote_prepare(args):
@@ -716,7 +723,7 @@ def build_parser():
     )
     p.add_argument("--root", required=True, help="Data directory root, e.g. Data")
     p.add_argument(
-        "--rows", required=True, help="JSON array of queue rows (camelCase), or @path"
+        "--rows", required=True, help="JSON array of queue rows (camelCase), or a `queue-list` document, or @path"
     )
     p.set_defaults(func=cmd_jd_write)
 

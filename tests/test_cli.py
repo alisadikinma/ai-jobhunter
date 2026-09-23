@@ -1447,6 +1447,16 @@ class TestJdWrite(unittest.TestCase):
         self.assertEqual(len(parsed["written"]), 1)
         self.assertTrue(os.path.isfile(os.path.join(parsed["written"][0], "JD.md")))
 
+    def test_jd_write_accepts_queue_list_output_object(self):
+        with open(self.rows_path, "r", encoding="utf-8") as f:
+            rows = json.load(f)
+        wrapped = os.path.join(self.tmp, "queue-list.json")
+        with open(wrapped, "w", encoding="utf-8") as f:
+            json.dump({"count": len(rows), "rows": rows}, f)
+        code, parsed, err, _text = run(["jd-write", "--root", self.root, "--rows", "@" + wrapped])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(parsed["written"]), 1)
+
     def test_jd_write_malformed_rows_json_is_a_json_refusal(self):
         code, parsed, err, _text = run(["jd-write", "--root", self.root, "--rows", "{not json"])
         self.assertEqual(code, 1)
@@ -1482,6 +1492,12 @@ class TestJdSimilar(unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(len(parsed["matches"]), 1)
         self.assertEqual(parsed["matches"][0]["company"], "Acme Corp")
+
+    def test_jd_similar_does_not_match_the_jd_own_folder(self):
+        own = os.path.join(self.root, "LinkedIn", "Acme Corp", "AI Engineer", "JD.md")
+        code, parsed, err, _text = run(["jd-similar", "--root", self.root, "--jd", own])
+        self.assertEqual(code, 0, err)
+        self.assertEqual(parsed, {"matches": []})
 
     def test_jd_similar_threshold_flag_is_honoured(self):
         with open(self.jd_path, "w", encoding="utf-8") as f:
