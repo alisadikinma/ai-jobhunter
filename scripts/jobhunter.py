@@ -40,6 +40,7 @@ import config  # noqa: E402
 import docx  # noqa: E402
 import envfile  # noqa: E402
 import firecrawl  # noqa: E402
+import jdstore  # noqa: E402
 import jobq  # noqa: E402
 import keywords  # noqa: E402
 import pdf  # noqa: E402
@@ -466,6 +467,17 @@ def cmd_keys_check(args):
     _emit(envfile.key_status(["APIFY_TOKEN", "FIRECRAWL_API_KEY"], args.env_file))
 
 
+def cmd_jd_write(args):
+    rows = _read_json_arg(args.rows)
+    _emit(jdstore.write_jd_files(args.root, rows))
+
+
+def cmd_jd_similar(args):
+    with open(args.jd, "r", encoding="utf-8") as f:
+        jd_text = f.read()
+    _emit({"matches": jdstore.find_similar(args.root, jd_text, threshold=args.threshold)})
+
+
 def cmd_promote_prepare(args):
     rows = _read_json_arg(args.rows)
 
@@ -632,7 +644,7 @@ def build_parser():
         "--in",
         dest="input_path",
         required=True,
-        help="path to the tailored markdown, e.g. .jobhunter/applications/<slug>/cv.md",
+        help="path to the tailored markdown, e.g. Data/<Source>/<Company>/<Role>/cv.md",
     )
     p.add_argument("--out", required=True, help="path to write the .docx to")
     p.add_argument(
@@ -654,7 +666,7 @@ def build_parser():
         "--in",
         dest="input_path",
         required=True,
-        help="path to the tailored markdown, e.g. .jobhunter/applications/<slug>/cv.md",
+        help="path to the tailored markdown, e.g. Data/<Source>/<Company>/<Role>/cv.md",
     )
     p.add_argument("--out", required=True, help="path to write the .pdf to")
     p.add_argument(
@@ -697,6 +709,30 @@ def build_parser():
         help="checked against the letter's opening paragraph; --letter only",
     )
     p.set_defaults(func=cmd_template_check)
+
+    p = sub.add_parser(
+        "jd-write",
+        help="Materialize Data/<source>/<company>/<role>/JD.md for queue rows",
+    )
+    p.add_argument("--root", required=True, help="Data directory root, e.g. Data")
+    p.add_argument(
+        "--rows", required=True, help="JSON array of queue rows (camelCase), or @path"
+    )
+    p.set_defaults(func=cmd_jd_write)
+
+    p = sub.add_parser(
+        "jd-similar",
+        help="Find previously-tailored JDs similar to a new one",
+    )
+    p.add_argument("--root", required=True, help="Data directory root, e.g. Data")
+    p.add_argument("--jd", required=True, help="path to the new JD's text file")
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=0.90,
+        help="difflib ratio cutoff, default 0.90",
+    )
+    p.set_defaults(func=cmd_jd_similar)
 
     return parser
 

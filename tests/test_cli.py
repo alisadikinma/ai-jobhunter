@@ -1418,5 +1418,88 @@ class TestFirecrawlAndKeysCheck(unittest.TestCase):
         self.assertIn("--env-file", text)
 
 
+class TestJdWrite(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob6-cli-jd-write-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = os.path.join(self.tmp, "Data")
+        self.rows_path = os.path.join(self.tmp, "rows.json")
+        with open(self.rows_path, "w", encoding="utf-8") as f:
+            json.dump(
+                [
+                    {
+                        "company": "Acme Corp",
+                        "jobTitle": "AI Engineer",
+                        "jobDescription": "Build models.",
+                        "jobUrl": "https://x/1",
+                        "source": "LinkedIn",
+                    }
+                ],
+                f,
+            )
+
+    def test_jd_write_subcommand_exists_and_writes_files(self):
+        code, parsed, err, _text = run(
+            ["jd-write", "--root", self.root, "--rows", "@" + self.rows_path]
+        )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(sorted(parsed), ["errors", "skipped_existing", "written"])
+        self.assertEqual(len(parsed["written"]), 1)
+        self.assertTrue(os.path.isfile(os.path.join(parsed["written"][0], "JD.md")))
+
+    def test_jd_write_malformed_rows_json_is_a_json_refusal(self):
+        code, parsed, err, _text = run(["jd-write", "--root", self.root, "--rows", "{not json"])
+        self.assertEqual(code, 1)
+        self.assertIsNone(parsed)
+        self.assertEqual(json.loads(err)["error"], "JSONDecodeError")
+
+
+class TestJdSimilar(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="ajob6-cli-jd-similar-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.root = os.path.join(self.tmp, "Data")
+        self.jd_text = (
+            "We are hiring an AI Engineer to build and run machine learning services "
+            "in production. Five years of Python, PyTorch and SQL required. "
+        ) * 3
+        folder = os.path.join(self.root, "LinkedIn", "Acme Corp", "AI Engineer")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "JD.md"), "w", encoding="utf-8") as f:
+            f.write(self.jd_text)
+        with open(os.path.join(folder, ".jobmeta.json"), "w", encoding="utf-8") as f:
+            json.dump({"company": "Acme Corp", "jobTitle": "AI Engineer"}, f)
+        with open(os.path.join(folder, "requirements-map.md"), "w", encoding="utf-8") as f:
+            f.write("approved: 2026-09-01\n")
+        self.jd_path = os.path.join(self.tmp, "new-jd.md")
+        with open(self.jd_path, "w", encoding="utf-8") as f:
+            f.write(self.jd_text)
+
+    def test_jd_similar_subcommand_exists(self):
+        code, parsed, err, _text = run(
+            ["jd-similar", "--root", self.root, "--jd", self.jd_path]
+        )
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(parsed["matches"]), 1)
+        self.assertEqual(parsed["matches"][0]["company"], "Acme Corp")
+
+    def test_jd_similar_threshold_flag_is_honoured(self):
+        with open(self.jd_path, "w", encoding="utf-8") as f:
+            f.write("Sell insurance door to door in rural areas.")
+        code, parsed, _err, _text = run(
+            ["jd-similar", "--root", self.root, "--jd", self.jd_path, "--threshold", "0.99"]
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(parsed, {"matches": []})
+
+    def test_jd_similar_missing_jd_file_is_a_json_refusal(self):
+        code, parsed, err, _text = run(
+            ["jd-similar", "--root", self.root, "--jd", os.path.join(self.tmp, "nope.md")]
+        )
+        self.assertEqual(code, 1)
+        self.assertIsNone(parsed)
+        self.assertEqual(json.loads(err)["error"], "FileNotFoundError")
+
+
 if __name__ == "__main__":
     unittest.main()
