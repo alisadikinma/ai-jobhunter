@@ -170,3 +170,15 @@ under `skills/`". Expect:
 - Whether `queue-list` / `queue-update` or any promote-path code reads
   `.jobhunter/applications/` by path anywhere and needs updating in lockstep
   (grep during planning, not assumed here).
+
+## Amendments decided during execution (2026-09-23, approved by Ali)
+
+- **Location-line stripping is out of scope.** `find_similar` normalizes only case, whitespace and the
+  candidate's company name. Measured smoke-test ratios are 0.94-0.96 without it.
+- **"Cover-letter paragraph always rebuilt" is prose-only.** It lives in `skills/tailor/SKILL.md`; no
+  unittest can exercise it and no eval was added.
+- **Folder names use `jdstore.safe_component`, not the old `<slug>` logic.** The role folder is the cleaned
+  title (spaces kept). `source` is sanitized by the same function.
+- **Pasted and URL-scraped JDs use `source` values `Pasted` and `Web`** when `tailor` calls `jd-write`.
+- **`find_similar` strips the candidate's company from both sides and sets `autojunk=False`**; **`discover`
+  runs `jd-write` on the same rows file as `queue-append`** (it returns counts, not rows).
