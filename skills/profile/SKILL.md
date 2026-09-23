@@ -171,3 +171,10 @@ A `ProjectSourceError` here means the allow-list rejected something — an entry
 that resolves to the projects root, a symlink leading outside it, or a missing
 `projects.root`. Report it; do not work around it.
 
+## `facts.toml` — corrections that outlive a recompile
+
+When the user corrects a fact (a new email, a wrong start date), fix it in the primary source
+file AND record it in `.jobhunter/profile/facts.toml`: the value under `[contact]`, the wrong
+text under `[forbidden] strings`. `tailor` runs `template-check --facts`, so a stale value that a
+recompile pulls back from the LinkedIn PDF or a site is caught before a document is rendered.
+Editing `master-cv.md` by hand is not enough: the next run rewrites it.

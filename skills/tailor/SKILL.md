@@ -377,6 +377,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" template-check \
 
 `--template` is one of `hybrid`, `technical`, or `leadership` — whichever the
 agreement gate settled. `--level` is `entry`, `mid`, or `executive`.
+
+When `.jobhunter/profile/facts.toml` exists, add `--facts .jobhunter/profile/facts.toml` to both
+commands. It holds facts the user verified (email, phone, website, and text that was wrong and
+must never come back, such as a stale start date). A `facts-contact` or `facts-forbidden` finding
+is fixed in the document like any other finding; never edit `facts.toml` to make it pass.
 `--company` and `--role` are checked against the letter's opening paragraph
 only when given. Both commands print `{"kind", "template"|"level",
 "findings": [...], "ok": bool}` on stdout, exit 0 either way — a non-empty

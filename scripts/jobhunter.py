@@ -41,6 +41,7 @@ import config  # noqa: E402
 import dataindex  # noqa: E402
 import docx  # noqa: E402
 import envfile  # noqa: E402
+import facts  # noqa: E402
 import firecrawl  # noqa: E402
 import jdstore  # noqa: E402
 import jobq  # noqa: E402
@@ -333,6 +334,13 @@ def cmd_render_pdf(args):
     )
 
 
+def _facts_findings(args, markdown):
+    """Findings from the user's verified facts file, when `--facts` is given."""
+    if not args.facts:
+        return []
+    return facts.check(markdown, facts.load(args.facts))
+
+
 def cmd_template_check(args):
     """Check a tailored CV or cover letter against its chosen template.
 
@@ -370,6 +378,7 @@ def cmd_template_check(args):
         with open(args.cv, "r", encoding="utf-8") as f:
             markdown = f.read()
         findings = templates.check_cv(markdown, args.template)
+        findings += _facts_findings(args, markdown)
         _emit(
             {
                 "kind": "cv",
@@ -389,6 +398,7 @@ def cmd_template_check(args):
     findings = templates.check_letter(
         markdown, args.level, company=args.company, role=args.role
     )
+    findings += _facts_findings(args, markdown)
     _emit(
         {
             "kind": "letter",
@@ -761,6 +771,10 @@ def build_parser():
     p.add_argument(
         "--role",
         help="checked against the letter's opening paragraph; --letter only",
+    )
+    p.add_argument(
+        "--facts",
+        help="user-verified facts TOML (contact line, forbidden text), checked on --cv and --letter",
     )
     p.set_defaults(func=cmd_template_check)
 
