@@ -113,6 +113,10 @@ def write_jd(root, row):
             f"write_jd: row is missing a non-empty 'jobDescription' field: {job_description!r}"
         )
 
+    for field in ("source", "company", "jobTitle"):
+        if not isinstance(row.get(field), str):
+            raise JdStoreError(f"write_jd: row is missing a string {field!r} field: {row.get(field)!r}")
+
     identity_key = jobq.row_key(row)
     path = job_dir(root, row["source"], row["company"], row["jobTitle"], identity_key)
 
@@ -150,14 +154,15 @@ def write_jd_files(root, rows):
     Returns `{"written": [...], "skipped_existing": [...], "errors": [...]}`.
     `written` and `skipped_existing` hold the resolved path for each row;
     `errors` holds `{"company": ..., "jobTitle": ..., "message": ...}` for
-    each row that raised `JdStoreError` — same resilience pattern as
+    each row that raised `JdStoreError` or an `OSError` (unwritable folder, a file
+    sitting where the folder belongs) — same resilience pattern as
     `ats._normalize_all`.
     """
     result = {"written": [], "skipped_existing": [], "errors": []}
     for row in rows:
         try:
             outcome = write_jd(root, row)
-        except JdStoreError as exc:
+        except (JdStoreError, OSError) as exc:
             result["errors"].append(
                 {
                     "company": row.get("company"),

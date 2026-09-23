@@ -289,9 +289,6 @@ class TestWriteJdFiles(unittest.TestCase):
             self.assertEqual(result["errors"], [])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 _JD_BODY = (
     "We are looking for an AI Engineer to join {company}. You will design, build and "
@@ -397,3 +394,61 @@ class TestFindSimilar(unittest.TestCase):
         self.assertEqual(
             jdstore.find_similar(self.root, "Sell insurance door to door in rural areas."), []
         )
+
+    def test_threshold_boundary_is_inclusive(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"))
+        new_jd = _JD_BODY.format(company="Globex Inc")
+        ratio = jdstore.find_similar(self.root, new_jd, threshold=0.0)[0]["ratio"]
+        self.assertEqual(len(jdstore.find_similar(self.root, new_jd, threshold=ratio)), 1)
+        self.assertEqual(jdstore.find_similar(self.root, new_jd, threshold=ratio + 1e-9), [])
+
+
+class TestWriteJdFilesResilience(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = self._tmp.name
+
+    def _row(self, company, **over):
+        row = {"company": company, "jobTitle": "AI Engineer", "jobDescription": "Text.",
+               "jobUrl": "https://x/" + str(company), "source": "LinkedIn"}
+        row.update(over)
+        return row
+
+    def test_row_missing_source_is_an_error_entry_not_a_crash(self):
+        bad = self._row("NoSource")
+        del bad["source"]
+        result = jdstore.write_jd_files(self.root, [bad, self._row("Good")])
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(len(result["errors"]), 1)
+        self.assertIn("source", result["errors"][0]["message"])
+
+    def test_non_string_company_is_an_error_entry(self):
+        result = jdstore.write_jd_files(self.root, [self._row(None), self._row("Good")])
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(len(result["errors"]), 1)
+
+    def test_file_at_target_path_is_an_error_entry(self):
+        os.makedirs(os.path.join(self.root, "LinkedIn", "Blocked"))
+        open(os.path.join(self.root, "LinkedIn", "Blocked", "AI Engineer"), "w").close()
+        result = jdstore.write_jd_files(
+            self.root, [self._row("Blocked"), self._row("Good")]
+        )
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(len(result["errors"]), 1)
+
+    def test_unwritable_directory_is_an_error_entry(self):
+        locked = os.path.join(self.root, "LinkedIn", "Locked")
+        os.makedirs(locked)
+        os.chmod(locked, 0o500)
+        self.addCleanup(os.chmod, locked, 0o700)
+        result = jdstore.write_jd_files(
+            self.root, [self._row("Locked"), self._row("Good")]
+        )
+        self.assertEqual(len(result["written"]), 1)
+        self.assertEqual(len(result["errors"]), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

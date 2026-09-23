@@ -34,8 +34,8 @@ This skill MUST read the target job description in full before writing
 anything. There is no code path in this skill that produces a CV or cover
 letter without first reading the specific JD it is meant for. A run that
 cannot obtain the JD text (URL unreachable, row has no `jobDescription`,
-empty paste) stops and reports that, rather than falling back to a generic
-document.
+empty paste, a `Data/<Source>/<Company>/<Role>/` folder with no `JD.md`) stops and reports
+that, rather than falling back to a generic document.
 
 ## `master-cv.md` is a source of raw material, never sent as-is
 
