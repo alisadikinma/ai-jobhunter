@@ -1430,7 +1430,7 @@ class TestJdWrite(unittest.TestCase):
                     {
                         "company": "Acme Corp",
                         "jobTitle": "AI Engineer",
-                        "jobDescription": "Build models.",
+                        "jobDescription": "Build models. " + "Own the ML services end to end. " * 15,
                         "jobUrl": "https://x/1",
                         "source": "LinkedIn",
                     }

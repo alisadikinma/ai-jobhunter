@@ -194,7 +194,11 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
 # Materialize Data/<source>/<company>/<role>/JD.md for the same rows, after queue-append.
 # queue-append reports counts only, so pass the same rows file. jd-write leaves a folder
 # that already holds this posting untouched, and reports a posting whose stored JD.md
-# differs in `errors` instead of overwriting it.
+# differs in `errors` instead of overwriting it. It writes JD.md formatted (headings and
+# bullets on their own lines, `Apply: <jobUrl>` on top (a row without an http(s) jobUrl is refused), images and link URLs dropped), refuses a listing page (5+ job
+# links = not one JD, one JD = one posting) into `errors`, and reports link-heavy pages
+# (site navigation came along) in `warnings`. A JD under 400 characters is refused too (truncated scrape or stub). Re-scrape any errored or warned posting from
+# its single posting URL - never keep a whole careers page as a JD.
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
   --root Data --rows @/tmp/rows.json
 

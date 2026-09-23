@@ -23,8 +23,77 @@ _APPROVED_RE = re.compile(r"^approved:\s*\S+", re.MULTILINE)
 _MAX_COMPONENT_LENGTH = 80
 
 
+_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
+_LINK_RE = re.compile(r"\[([^\]]*)\]\((?:[^()\s]|\([^)]*\))*\)")
+_HEADING_RE = re.compile(r"[ \t]+(#{1,6} )")
+_BULLET_RE = re.compile(r"(?<=\S)[ \t]+[*\u2022][ \t]+")
+_BRACKET_HEAD_RE = re.compile(r"[ \t]+(\[[A-Z][^\]\n]{2,40}\])[ \t]+")
+_JOB_URL_RE = re.compile(
+    r"https?://[^\s)\]]*/jobs?/\d+|https?://jobs\.[^\s)\]]+/[0-9a-f-]{20,}"
+)
+_MAX_POSTING_URLS = 4
+_CHROME_LINK_LIMIT = 12
+_MIN_JD_CHARS = 400
+
+
 class JdStoreError(Exception):
     """Raised when a path component or directory resolution cannot proceed."""
+
+
+def format_jd(text):
+    """Make a scraped JD readable without changing its words.
+
+    Scrapers hand back one long line: headings, bullets and page chrome all
+    run together. This drops images, keeps a link's visible text and not its
+    URL, and puts headings and bullets on their own lines. Text with none of
+    those (a plain paste) comes back unchanged apart from trimmed line ends.
+    """
+    t = text.replace("\r", "").replace("\\<br>", " ")
+    t = _IMAGE_RE.sub("", t)
+    t = _LINK_RE.sub(r"\1", t)
+    t = _HEADING_RE.sub(r"\n\n\1", t)
+    t = _BULLET_RE.sub("\n* ", t)
+    t = _BRACKET_HEAD_RE.sub(r"\n\n**\1**\n\n", t)
+    t = re.sub(r"[ \t]+\n", "\n", t)
+    t = re.sub(r"\n{3,}", "\n\n", t)
+    return t.strip()
+
+
+def render_jd(row):
+    """`JD.md` body: the apply link on top, then the formatted posting."""
+    return f"Apply: {row['jobUrl'].strip()}\n\n{format_jd(row['jobDescription'])}"
+
+
+def jd_problems(text):
+    """Return `(errors, warnings)` for a JD text. One JD is one posting.
+
+    Error: the text is shorter than 400 characters (too little to tailor
+    against), or it links to five or more distinct job postings. That is a
+    company's listing page, not one job. Warning: the text carries a lot of
+    links, which means site navigation came along with the posting.
+    """
+    errors, warnings = [], []
+    body = format_jd(text)
+    if len(body) < _MIN_JD_CHARS:
+        errors.append(
+            f"text is only {len(body)} characters (minimum {_MIN_JD_CHARS}); the scrape is "
+            "truncated or the posting is a stub - re-scrape it from its apply link, and "
+            "drop the posting if it is still short"
+        )
+    posting_urls = set(_JOB_URL_RE.findall(text))
+    if len(posting_urls) > _MAX_POSTING_URLS:
+        errors.append(
+            f"text links to {len(posting_urls)} different job postings; it is a listing "
+            "page, not one JD (one JD = one posting at one company) - scrape the single "
+            "posting URL instead"
+        )
+    links = len(_LINK_RE.findall(text))
+    if links >= _CHROME_LINK_LIMIT and not errors:
+        warnings.append(
+            f"{links} links in the text - site navigation or footer probably came with "
+            "the posting; check JD.md before tailoring"
+        )
+    return errors, warnings
 
 
 def safe_component(value):
@@ -118,6 +187,17 @@ def write_jd(root, row):
         if not isinstance(row.get(field), str):
             raise JdStoreError(f"write_jd: row is missing a string {field!r} field: {row.get(field)!r}")
 
+    job_url = row.get("jobUrl")
+    if not isinstance(job_url, str) or not re.match(r"https?://\S+$", job_url.strip()):
+        raise JdStoreError(
+            f"write_jd: {row['company']!r} / {row['jobTitle']!r} has no apply link "
+            f"('jobUrl' must be an http(s) URL): {job_url!r} - ask the user for it"
+        )
+
+    problems, _ = jd_problems(job_description)
+    if problems:
+        raise JdStoreError(f"write_jd: {row['company']!r} / {row['jobTitle']!r}: {problems[0]}")
+
     identity_key = jobq.row_key(row)
     path = job_dir(root, row["source"], row["company"], row["jobTitle"], identity_key)
 
@@ -129,12 +209,12 @@ def write_jd(root, row):
         except (OSError, json.JSONDecodeError):
             existing_meta = None
         if existing_meta is not None and existing_meta.get("row_key") == identity_key:
-            _refuse_if_jd_differs(path, job_description)
+            _refuse_if_jd_differs(path, row)
             return {"path": path, "created": False}
 
     os.makedirs(path, exist_ok=True)
     with open(os.path.join(path, "JD.md"), "w", encoding="utf-8") as f:
-        f.write(job_description)
+        f.write(render_jd(row))
 
     meta = {
         "row_key": identity_key,
@@ -150,7 +230,7 @@ def write_jd(root, row):
     return {"path": path, "created": True}
 
 
-def _refuse_if_jd_differs(path, job_description):
+def _refuse_if_jd_differs(path, row):
     """Same identity, different text: keep the file, but say so.
 
     A pasted JD has no URL, so its identity is company|title alone. Pasting a
@@ -162,7 +242,8 @@ def _refuse_if_jd_differs(path, job_description):
             existing = f.read()
     except OSError:
         return
-    if existing != job_description:
+    job_description = row["jobDescription"]
+    if existing not in (render_jd(row), job_description, format_jd(job_description)):
         raise JdStoreError(
             f"write_jd: {path!r} already holds a different JD.md for this posting; "
             "it was not overwritten — ask the user whether the posting changed"
@@ -203,6 +284,11 @@ def write_jd_files(root, rows):
 
         if outcome["created"]:
             result["written"].append(outcome["path"])
+            _, warned = jd_problems(row["jobDescription"])
+            if warned:
+                result.setdefault("warnings", []).append(
+                    {"path": outcome["path"], "message": warned[0]}
+                )
         else:
             result["skipped_existing"].append(outcome["path"])
 

@@ -61,7 +61,7 @@ escaping `Data/`.
   `written` or `skipped_existing` path it prints is the folder to use.
 - A **pasted** or **URL-scraped** JD has no folder yet. Right after the JD text
   is in hand, and before the location and portal checks, call `jd-write` with a
-  one-row list — `company`, `jobTitle`, `jobDescription` (the text verbatim),
+  one-row list — `company`, `jobTitle`, `jobDescription` (the scraped text; `jd-write` formats it, words unchanged),
   `source` (`Pasted` or `Web`), and `jobUrl` when there is one — so the same
   folder and collision rules apply however the JD arrived. If `jd-write` reports the row in `errors` because the folder already
   holds a *different* `JD.md`, stop and ask the user whether the posting changed —
@@ -317,7 +317,13 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
   --root Data --rows @/tmp/this-jd-row.json
 ```
 
-`jd-write` prints `{"written": [...], "skipped_existing": [...], "errors": [...]}`.
+Every JD needs an apply link: `jobUrl` must be an http(s) URL, else `jd-write` refuses the row.
+A pasted JD has none, so ask the user for the link. `JD.md` starts with `Apply: <url>`.
+
+`jd-write` prints `{"written": [...], "skipped_existing": [...], "errors": [...]}`, plus
+`"warnings"` when a page carries site navigation. A listing page (5+ job links) lands in
+`errors`: one JD is one posting at one company, so scrape the single posting URL instead. A JD under 400 characters is refused too:
+re-scrape it from `jobUrl`, and if it is still short, tell the user and drop the posting.
 The one row lands in `written` (new folder) or `skipped_existing` (folder already
 there); use that path. A row in `errors` means no folder exists — report the
 message, do not invent a path.
@@ -448,7 +454,7 @@ the codepoint responsible.
 
 ## Output — `Data/<Source>/<Company>/<Role>/`
 
-- `JD.md` — the job description, verbatim (written by `discover` or `jd-write`).
+- `JD.md` — the job description, formatted for reading, words unchanged (written by `discover` or `jd-write`).
 - `requirements-map.md` — every JD requirement matched, partially matched,
   or marked a gap against `master-cv.md`, with `approved: YYYY-MM-DD` once
   the agreement gate has passed.

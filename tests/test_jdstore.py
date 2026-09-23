@@ -9,6 +9,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import jdstore  # noqa: E402
 import jobq  # noqa: E402
 
+_PAD = " Filler sentence about the role and its duties." * 12
+
 
 class TestSafeComponent(unittest.TestCase):
     def test_safe_component_replaces_path_separators(self):
@@ -163,7 +165,7 @@ class TestWriteJd(unittest.TestCase):
             row = {
                 "company": "Acme",
                 "jobTitle": "AI Engineer",
-                "jobDescription": "Full posting text...",
+                "jobDescription": "Full posting text..." + _PAD,
                 "jobUrl": "https://x/1",
                 "source": "LinkedIn",
             }
@@ -172,7 +174,7 @@ class TestWriteJd(unittest.TestCase):
             jd_path = os.path.join(result["path"], "JD.md")
             meta_path = os.path.join(result["path"], ".jobmeta.json")
             with open(jd_path, "r", encoding="utf-8") as f:
-                self.assertEqual(f.read(), row["jobDescription"])
+                self.assertEqual(f.read(), jdstore.render_jd(row))
             with open(meta_path, "r", encoding="utf-8") as f:
                 meta = json.load(f)
             self.assertEqual(meta["row_key"], jobq.row_key(row))
@@ -182,7 +184,7 @@ class TestWriteJd(unittest.TestCase):
             row = {
                 "company": "Acme",
                 "jobTitle": "AI Engineer",
-                "jobDescription": "Full posting text...",
+                "jobDescription": "Full posting text..." + _PAD,
                 "jobUrl": "https://x/1",
                 "source": "LinkedIn",
             }
@@ -198,7 +200,7 @@ class TestWriteJd(unittest.TestCase):
             self.assertEqual(os.listdir(source_dir), ["AI Engineer"])
 
             with open(os.path.join(second["path"], "JD.md"), "r", encoding="utf-8") as f:
-                self.assertEqual(f.read(), row["jobDescription"])
+                self.assertEqual(f.read(), jdstore.render_jd(row))
 
     def test_write_jd_rejects_missing_job_description(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,7 +233,7 @@ class TestWriteJdFiles(unittest.TestCase):
                 {
                     "company": "Acme",
                     "jobTitle": "AI Engineer",
-                    "jobDescription": "Acme posting text.",
+                    "jobDescription": "Acme posting text." + _PAD,
                     "jobUrl": "https://x/1",
                     "source": "LinkedIn",
                 },
@@ -245,7 +247,7 @@ class TestWriteJdFiles(unittest.TestCase):
                 {
                     "company": "Initech",
                     "jobTitle": "Data Engineer",
-                    "jobDescription": "Initech posting text.",
+                    "jobDescription": "Initech posting text." + _PAD,
                     "jobUrl": "https://x/3",
                     "source": "LinkedIn",
                 },
@@ -275,7 +277,7 @@ class TestWriteJdFiles(unittest.TestCase):
             row = {
                 "company": "Acme",
                 "jobTitle": "AI Engineer",
-                "jobDescription": "Acme posting text.",
+                "jobDescription": "Acme posting text." + _PAD,
                 "jobUrl": "https://x/1",
                 "source": "LinkedIn",
             }
@@ -411,7 +413,7 @@ class TestWriteJdFilesResilience(unittest.TestCase):
         self.root = self._tmp.name
 
     def _row(self, company, **over):
-        row = {"company": company, "jobTitle": "AI Engineer", "jobDescription": "Text.",
+        row = {"company": company, "jobTitle": "AI Engineer", "jobDescription": "Text." + _PAD,
                "jobUrl": "https://x/" + str(company), "source": "LinkedIn"}
         row.update(over)
         return row
@@ -457,7 +459,8 @@ class TestReviewFixes(unittest.TestCase):
         self.root = self._tmp.name
 
     def _row(self, text):
-        return {"company": "Acme", "jobTitle": "Eng", "jobDescription": text, "source": "Pasted"}
+        return {"company": "Acme", "jobTitle": "Eng", "jobDescription": text + _PAD, "source": "Pasted",
+                "jobUrl": "https://x/apply"}
 
     def test_same_posting_with_different_jd_text_is_refused_not_silently_kept(self):
         jdstore.write_jd(self.root, self._row("OLD"))
@@ -465,7 +468,7 @@ class TestReviewFixes(unittest.TestCase):
             jdstore.write_jd(self.root, self._row("NEW DIFFERENT"))
         self.assertIn("different JD.md", str(ctx.exception))
         with open(os.path.join(self.root, "Pasted", "Acme", "Eng", "JD.md")) as f:
-            self.assertEqual(f.read(), "OLD")
+            self.assertEqual(f.read(), jdstore.render_jd(self._row("OLD")))
 
     def test_same_posting_with_same_text_still_idempotent(self):
         jdstore.write_jd(self.root, self._row("SAME"))
@@ -495,3 +498,72 @@ class TestReviewFixes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FormatAndSinglePostingTests(unittest.TestCase):
+    def test_format_jd_splits_headings_and_bullets_and_drops_link_chrome(self):
+        raw = ("![Logo](https://x/y.png) Intro [Apply now](https://x/apply) ## Role "
+               "We build things * Ship code * Review code ## Needs * Python")
+        out = jdstore.format_jd(raw)
+        self.assertNotIn("http", out)
+        self.assertIn("\n\n## Role", out)
+        self.assertIn("\n* Ship code\n* Review code", out)
+        self.assertIn("Apply now", out)
+
+    def test_format_jd_leaves_plain_text_unchanged(self):
+        self.assertEqual(jdstore.format_jd("Full posting text..."), "Full posting text...")
+
+    def test_write_jd_stores_formatted_text_and_is_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = {"company": "Acme", "jobTitle": "Eng", "source": "Web", "jobUrl": "https://x/1",
+                   "jobDescription": "Intro ## Role text * one * two" + _PAD}
+            first = jdstore.write_jd(tmp, row)
+            with open(os.path.join(first["path"], "JD.md"), encoding="utf-8") as f:
+                self.assertIn("\n* one\n* two", f.read())
+            self.assertFalse(jdstore.write_jd(tmp, row)["created"])
+
+    def test_listing_page_is_refused_as_not_one_posting(self):
+        links = " ".join(f"[Job {i}](https://job-boards.greenhouse.io/acme/jobs/{5000+i})" for i in range(6))
+        row = {"company": "Acme", "jobTitle": "Eng", "source": "Greenhouse", "jobUrl": "https://x/1",
+               "jobDescription": "Current openings at Acme " + links + _PAD}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(jdstore.JdStoreError) as ctx:
+                jdstore.write_jd(tmp, row)
+            self.assertIn("one JD = one posting", str(ctx.exception))
+            result = jdstore.write_jd_files(tmp, [row])
+            self.assertEqual(result["written"], [])
+            self.assertEqual(len(result["errors"]), 1)
+
+    def test_jd_starts_with_apply_link(self):
+        row = {"company": "Acme", "jobTitle": "Eng", "source": "Web",
+               "jobUrl": "https://x/apply", "jobDescription": "Real job." + _PAD}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = jdstore.write_jd(tmp, row)["path"]
+            with open(os.path.join(path, "JD.md"), encoding="utf-8") as f:
+                self.assertTrue(f.read().startswith("Apply: https://x/apply\n\nReal job."))
+
+    def test_too_short_jd_is_refused_with_rescrape_hint(self):
+        row = {"company": "Acme", "jobTitle": "Eng", "source": "Web",
+               "jobUrl": "https://x/1", "jobDescription": "Short stub."}
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(jdstore.JdStoreError) as ctx:
+                jdstore.write_jd(tmp, row)
+            self.assertIn("re-scrape", str(ctx.exception))
+            self.assertEqual(os.listdir(tmp), [])
+
+    def test_missing_or_bad_apply_link_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for url in (None, "", "   ", "not a url"):
+                row = {"company": "Acme", "jobTitle": "Eng", "source": "Web",
+                       "jobUrl": url, "jobDescription": "Real job." + _PAD}
+                with self.assertRaises(jdstore.JdStoreError, msg=repr(url)) as ctx:
+                    jdstore.write_jd(tmp, row)
+                self.assertIn("apply link", str(ctx.exception))
+
+    def test_link_heavy_single_posting_is_written_with_warning(self):
+        text = "Real job. " + " ".join(f"[Nav {i}](https://x/{i})" for i in range(15))
+        row = {"company": "Acme", "jobTitle": "Eng", "source": "Web", "jobUrl": "https://x/1", "jobDescription": text + _PAD}
+        with tempfile.TemporaryDirectory() as tmp:
+            result = jdstore.write_jd_files(tmp, [row])
+            self.assertEqual(len(result["written"]), 1)
+            self.assertEqual(len(result["warnings"]), 1)
