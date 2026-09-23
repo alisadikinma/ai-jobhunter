@@ -272,3 +272,109 @@ class TestWriteJdFiles(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+_JD_BODY = (
+    "We are looking for an AI Engineer to join {company}. You will design, build and "
+    "operate machine learning services in production. Requirements: five years of Python, "
+    "experience with PyTorch, strong SQL, and a track record of shipping models to "
+    "customers. You will work with product managers and designers, review code, mentor "
+    "junior engineers, and own the reliability of the inference platform. Nice to have: "
+    "Kubernetes, Terraform, and experience with retrieval augmented generation systems. "
+    "{company} offers remote work, a learning budget, and a small friendly team."
+)
+
+
+def _make_folder(root, source, company, role, jd_text, approved=True, meta="ok", write_jd_file=True):
+    folder = os.path.join(root, source, company, role)
+    os.makedirs(folder)
+    if write_jd_file:
+        with open(os.path.join(folder, "JD.md"), "w", encoding="utf-8") as f:
+            f.write(jd_text)
+    if meta == "ok":
+        with open(os.path.join(folder, ".jobmeta.json"), "w", encoding="utf-8") as f:
+            json.dump({"company": company, "jobTitle": role, "row_key": "k-" + company}, f)
+    elif meta == "malformed":
+        with open(os.path.join(folder, ".jobmeta.json"), "w", encoding="utf-8") as f:
+            f.write("{not json")
+    with open(os.path.join(folder, "requirements-map.md"), "w", encoding="utf-8") as f:
+        f.write("approved: 2026-09-01\n" if approved else "draft, not yet approved\n")
+    return folder
+
+
+class TestFindSimilar(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = self._tmp.name
+
+    def test_find_similar_detects_near_identical_jd(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"))
+        matches = jdstore.find_similar(
+            self.root, _JD_BODY.format(company="Globex Inc"), threshold=0.90
+        )
+        self.assertTrue(matches)
+        self.assertEqual(matches[0]["company"], "Acme Corp")
+        self.assertEqual(matches[0]["role"], "AI Engineer")
+        self.assertGreaterEqual(matches[0]["ratio"], 0.90)
+
+    def test_missing_root_returns_empty(self):
+        self.assertEqual(jdstore.find_similar(os.path.join(self.root, "nope"), "x"), [])
+
+    def test_unapproved_map_is_excluded(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"), approved=False)
+        self.assertEqual(jdstore.find_similar(self.root, _JD_BODY.format(company="X")), [])
+
+    def test_missing_sibling_jd_is_excluded_without_crash(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer", "",
+                     write_jd_file=False)
+        self.assertEqual(jdstore.find_similar(self.root, _JD_BODY.format(company="X")), [])
+
+    def test_malformed_meta_is_skipped_others_still_scanned(self):
+        _make_folder(self.root, "LinkedIn", "Bad Co", "AI Engineer",
+                     _JD_BODY.format(company="Bad Co"), meta="malformed")
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"))
+        matches = jdstore.find_similar(self.root, _JD_BODY.format(company="Globex Inc"))
+        self.assertEqual([m["company"] for m in matches], ["Acme Corp"])
+
+    def test_absent_meta_is_skipped(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"), meta="absent")
+        self.assertEqual(jdstore.find_similar(self.root, _JD_BODY.format(company="X")), [])
+
+    def test_below_threshold_excluded(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"))
+        _make_folder(self.root, "LinkedIn", "Zeta", "Chef",
+                     "Cook meals in a busy restaurant kitchen, manage inventory and "
+                     "supervise line cooks during dinner service every evening.")
+        matches = jdstore.find_similar(self.root, _JD_BODY.format(company="Globex Inc"))
+        self.assertEqual([m["company"] for m in matches], ["Acme Corp"])
+
+    def test_multiple_matches_sorted_descending(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"))
+        _make_folder(self.root, "Lever", "Initech", "AI Engineer",
+                     _JD_BODY.format(company="Initech") + " Extra perk: free lunch.")
+        matches = jdstore.find_similar(
+            self.root, _JD_BODY.format(company="Globex Inc"), threshold=0.80
+        )
+        self.assertEqual(len(matches), 2)
+        self.assertGreaterEqual(matches[0]["ratio"], matches[1]["ratio"])
+        self.assertEqual(matches[0]["company"], "Acme Corp")
+
+    def test_self_comparison_ratio_is_one(self):
+        text = _JD_BODY.format(company="Acme Corp")
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer", text)
+        matches = jdstore.find_similar(self.root, text)
+        self.assertEqual(matches[0]["ratio"], 1.0)
+
+    def test_unrelated_jd_far_below_threshold(self):
+        _make_folder(self.root, "LinkedIn", "Acme Corp", "AI Engineer",
+                     _JD_BODY.format(company="Acme Corp"))
+        self.assertEqual(
+            jdstore.find_similar(self.root, "Sell insurance door to door in rural areas."), []
+        )

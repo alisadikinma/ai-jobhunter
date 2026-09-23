@@ -9,6 +9,8 @@ collision-safe directory for one posting.
 """
 
 import datetime
+import difflib
+import glob
 import json
 import os
 import re
@@ -17,6 +19,7 @@ import jobq
 
 _UNSAFE_CHARS_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 _WHITESPACE_RE = re.compile(r"\s+")
+_APPROVED_RE = re.compile(r"^approved:\s*\S+", re.MULTILINE)
 _MAX_COMPONENT_LENGTH = 80
 
 
@@ -170,6 +173,60 @@ def write_jd_files(root, rows):
             result["skipped_existing"].append(outcome["path"])
 
     return result
+
+
+def find_similar(root, jd_text, threshold=0.90):
+    """Find previously-tailored postings whose JD is a near-duplicate of `jd_text`.
+
+    Only folders whose `requirements-map.md` carries an `approved:` line are
+    eligible — an unapproved map is not a finished tailoring worth reusing.
+    A folder missing its `JD.md`, or whose `.jobmeta.json` is absent or
+    unparseable, is malformed data: it is skipped, never a crash.
+
+    Each side is lowercased, whitespace-collapsed, and has the *candidate's*
+    company name removed (from both sides, so an identical JD scores 1.0)
+    before `difflib.SequenceMatcher` compares them. Returns
+    `[{"path", "company", "role", "ratio"}]` with `ratio >= threshold`,
+    highest ratio first. A nonexistent `root` yields `[]`.
+    """
+    pattern = os.path.join(root, "*", "*", "*", "requirements-map.md")
+    matches = []
+    for map_path in glob.glob(pattern):
+        folder = os.path.dirname(map_path)
+        try:
+            with open(map_path, "r", encoding="utf-8") as f:
+                map_text = f.read()
+            if not _APPROVED_RE.search(map_text):
+                continue
+            with open(os.path.join(folder, "JD.md"), "r", encoding="utf-8") as f:
+                candidate_text = f.read()
+            with open(os.path.join(folder, ".jobmeta.json"), "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            company = meta["company"]
+            role = meta["jobTitle"]
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, KeyError, TypeError):
+            continue
+
+        # autojunk=False: on texts over 200 chars the default heuristic discards
+        # common characters and scores a near-identical JD around 0.1.
+        ratio = difflib.SequenceMatcher(
+            None,
+            _normalize_for_compare(jd_text, company),
+            _normalize_for_compare(candidate_text, company),
+            autojunk=False,
+        ).ratio()
+        if ratio >= threshold:
+            matches.append({"path": folder, "company": company, "role": role, "ratio": ratio})
+
+    matches.sort(key=lambda m: m["ratio"], reverse=True)
+    return matches
+
+
+def _normalize_for_compare(text, company):
+    """Lowercase, drop every mention of `company`, collapse whitespace."""
+    if company:
+        text = re.sub(re.escape(company), "", text, flags=re.IGNORECASE)
+    return _WHITESPACE_RE.sub(" ", text.lower()).strip()
 
 
 def _belongs_to(candidate, identity_key):
