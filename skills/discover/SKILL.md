@@ -54,6 +54,12 @@ if it exits non-zero (not ignored), tell the user before doing anything else —
   rows to `.jobhunter/queue/jobs.jsonl`. Its own dedupe (by `jobq.row_key`)
   means calling `append_rows` again with rows already on the queue is safe;
   it reports duplicates, it does not double-write them.
+- `scripts/jdstore.py`, through the `jd-write` subcommand — materializes
+  `Data/<source>/<company>/<role>/JD.md` (plus a `.jobmeta.json` identity marker) for the rows
+  this run collected. Idempotent: a folder already carrying this exact posting's identity is left
+  untouched, so a rediscovered posting never clobbers in-progress or completed `tailor` output
+  sitting in that same folder. A row with no `jobDescription` is reported in `errors`, never
+  written as an empty file.
 
 ## Full posting text, not just a link
 
@@ -138,11 +144,14 @@ run; the other sources continue.
 
 ## Output
 
-Appends to `.jobhunter/queue/jobs.jsonl`. Writes nothing to jobsync and
-nothing under `.jobhunter/profile/`.
+Appends to `.jobhunter/queue/jobs.jsonl`, and materializes
+`Data/<source>/<company>/<role>/JD.md` for the rows collected this run. Writes nothing to
+jobsync and nothing under `.jobhunter/profile/`. The jobsync boundary is unchanged — `jd-write`
+is a second **local** file write, never a network call.
 
 Before finishing, this skill prints: which sources it queried (boards, ATS slugs, LinkedIn),
-how many rows it wrote versus how many were skipped as duplicates, and for LinkedIn the
+how many rows it wrote versus how many were skipped as duplicates, the `jd-write` counts
+(`written` / `skipped_existing` / `errors`, naming each errored posting), and for LinkedIn the
 window/returned/new/duplicate/USD spent/credit remaining, and for Firecrawl the credits
 spent/budget/account balance.
 
@@ -181,6 +190,12 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" ats-fetch \
 # Append rows to the local queue (deduped by row_key)
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
   --queue .jobhunter/queue/jobs.jsonl --rows @/tmp/rows.json
+
+# Materialize Data/<source>/<company>/<role>/JD.md for the same rows, after queue-append.
+# queue-append reports counts only, so pass the same rows file; jd-write skips any posting
+# whose folder already exists.
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
+  --root Data --rows @/tmp/rows.json
 ```
 
 When a single posting cannot be normalised the rest of the board still comes
