@@ -216,7 +216,7 @@ def check_cv(markdown, name):
     Returns a list of `{"rule", "line", "message"}` findings, sorted by
     line (1-based, same numbering as the input). Rule ids: `no-name`,
     `no-contact`, `unknown-section`, `order`, `duplicate-section`,
-    `missing-section`, `pronoun`. Raises `TemplateError` for an unknown
+    `missing-section`, `pronoun`, `chronology`. Raises `TemplateError` for an unknown
     `name`, via `load_cv_template`.
     """
     template = load_cv_template(name)
@@ -328,7 +328,42 @@ def check_cv(markdown, name):
                 _finding("pronoun", index, "first-person pronoun in a bullet line")
             )
 
+    findings.extend(_check_reverse_chronological(lines))
     findings.sort(key=lambda finding: finding["line"])
+    return findings
+
+
+_MONTHS = {m: i for i, m in enumerate(
+    ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"), start=1)}
+_DATE_RANGE_RE = re.compile(
+    r"^(?P<m>Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?P<y>\d{4}) [\u2013-] (?:[A-Z][a-z]{2} \d{4}|Present)\b"
+)
+
+
+def _check_reverse_chronological(lines):
+    """A job entry may not start later than the entry above it.
+
+    Every template says work history is reverse-chronological. Ordering by how
+    relevant a role is to one JD hides the current role and reads as a gap, so
+    it is a finding, not a style choice.
+    """
+    findings = []
+    previous = None
+    for number, line in enumerate(lines, start=1):
+        match = _DATE_RANGE_RE.match(line.strip())
+        if not match:
+            continue
+        start = (int(match["y"]), _MONTHS[match["m"]])
+        if previous is not None and start > previous[0]:
+            findings.append(
+                _finding(
+                    "chronology",
+                    number,
+                    "entry starting %s %s is listed below one starting %s %s; work history must be newest first"
+                    % (match["m"], match["y"], previous[1], previous[2])
+                )
+            )
+        previous = (start, match["m"], match["y"])
     return findings
 
 

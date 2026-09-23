@@ -792,3 +792,20 @@ class TestCheckLetterCrlf(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestChronologyRule(unittest.TestCase):
+    def _cv(self, first, second):
+        return (
+            "# Ali\n\nBatam · a@b.com · +62 1\n\n## Professional Summary\n\nText.\n\n## Core Skills\n\n- A: b\n\n"
+            "## Work Experience\n\n### Role A — X\n\n%s · Batam\n\n- Built a thing\n\n"
+            "### Role B — Y\n\n%s · Batam\n\n- Built another thing\n\n## Education\n\n- BSc, Uni, 2019\n" % (first, second)
+        )
+
+    def test_newest_first_passes_and_oldest_first_is_flagged(self):
+        good = templates.check_cv(self._cv("Jan 2026 – Present", "Mar 2023 – Dec 2025"), "hybrid")
+        self.assertEqual([f for f in good if f["rule"] == "chronology"], [])
+        bad = templates.check_cv(self._cv("Mar 2023 – Dec 2025", "Jan 2026 – Present"), "hybrid")
+        found = [f for f in bad if f["rule"] == "chronology"]
+        self.assertEqual(len(found), 1)
+        self.assertIn("newest first", found[0]["message"])
