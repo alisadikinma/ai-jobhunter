@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import apify  # noqa: E402
 import ats  # noqa: E402
+import authgate  # noqa: E402
 import config  # noqa: E402
 import docx  # noqa: E402
 import envfile  # noqa: E402
@@ -132,8 +133,37 @@ def cmd_ats_normalize(args):
 
 def cmd_queue_append(args):
     rows = _read_json_arg(args.rows)
+    rows, blocked = authgate.split_closed(rows)
     written, duplicates, malformed = jobq.append_rows(args.queue, rows)
-    _emit({"written": written, "skipped_duplicates": duplicates, "malformed": malformed})
+    _emit(
+        {
+            "written": written,
+            "skipped_duplicates": duplicates,
+            "malformed": malformed,
+            "blocked": _blocked_view(blocked),
+        }
+    )
+
+
+def _blocked_view(blocked):
+    """Postings the auth gate kept out of the queue, named so the run can report them."""
+    return [
+        {"company": row.get("company"), "jobTitle": row.get("jobTitle"), "reason": reason}
+        for row, reason in blocked
+    ]
+
+
+def cmd_auth_check(args):
+    """List queue rows whose JD states a hard work-authorization restriction."""
+    closed = []
+    for row in jobq.load(args.queue):
+        status, reason = authgate.classify(row.get("jobDescription") or "")
+        if status == "closed":
+            closed.append(
+                {"row_key": jobq.row_key(row), "company": row.get("company"),
+                 "jobTitle": row.get("jobTitle"), "reason": reason}
+            )
+    _emit({"closed": closed})
 
 
 def cmd_queue_list(args):
@@ -395,7 +425,8 @@ def cmd_linkedin_fetch(args):
     actor_input = apify.build_actor_input(linkedin_cfg, max_items, window)
     result = apify.fetch_linkedin(actor_input, max_items, token, args.dest)
     rows = apify.normalize_linkedin(args.dest)
-    written, duplicate, _malformed = jobq.append_rows(args.queue, list(rows))
+    kept, blocked = authgate.split_closed(list(rows))
+    written, duplicate, _malformed = jobq.append_rows(args.queue, kept)
     apify.write_state(state, now)
 
     _emit(
@@ -406,6 +437,7 @@ def cmd_linkedin_fetch(args):
             "new": written,
             "duplicate": duplicate,
             "skipped": rows.skipped,
+            "blocked": _blocked_view(blocked),
             "usd_charged": result["usd_charged"],
             "credit_remaining_usd": remaining - result["usd_charged"],
         }
@@ -716,6 +748,13 @@ def build_parser():
         help="checked against the letter's opening paragraph; --letter only",
     )
     p.set_defaults(func=cmd_template_check)
+
+    p = sub.add_parser(
+        "auth-check",
+        help="List queue rows whose JD closes them to the candidate (local only, no sponsorship, clearance)",
+    )
+    p.add_argument("--queue", required=True)
+    p.set_defaults(func=cmd_auth_check)
 
     p = sub.add_parser(
         "jd-write",

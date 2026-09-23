@@ -187,7 +187,10 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" ats-fetch \
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" ats-fetch \
   --board ashby --slug <slug> --company "<Company>" --dest /tmp/<slug>.json
 
-# Append rows to the local queue (deduped by row_key)
+# Append rows to the local queue (deduped by row_key). Rows whose JD states a hard
+# work-authorization restriction (local employment only, citizens only, no visa
+# sponsorship, security clearance) are NOT queued: they come back in `blocked` with the
+# quoted reason. Report that list to the user. `linkedin-fetch` applies the same gate.
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-append \
   --queue .jobhunter/queue/jobs.jsonl --rows @/tmp/rows.json
 

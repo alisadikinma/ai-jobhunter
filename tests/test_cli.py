@@ -1088,7 +1088,9 @@ class TestLinkedinFetch(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertIsNotNone(parsed, f"stdout was not parseable JSON: {text!r}")
             fetch_mock.assert_called_once()
-            self.assertEqual(parsed["new"], 5)
+            # 3 of the 5 fixture postings state "no sponsorship": kept out of the queue.
+            self.assertEqual(parsed["new"], 2)
+            self.assertEqual(len(parsed["blocked"]), 3)
             self.assertEqual(parsed["duplicate"], 0)
             self.assertEqual(parsed["usd_charged"], 0.0011)
             self.assertEqual(parsed["credit_remaining_usd"], 10.0 - 0.0011)

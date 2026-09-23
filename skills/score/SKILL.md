@@ -55,7 +55,9 @@ of `fit_score`:
   example, a bare "US remote" with no statement either way).
 - `closed` — US-citizens-only, a security-clearance requirement, or
   language equivalent to "must be authorized to work in the US without
-  sponsorship". A `closed` row is not scored further for fit; it is
+  sponsorship". Run `auth-check` first: it lists every queue row whose JD states a hard restriction
+  (local employment only, citizens only, no sponsorship, clearance) with the quoted reason.
+  Write those as `closed` without judging them again. A `closed` row is not scored further for fit; it is
   surfaced to the user as blocked, and `/gaspol-jobhunter:promote` refuses to
   push it to jobsync at all.
 
@@ -129,6 +131,9 @@ it, do not retry it blindly.
 # Read the rows that still need scoring
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-list \
   --queue .jobhunter/queue/jobs.jsonl --unscored
+
+# Rows the JD closes to the candidate (local only, no sponsorship, clearance), with the quote
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" auth-check --queue .jobhunter/queue/jobs.jsonl
 
 # Write the scores back, keyed by row_key
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" queue-update \

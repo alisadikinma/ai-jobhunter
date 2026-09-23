@@ -321,7 +321,9 @@ Every JD needs an apply link: `jobUrl` must be an http(s) URL, else `jd-write` r
 A pasted JD has none, so ask the user for the link. `JD.md` starts with `Apply: <url>`.
 
 `jd-write` prints `{"written": [...], "skipped_existing": [...], "errors": [...]}`, plus
-`"warnings"` when a page carries site navigation. A listing page (5+ job links) lands in
+`"warnings"` when a page carries site navigation. A `warnings` entry starting "work authorization closed" means the JD itself restricts who
+can apply (local only, citizens only, no sponsorship): tell the user before tailoring.
+A listing page (5+ job links) lands in
 `errors`: one JD is one posting at one company, so scrape the single posting URL instead. A JD under 400 characters is refused too:
 re-scrape it from `jobUrl`, and if it is still short, tell the user and drop the posting.
 The one row lands in `written` (new folder) or `skipped_existing` (folder already

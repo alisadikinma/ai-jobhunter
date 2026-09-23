@@ -15,6 +15,7 @@ import json
 import os
 import re
 
+import authgate
 import jobq
 
 _UNSAFE_CHARS_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
@@ -87,6 +88,9 @@ def jd_problems(text):
             "page, not one JD (one JD = one posting at one company) - scrape the single "
             "posting URL instead"
         )
+    status, reason = authgate.classify(text)
+    if status == "closed":
+        warnings.append(f"work authorization closed - {reason}")
     links = len(_LINK_RE.findall(text))
     if links >= _CHROME_LINK_LIMIT and not errors:
         warnings.append(
@@ -287,7 +291,7 @@ def write_jd_files(root, rows):
             _, warned = jd_problems(row["jobDescription"])
             if warned:
                 result.setdefault("warnings", []).append(
-                    {"path": outcome["path"], "message": warned[0]}
+                    {"path": outcome["path"], "message": "; ".join(warned)}
                 )
         else:
             result["skipped_existing"].append(outcome["path"])
