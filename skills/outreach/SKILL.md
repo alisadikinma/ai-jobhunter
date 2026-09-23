@@ -70,7 +70,7 @@ time" assumption is never used:
   as Gmail **draft** messages (not sent, not scheduled — saved as drafts
   only), addressed to the discovered contact.
 - **Gmail MCP tool not available** — the same three pieces are written as
-  `.eml` files under `.jobhunter/applications/<slug>/outreach/` instead, so
+  `.eml` files under `Data/<Source>/<Company>/<Role>/outreach/` instead, so
   the user can open and send them from any mail client.
 
 Whichever path is taken, this skill's own output states plainly which one it
@@ -89,7 +89,7 @@ whether and when to actually reach out.
 ## Output
 
 - Gmail drafts (when available), or
-- `.jobhunter/applications/<slug>/outreach/opener.eml`,
+- `Data/<Source>/<Company>/<Role>/outreach/opener.eml`,
   `follow-up-1.eml`, `follow-up-2.eml` (fallback path).
 
 Before finishing, this skill prints: the contact it found and its source
@@ -117,7 +117,7 @@ it, do not retry it blindly.
 ### Commands this skill uses
 
 This skill runs no deterministic script of its own. It reads the compiled
-profile and the tailored application under `.jobhunter/applications/<slug>/`,
+profile and the tailored application under `Data/<Source>/<Company>/<Role>/`,
 and uses Firecrawl for contact discovery.
 
 To check the config is loadable before starting:
