@@ -8,9 +8,12 @@ that would traverse outside the intended `Data/<source>/` subtree (a bare
 collision-safe directory for one posting.
 """
 
+import datetime
 import json
 import os
 import re
+
+import jobq
 
 _UNSAFE_CHARS_RE = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -82,6 +85,91 @@ def job_dir(root, source, company, title, identity_key):
         f"job_dir: collision resolving identity_key={identity_key!r} — "
         f"both {candidate!r} and {suffixed!r} are claimed by other postings"
     )
+
+
+def write_jd(root, row):
+    """Materialize `JD.md` + `.jobmeta.json` for one queue row.
+
+    Requires `row["jobDescription"]` to be non-empty (strip-checked) —
+    raises `JdStoreError` naming the missing field otherwise, mirroring
+    `tailor`'s "reading the JD is mandatory" rule.
+
+    Idempotent: if the resolved folder already belongs to this row's
+    identity (via `job_dir`'s `.jobmeta.json` check), nothing is written and
+    `{"path": path, "created": False}` is returned — an already-materialized
+    posting, which may already carry `tailor` output beside it, is never
+    overwritten.
+
+    Otherwise creates the folder, writes `row["jobDescription"]` verbatim to
+    `JD.md`, writes an identity marker to `.jobmeta.json`, and returns
+    `{"path": path, "created": True}`.
+    """
+    job_description = row.get("jobDescription")
+    if job_description is None or not str(job_description).strip():
+        raise JdStoreError(
+            f"write_jd: row is missing a non-empty 'jobDescription' field: {job_description!r}"
+        )
+
+    identity_key = jobq.row_key(row)
+    path = job_dir(root, row["source"], row["company"], row["jobTitle"], identity_key)
+
+    meta_path = os.path.join(path, ".jobmeta.json")
+    if os.path.exists(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                existing_meta = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            existing_meta = None
+        if existing_meta is not None and existing_meta.get("row_key") == identity_key:
+            return {"path": path, "created": False}
+
+    os.makedirs(path, exist_ok=True)
+    with open(os.path.join(path, "JD.md"), "w", encoding="utf-8") as f:
+        f.write(job_description)
+
+    meta = {
+        "row_key": identity_key,
+        "jobUrl": row.get("jobUrl"),
+        "company": row["company"],
+        "jobTitle": row["jobTitle"],
+        "source": row["source"],
+        "written_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f)
+
+    return {"path": path, "created": True}
+
+
+def write_jd_files(root, rows):
+    """Materialize `write_jd` for every row, never aborting the batch on one bad row.
+
+    Returns `{"written": [...], "skipped_existing": [...], "errors": [...]}`.
+    `written` and `skipped_existing` hold the resolved path for each row;
+    `errors` holds `{"company": ..., "jobTitle": ..., "message": ...}` for
+    each row that raised `JdStoreError` — same resilience pattern as
+    `ats._normalize_all`.
+    """
+    result = {"written": [], "skipped_existing": [], "errors": []}
+    for row in rows:
+        try:
+            outcome = write_jd(root, row)
+        except JdStoreError as exc:
+            result["errors"].append(
+                {
+                    "company": row.get("company"),
+                    "jobTitle": row.get("jobTitle"),
+                    "message": str(exc),
+                }
+            )
+            continue
+
+        if outcome["created"]:
+            result["written"].append(outcome["path"])
+        else:
+            result["skipped_existing"].append(outcome["path"])
+
+    return result
 
 
 def _belongs_to(candidate, identity_key):

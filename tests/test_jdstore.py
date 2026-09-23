@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 
 import jdstore  # noqa: E402
+import jobq  # noqa: E402
 
 
 class TestSafeComponent(unittest.TestCase):
@@ -135,6 +136,138 @@ class TestJobDir(unittest.TestCase):
 
             path = jdstore.job_dir(tmp, "LinkedIn", "Acme", "AI Engineer", "abc123")
             self.assertTrue(path.endswith("-abc123"))
+
+
+class TestWriteJd(unittest.TestCase):
+    def test_write_jd_creates_jd_and_meta_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = {
+                "company": "Acme",
+                "jobTitle": "AI Engineer",
+                "jobDescription": "Full posting text...",
+                "jobUrl": "https://x/1",
+                "source": "LinkedIn",
+            }
+            result = jdstore.write_jd(tmp, row)
+
+            jd_path = os.path.join(result["path"], "JD.md")
+            meta_path = os.path.join(result["path"], ".jobmeta.json")
+            with open(jd_path, "r", encoding="utf-8") as f:
+                self.assertEqual(f.read(), row["jobDescription"])
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            self.assertEqual(meta["row_key"], jobq.row_key(row))
+
+    def test_write_jd_is_idempotent_for_same_posting(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = {
+                "company": "Acme",
+                "jobTitle": "AI Engineer",
+                "jobDescription": "Full posting text...",
+                "jobUrl": "https://x/1",
+                "source": "LinkedIn",
+            }
+            first = jdstore.write_jd(tmp, row)
+            self.assertTrue(first["created"])
+
+            second = jdstore.write_jd(tmp, row)
+            self.assertFalse(second["created"])
+            self.assertEqual(first["path"], second["path"])
+
+            # Only one directory was created.
+            source_dir = os.path.join(tmp, "LinkedIn", "Acme")
+            self.assertEqual(os.listdir(source_dir), ["AI Engineer"])
+
+            with open(os.path.join(second["path"], "JD.md"), "r", encoding="utf-8") as f:
+                self.assertEqual(f.read(), row["jobDescription"])
+
+    def test_write_jd_rejects_missing_job_description(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = {
+                "company": "Acme",
+                "jobTitle": "AI Engineer",
+                "jobDescription": "",
+                "jobUrl": "https://x/1",
+                "source": "LinkedIn",
+            }
+            with self.assertRaises(jdstore.JdStoreError):
+                jdstore.write_jd(tmp, row)
+
+    def test_write_jd_rejects_missing_job_description_key(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = {
+                "company": "Acme",
+                "jobTitle": "AI Engineer",
+                "jobUrl": "https://x/1",
+                "source": "LinkedIn",
+            }
+            with self.assertRaises(jdstore.JdStoreError):
+                jdstore.write_jd(tmp, row)
+
+
+class TestWriteJdFiles(unittest.TestCase):
+    def test_write_jd_files_reports_per_row(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rows = [
+                {
+                    "company": "Acme",
+                    "jobTitle": "AI Engineer",
+                    "jobDescription": "Acme posting text.",
+                    "jobUrl": "https://x/1",
+                    "source": "LinkedIn",
+                },
+                {
+                    "company": "Globex",
+                    "jobTitle": "ML Engineer",
+                    "jobDescription": "",
+                    "jobUrl": "https://x/2",
+                    "source": "LinkedIn",
+                },
+                {
+                    "company": "Initech",
+                    "jobTitle": "Data Engineer",
+                    "jobDescription": "Initech posting text.",
+                    "jobUrl": "https://x/3",
+                    "source": "LinkedIn",
+                },
+            ]
+
+            result = jdstore.write_jd_files(tmp, rows)
+
+            self.assertEqual(len(result["written"]), 2)
+            self.assertEqual(result["skipped_existing"], [])
+            self.assertEqual(len(result["errors"]), 1)
+            self.assertEqual(result["errors"][0]["company"], "Globex")
+            self.assertEqual(result["errors"][0]["jobTitle"], "ML Engineer")
+
+            for path in result["written"]:
+                self.assertTrue(os.path.isfile(os.path.join(path, "JD.md")))
+
+            globex_dir = os.path.join(tmp, "LinkedIn", "Globex")
+            self.assertFalse(os.path.exists(globex_dir))
+
+    def test_write_jd_files_empty_list_returns_all_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = jdstore.write_jd_files(tmp, [])
+            self.assertEqual(result, {"written": [], "skipped_existing": [], "errors": []})
+
+    def test_write_jd_files_duplicate_within_batch_is_skipped_not_errored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = {
+                "company": "Acme",
+                "jobTitle": "AI Engineer",
+                "jobDescription": "Acme posting text.",
+                "jobUrl": "https://x/1",
+                "source": "LinkedIn",
+            }
+            rows = [row, dict(row)]
+
+            result = jdstore.write_jd_files(tmp, rows)
+
+            self.assertEqual(len(result["written"]), 1)
+            self.assertEqual(len(result["skipped_existing"]), 1)
+            self.assertEqual(result["written"][0], result["skipped_existing"][0])
+            self.assertEqual(result["errors"], [])
 
 
 if __name__ == "__main__":
