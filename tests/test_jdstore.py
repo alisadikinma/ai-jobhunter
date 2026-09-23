@@ -54,6 +54,25 @@ class TestSafeComponent(unittest.TestCase):
     def test_safe_component_collapses_whitespace_runs(self):
         self.assertEqual(jdstore.safe_component("AI   Engineer"), "AI Engineer")
 
+    def test_safe_component_neutralizes_parent_directory_traversal(self):
+        for hostile in ("../../etc/passwd", "..\\..\\windows", "a/../../b"):
+            result = jdstore.safe_component(hostile)
+            self.assertNotIn("/", result)
+            self.assertNotIn("\\", result)
+            self.assertNotIn(result, (".", ".."))
+
+    def test_safe_component_neutralizes_absolute_looking_input(self):
+        for hostile in ("/etc/passwd", "C:\\Windows\\System32"):
+            result = jdstore.safe_component(hostile)
+            self.assertFalse(os.path.isabs(result), result)
+
+    def test_job_dir_stays_inside_root_for_hostile_names(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = jdstore.job_dir(root, "LinkedIn", "../../evil", "/etc/passwd", "abc123")
+            self.assertTrue(
+                os.path.realpath(path).startswith(os.path.realpath(root) + os.sep), path
+            )
+
     def test_safe_component_rejects_none(self):
         with self.assertRaises(jdstore.JdStoreError):
             jdstore.safe_component(None)
