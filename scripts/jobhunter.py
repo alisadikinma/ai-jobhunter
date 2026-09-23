@@ -38,6 +38,7 @@ import apify  # noqa: E402
 import ats  # noqa: E402
 import authgate  # noqa: E402
 import config  # noqa: E402
+import dataindex  # noqa: E402
 import docx  # noqa: E402
 import envfile  # noqa: E402
 import firecrawl  # noqa: E402
@@ -151,6 +152,18 @@ def _blocked_view(blocked):
         {"company": row.get("company"), "jobTitle": row.get("jobTitle"), "reason": reason}
         for row, reason in blocked
     ]
+
+
+def cmd_data_index(args):
+    """Write Data/INDEX.md: status of every posting folder (tailored / in progress / todo / blocked)."""
+    entries = dataindex.collect(args.root, jobq.load(args.queue))
+    out = args.out or os.path.join(args.root, "INDEX.md")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(dataindex.render(entries))
+    counts = {}
+    for e in entries:
+        counts[e["status"]] = counts.get(e["status"], 0) + 1
+    _emit({"path": out, "postings": len(entries), "by_status": counts})
 
 
 def cmd_auth_check(args):
@@ -748,6 +761,12 @@ def build_parser():
         help="checked against the letter's opening paragraph; --letter only",
     )
     p.set_defaults(func=cmd_template_check)
+
+    p = sub.add_parser("data-index", help="Write Data/INDEX.md showing which postings have a tailored CV")
+    p.add_argument("--root", required=True, help="Data directory root, e.g. Data")
+    p.add_argument("--queue", required=True)
+    p.add_argument("--out", help="default: <root>/INDEX.md")
+    p.set_defaults(func=cmd_data_index)
 
     p = sub.add_parser(
         "auth-check",

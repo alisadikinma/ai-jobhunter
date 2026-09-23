@@ -283,6 +283,15 @@ The folder is the same one `discover` wrote `JD.md` into, and `jd-write` resolve
 it the same way on every run, so a second tailor run against the same posting
 updates the same directory instead of scattering duplicates.
 
+As the last step, run `data-index` so `Data/INDEX.md` shows this posting as `tailored`:
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" data-index --root Data --queue .jobhunter/queue/jobs.jsonl
+```
+
+Never move finished folders: `jd-write` and `jd-similar` resolve `Data/<Source>/<Company>/<Role>/`
+from the row, so a moved folder is recreated empty. The index is the status view.
+
 Before finishing, this skill prints: which JD it read (title, company,
 source), the location warning if any, the requirements-map counts (match /
 partial / gap), the approval date, the chosen template and letter level, the
