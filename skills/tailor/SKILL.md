@@ -16,16 +16,16 @@ evidence.
 - `.jobhunter/config.toml`, read with `config-show` (see the commands below). If missing, this
   skill stops with `config.ConfigMissingError` and tells the user to run
   `/gaspol-jobhunter:profile` first.
-- The target job's full description text, from one of three places:
+- The target job's full description text, from one of four places:
+  - the folder `Data/<Source>/<Company>/<Role>/JD.md` already materialized by
+    `discover` — point this skill at the folder (or the company and role) and it
+    reads `JD.md` from there directly,
   - the matching row in `.jobhunter/queue/jobs.jsonl`,
   - scraped fresh with `mcp__firecrawl__firecrawl_scrape` if the user points
     this skill at a URL not already in the queue, or
-  - **pasted directly into the conversation.** Pasted text is written
-    verbatim to `.jobhunter/applications/<slug>/jd.md` — that file is what
-    `keywords-report --jd` reads later. `<slug>` comes from the company and
-    job title stated in the JD; if either cannot be found in the pasted
-    text, this skill asks the user for it — it never guesses a company or
-    title.
+  - **pasted directly into the conversation.** Pasted text needs a company and
+    job title from the JD; if either cannot be found in the pasted text, this
+    skill asks the user for it — it never guesses a company or title.
 - `.jobhunter/profile/master-cv.md` and `.jobhunter/profile/variants.toml`.
 
 ## Reading the job description is mandatory
@@ -46,6 +46,25 @@ Every run of this skill re-selects, reorders and rewords evidence from
 `master-cv.md` specifically for the JD it just read; it does not invent new
 bullets. There is no output path that copies `master-cv.md` through
 unchanged.
+
+## Where the files go
+
+Every file this skill writes lives in one folder per posting:
+`Data/<Source>/<Company>/<Role>/`. That folder is resolved by `jd-write`
+(`job_dir` in `scripts/jdstore.py`) — never hand-construct the path from the
+company and title strings, since the resolution includes the collision-suffix
+rule `job_dir` owns and the cleaning that keeps a scraped company name from
+escaping `Data/`.
+
+- A JD that came from the queue or from a `Data/.../JD.md` folder already has
+  its folder. Run `jd-write` anyway with that row: it is idempotent, and the
+  `written` or `skipped_existing` path it prints is the folder to use.
+- A **pasted** or **URL-scraped** JD has no folder yet. Right after the JD text
+  is in hand, and before the location and portal checks, call `jd-write` with a
+  one-row list — `company`, `jobTitle`, `jobDescription` (the text verbatim),
+  `source` (`Pasted` or `Web`), and `jobUrl` when there is one — so the same
+  folder and collision rules apply however the JD arrived. `JD.md` in that
+  folder is what `keywords-report --jd` and `jd-similar --jd` read later.
 
 ## Location check
 
@@ -78,6 +97,8 @@ PDF-only.
 
 ## Scripts this skill calls
 
+- `scripts/jdstore.py`, via `jd-write` (resolve or create the posting's folder
+  and `JD.md`) and `jd-similar` (near-duplicate check, next section).
 - `scripts/keywords.py` — `keywords-report` to compute
   which JD terms the drafted CV covers and which it misses, then
   `keywords.render(report)` to produce `keyword-report.md`'s body.
@@ -90,10 +111,31 @@ PDF-only.
 - `scripts/docx.py`, via `render-docx` — renders both to `.docx` too, only
   when the detected portal is an enterprise one (Workday, Taleo, iCIMS).
 
+## Near-duplicate check
+
+Before building a fresh requirements map, run `jd-similar` against this JD's
+text (Commands below). It compares only against postings already tailored to
+completion — a folder whose `requirements-map.md` carries `approved:`.
+
+`matches` is empty for most JDs: proceed straight to the requirements map. A
+non-empty `matches` list names a prior company, role and a difflib ratio of
+0.90 or more. Tell the user which posting matched and the exact ratio, then ask
+(AskUserQuestion): reuse that match's `requirements-map.md` as this JD's
+**starting draft**, or discard it and build fresh. Reuse changes only where the
+draft comes from — every row is still walked through the agreement gate below,
+nothing is pre-approved, and no `approved:` line is copied over.
+
+Whichever they choose, the cover letter's company-specific paragraph — the
+hiring-manager name, a referral, the "why this company" line — is always
+rebuilt for the new company or reconfirmed with the user. It is never copied
+from the matched application: doing so puts invented praise for the wrong
+company into a document under the user's name, which is exactly what the
+"nothing is invented" rule in the agreement gate exists to prevent.
+
 ## Requirements map
 
 Before writing anything, this skill builds
-`.jobhunter/applications/<slug>/requirements-map.md`: every required and
+`Data/<Source>/<Company>/<Role>/requirements-map.md`: every required and
 preferred requirement the JD states, each marked against `master-cv.md`:
 
 ```markdown
@@ -212,8 +254,8 @@ rendered while a check still carries findings.
 
 ## Keyword loop
 
-Run `keywords-report` with `--jd` pointing at `jd.md` (pasted JDs) or the JD
-source file (queue/URL JDs) against the drafted `cv.md`. For each term the
+Run `keywords-report` with `--jd` pointing at the folder's `JD.md` against the
+drafted `cv.md`. For each term the
 report lists as missing, add it to `cv.md` **only when an approved row
 already evidences it** — this loop revises wording, it never introduces new
 facts. At most 2 rounds. A term with no approved evidence backing it stays
@@ -230,14 +272,14 @@ reason is the same one Portal detection gives: DOCX parses most reliably in
 those enterprise portals. A non-enterprise portal skips `render-docx`
 entirely; only the PDFs are produced.
 
-Output directory: `.jobhunter/applications/<slug>/`, holding `jd.md` (pasted
-JD only), `requirements-map.md`, `cv.md`, `cover-letter.md`, `cv.pdf`,
+Output directory: `Data/<Source>/<Company>/<Role>/`, holding `JD.md`,
+`requirements-map.md`, `cv.md`, `cover-letter.md`, `cv.pdf`,
 `cover-letter.pdf`, `keyword-report.md`, plus `cv.docx` and
 `cover-letter.docx` when the portal was enterprise.
 
-`<slug>` is derived from the company and job title, kept stable across
-re-runs against the same posting so a second tailor run updates the same
-directory instead of scattering duplicates.
+The folder is the same one `discover` wrote `JD.md` into, and `jd-write` resolves
+it the same way on every run, so a second tailor run against the same posting
+updates the same directory instead of scattering duplicates.
 
 Before finishing, this skill prints: which JD it read (title, company,
 source), the location warning if any, the requirements-map counts (match /
@@ -267,14 +309,35 @@ it, do not retry it blindly.
 ### Commands this skill uses
 
 ```bash
-# Keyword overlap between this job description and the CV
-python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keywords-report \
-  --jd .jobhunter/applications/<slug>/jd.md --cv .jobhunter/applications/<slug>/cv.md \
-  --markdown > .jobhunter/applications/<slug>/keyword-report.md
+# Resolve (or create) this posting's folder. One row; the printed path is the folder.
+# --rows takes inline JSON or @path; a pasted JD has no queue row, so write one.
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-write \
+  --root Data --rows @/tmp/this-jd-row.json
 ```
 
-`--jd` points at `jd.md` when the JD was pasted, or at the JD source file
-when it came from the queue or a scrape. The lists are the ranked head, not
+`jd-write` prints `{"written": [...], "skipped_existing": [...], "errors": [...]}`.
+The one row lands in `written` (new folder) or `skipped_existing` (folder already
+there); use that path. A row in `errors` means no folder exists — report the
+message, do not invent a path.
+
+```bash
+# Near-duplicate check against every previously approved posting
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" jd-similar \
+  --root Data --jd Data/<Source>/<Company>/<Role>/JD.md
+```
+
+Prints `{"matches": [{"path", "company", "role", "ratio"}]}`, highest ratio
+first. `--threshold` overrides the 0.90 default; leave it alone unless the
+user asks.
+
+```bash
+# Keyword overlap between this job description and the CV
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" keywords-report \
+  --jd Data/<Source>/<Company>/<Role>/JD.md --cv Data/<Source>/<Company>/<Role>/cv.md \
+  --markdown > Data/<Source>/<Company>/<Role>/keyword-report.md
+```
+
+`--jd` always points at the folder's `JD.md`. The lists are the ranked head, not
 everything — a real posting yields hundreds of terms. `--top N` changes the
 cut; the heading always states the full count so a truncated report never
 reads as complete.
@@ -282,13 +345,13 @@ reads as complete.
 ```bash
 # Check the drafted CV against its chosen template
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" template-check \
-  --cv .jobhunter/applications/<slug>/cv.md --template technical
+  --cv Data/<Source>/<Company>/<Role>/cv.md --template technical
 ```
 
 ```bash
 # Check the drafted cover letter against the fixed format and word-count band
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" template-check \
-  --letter .jobhunter/applications/<slug>/cover-letter.md --level mid \
+  --letter Data/<Source>/<Company>/<Role>/cover-letter.md --level mid \
   --company "<Company>" --role "<Job title>"
 ```
 
@@ -303,8 +366,8 @@ a refusal.
 ```bash
 # Render the tailored CV as a PDF
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-pdf \
-  --in .jobhunter/applications/<slug>/cv.md \
-  --out .jobhunter/applications/<slug>/cv.pdf \
+  --in Data/<Source>/<Company>/<Role>/cv.md \
+  --out Data/<Source>/<Company>/<Role>/cv.pdf \
   --page letter
 ```
 
@@ -333,8 +396,8 @@ stdout. Report what changed — do not re-render to try to avoid it.
 ```bash
 # Enterprise portals only (Workday, Taleo, iCIMS): render the same CV as .docx
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/jobhunter.py" render-docx \
-  --in .jobhunter/applications/<slug>/cv.md \
-  --out .jobhunter/applications/<slug>/cv.docx
+  --in Data/<Source>/<Company>/<Role>/cv.md \
+  --out Data/<Source>/<Company>/<Role>/cv.docx
 ```
 
 Run it once per document here too — the cover letter is a second run with
@@ -381,9 +444,9 @@ when `--out` does not end in `.pdf`; and `UnsupportedCharacterError` when
 the text carries a character outside `WinAnsiEncoding`, naming the line and
 the codepoint responsible.
 
-## Output — `.jobhunter/applications/<slug>/`
+## Output — `Data/<Source>/<Company>/<Role>/`
 
-- `jd.md` — the pasted job description, verbatim (pasted-JD runs only).
+- `JD.md` — the job description, verbatim (written by `discover` or `jd-write`).
 - `requirements-map.md` — every JD requirement matched, partially matched,
   or marked a gap against `master-cv.md`, with `approved: YYYY-MM-DD` once
   the agreement gate has passed.
